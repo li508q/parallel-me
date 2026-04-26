@@ -1,0 +1,31 @@
+{
+  "name": "ParallelMe",
+  "name_zh": "平行的我",
+  "description": "你的纠结，让 5 个平行宇宙的你吵给你听。最后由「此刻的我」做最后决定。",
+  "version": "1.0.0",
+  "protocols": ["a2a", "openapi"],
+  "architecture": {
+    "type": "multi-agent",
+    "pattern": "parallel-then-cross-examine-then-converge",
+    "agents": [
+      {"id": "lay",    "role": "the-self-that-tells-you-to-rest",   "name_zh": "躺平的我"},
+      {"id": "money",  "role": "the-self-that-counts-cashflow",     "name_zh": "搞钱的我"},
+      {"id": "roam",   "role": "the-self-that-urges-you-to-leave",  "name_zh": "出走的我"},
+      {"id": "filial", "role": "the-self-that-stands-with-mom",     "name_zh": "讨妈欢心的我"},
+      {"id": "future", "role": "the-self-from-five-years-later",    "name_zh": "5年后的我"},
+      {"id": "now",    "role": "the-final-arbiter",                 "name_zh": "此刻的我"}
+    ]
+  },
+  "endpoints": {
+    "spec":  { "method": "GET",  "path": "/api/agent" },
+    "run":   { "method": "POST", "path": "/api/parallel",
+               "body": { "input": "string (1-800 chars, the dilemma you face)" },
+               "response": "text/event-stream of {type: self|cross|now|done|error, ...}" }
+  },
+  "skill_md": "/skill.md",
+  "agents_md": "/AGENTS.md",
+  "source": "https://github.com/li508q/parallelme",
+  "license": "MIT",
+  "contact": "li508q@163.com",
+  "built_for": "傅盛 AI 战队 × EasyClaw Link 青少年黑客松 2026"
+}
