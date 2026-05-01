@@ -25,7 +25,7 @@ const config: Config = {
         mono:  ["ui-monospace", "\"SF Mono\"", "monospace"]
       },
       fontSize: {
-        "display": ["clamp(2.5rem, 7vw, 5rem)", { lineHeight: "1.05", letterSpacing: "-0.02em" }],
+        "display": ["clamp(3.5rem, 11vw, 8rem)", { lineHeight: "0.96", letterSpacing: "-0.04em" }],
         "headline": ["clamp(1.75rem, 4vw, 2.75rem)", { lineHeight: "1.15", letterSpacing: "-0.01em" }]
       },
       animation: {

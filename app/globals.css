@@ -4,11 +4,13 @@
 
 :root {
   color-scheme: light;
-  --paper: #FBF8F3;
-  --ink: #0E0F12;
+  --paper: #FAF6EC;
+  --ink: #14161A;
   --ink2: #3A3D45;
   --ink3: #7A7E88;
   --rule: #E6E0D4;
+  --accent: #C65D4A; /* 暖砖红 - 用于强调按钮 */
+  --gold: #C9A227;   /* 鹅黄 */
 }
 
 html, body {
@@ -43,7 +45,7 @@ main, header, footer { position: relative; z-index: 1; }
 
 /* 手写下划线 — 给关键词 */
 .scribble {
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 12'><path d='M2 8 Q50 2 100 8 T198 6' stroke='%230E0F12' stroke-width='2.4' fill='none' stroke-linecap='round'/></svg>");
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 14'><path d='M2 9 Q50 2 100 9 T198 7' stroke='%23C9A227' stroke-width='4' fill='none' stroke-linecap='round'/></svg>");
   background-repeat: no-repeat;
   background-position: 0 100%;
   background-size: 100% 0.4em;
