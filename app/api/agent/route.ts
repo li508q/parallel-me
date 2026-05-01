@@ -1,26 +1,43 @@
-// /api/agent — AI 评委 agent 的入口；返回项目元数据 + 直接可调用的能力清单
+// /api/agent — A2A spec for AI judges
 import { NextResponse } from "next/server";
-import { SELVES, NOWME } from "@/lib/selves";
+import { getAgentMeta } from "@/lib/llm";
+import { NOWME } from "@/lib/selves";
 
 export async function GET() {
   return NextResponse.json({
-    name: "ParallelMe",
-    name_zh: "平行的我",
-    one_liner: "你的纠结，让 5 个平行宇宙的你吵给你听。",
-    version: "1.0.0",
-    architecture: "multi-agent (5 selves + 1 NowMe + cross-examine layer)",
-    selves: Object.values(SELVES).map(s => ({
-      id: s.id, name: s.name, tagline: s.tagline, core_belief: s.core_belief
-    })),
-    nowme: { id: NOWME.id, name: NOWME.name, tagline: NOWME.tagline },
+    ...getAgentMeta(),
+    version: "2.0.0",
+    psychology_grounding: "Internal Family Systems (Richard Schwartz, 1995)",
+    harness: {
+      pattern: "GAN-inspired Generator-Evaluator (Anthropic Harness Design 2026)",
+      rounds: [
+        "1. propose — 5 selves answer in parallel, isolated context",
+        "2. opposition_matrix — LLM judge selects most opposed 2 pairs (replaces hardcoded pairs)",
+        "3. cross_examine — selected pairs ≤40 char ripostes",
+        "4. nowme_decide — Self-as-decider, banned-words filter, meta-critic regenerates if violated",
+        "5. ifs_insight — therapeutic naming (no diagnosis)",
+        "6. episode_extract — importance-gated memory write",
+      ],
+    },
     endpoints: {
-      run: { method: "POST", path: "/api/parallel", body: { input: "string (max 800)" }, response: "SSE stream" },
-      spec: { method: "GET", path: "/api/agent" }
+      run: { method: "POST", path: "/api/parallel", body: { input: "string ≤800", context: "optional ContextBundle" }, response: "SSE stream" },
+      followup: { method: "POST", path: "/api/followup" },
+      profile: { method: "GET|POST", path: "/api/profile" },
+      memory: { method: "GET|POST", path: "/api/memory" },
+      share: { method: "POST", path: "/api/share" },
+      spec: { method: "GET", path: "/api/agent" },
     },
     a2a: "/.well-known/agent.json",
     skill_md: "/skill.md",
     agents_md: "/AGENTS.md",
     license: "MIT",
-    built_for: "傅盛 AI 战队 × EasyClaw Link 黑客松 2026"
+    built_for: "傅盛 AI 战队 × EasyClaw Link 黑客松 2026",
+    inspired_by: [
+      "傅盛 14 天 8 个 AI agent — but inverted from company-ops to self-ops",
+      "Anthropic Multi-Agent Research System",
+      "Anthropic Harness Design (GAN-inspired Generator-Evaluator)",
+      "Du et al. 2023 Multi-Agent Debate (arxiv 2305.14325)",
+      "IFS (Internal Family Systems) — Richard Schwartz",
+    ],
   });
 }
