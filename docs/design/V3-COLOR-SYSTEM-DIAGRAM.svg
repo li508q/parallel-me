@@ -1,0 +1,132 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="928" viewBox="0 0 1500 1160">
+  <defs>
+    <filter id="grain">
+      <feTurbulence type="fractalNoise" baseFrequency="0.72" numOctaves="2" stitchTiles="stitch"/>
+      <feColorMatrix values="0 0 0 0 0.055  0 0 0 0 0.043  0 0 0 0 0.025  0 0 0 0.035 0"/>
+    </filter>
+    <style>
+      .bg{fill:#F7F0E3}.paper{fill:#FFFCF5;stroke:#D8CBB8;stroke-width:1.4}.sunk{fill:#EDE2D0;stroke:#D8CBB8;stroke-width:1.2}
+      .ink{fill:#191713}.body{fill:#3C3932}.mute{fill:#7C7568}.faint{fill:#B7AC9B}
+      .rule{stroke:#D8CBB8;stroke-width:1.3}.thin{stroke:#D8CBB8;stroke-width:1}
+      .title{font-family:"Songti SC","Source Han Serif SC",serif;font-weight:700}.sans{font-family:"PingFang SC",-apple-system,BlinkMacSystemFont,sans-serif}
+      .label{font-size:13px;letter-spacing:1.8px}.bodyText{font-size:18px}.h1{font-size:44px}.h2{font-size:28px}.h3{font-size:22px}
+      .rest{fill:#556F7A}.money{fill:#8A6F3D}.free{fill:#3F6B5A}.attach{fill:#8C5042}.time{fill:#5E5369}.temp{fill:#76684D}.silent{fill:#899199}.exile{fill:#6F3F35}
+      .seal{fill:#8E3F32}.gold{fill:#A8844D}.safe{fill:#536E5A}.trace{fill:#455F70}
+    </style>
+  </defs>
+
+  <rect width="1500" height="1160" class="bg"/>
+  <rect width="1500" height="1160" fill="url(#grain)" opacity=".55"/>
+
+  <text x="72" y="78" class="title ink h1">V3 色彩指导 · Color System</text>
+  <text x="72" y="116" class="sans mute bodyText">墨色定秩序，矿物色定席位。色彩不负责装饰，负责层级、席位、证据与签字。</text>
+  <line x1="72" y1="150" x2="1428" y2="150" class="rule"/>
+
+  <!-- Principle -->
+  <g transform="translate(72 198)">
+    <rect width="400" height="220" rx="18" class="paper"/>
+    <text x="28" y="46" class="sans mute label">01 · PRINCIPLE</text>
+    <text x="28" y="88" class="title ink h2">88 / 8 / 4</text>
+    <rect x="28" y="118" width="308" height="22" rx="11" fill="#191713"/>
+    <rect x="336" y="118" width="28" height="22" rx="11" fill="#76684D"/>
+    <rect x="364" y="118" width="14" height="22" rx="7" fill="#8E3F32"/>
+    <text x="28" y="168" class="sans body" font-size="16">88% 纸、墨、线建立秩序</text>
+    <text x="28" y="194" class="sans body" font-size="16">8% 低饱和席位色做识别</text>
+    <text x="236" y="194" class="sans body" font-size="16">4% 状态与签字</text>
+  </g>
+
+  <!-- Foundation -->
+  <g transform="translate(512 198)">
+    <rect width="400" height="220" rx="18" class="paper"/>
+    <text x="28" y="46" class="sans mute label">02 · PAPER / INK</text>
+    <g transform="translate(28 76)">
+      <rect width="58" height="58" rx="9" fill="#F7F0E3" stroke="#D8CBB8"/>
+      <rect x="72" width="58" height="58" rx="9" fill="#FFFCF5" stroke="#D8CBB8"/>
+      <rect x="144" width="58" height="58" rx="9" fill="#EDE2D0" stroke="#D8CBB8"/>
+      <rect x="216" width="58" height="58" rx="9" fill="#191713"/>
+      <rect x="288" width="58" height="58" rx="9" fill="#3C3932"/>
+      <text x="0" y="86" class="sans mute" font-size="12">base</text>
+      <text x="72" y="86" class="sans mute" font-size="12">lift</text>
+      <text x="144" y="86" class="sans mute" font-size="12">sunk</text>
+      <text x="216" y="86" class="sans mute" font-size="12">core</text>
+      <text x="288" y="86" class="sans mute" font-size="12">body</text>
+    </g>
+    <text x="28" y="184" class="sans body" font-size="16">所有正文与主流程由纸墨承担，不用席位色写正文。</text>
+  </g>
+
+  <!-- Functional -->
+  <g transform="translate(952 198)">
+    <rect width="400" height="220" rx="18" class="paper"/>
+    <text x="28" y="46" class="sans mute label">03 · STATES</text>
+    <g transform="translate(28 76)">
+      <circle cx="14" cy="14" r="14" class="seal"/><text x="40" y="20" class="sans body" font-size="15">签字 / 重大确认</text>
+      <circle cx="14" cy="54" r="14" class="gold"/><text x="40" y="60" class="sans body" font-size="15">等待转正 / 重点</text>
+      <circle cx="14" cy="94" r="14" class="safe"/><text x="40" y="100" class="sans body" font-size="15">完成 / 低风险</text>
+      <circle cx="14" cy="134" r="14" class="trace"/><text x="40" y="140" class="sans body" font-size="15">证据链 / 可追溯</text>
+    </g>
+  </g>
+
+  <!-- Seat palette -->
+  <g transform="translate(72 470)">
+    <rect width="660" height="352" rx="18" class="paper"/>
+    <text x="28" y="46" class="sans mute label">04 · MINERAL SEAT PALETTE</text>
+    <text x="28" y="84" class="title ink h2">席位色只作识别，不作审美主角</text>
+    <g transform="translate(28 124)">
+      <g transform="translate(0 0)"><circle cx="14" cy="14" r="14" class="rest"/><text x="40" y="20" class="sans body" font-size="15">休整席 · 雨石蓝 #556F7A</text></g>
+      <g transform="translate(330 0)"><circle cx="14" cy="14" r="14" class="money"/><text x="40" y="20" class="sans body" font-size="15">资源席 · 旧铜金 #8A6F3D</text></g>
+      <g transform="translate(0 48)"><circle cx="14" cy="14" r="14" class="free"/><text x="40" y="20" class="sans body" font-size="15">自由席 · 杜松绿 #3F6B5A</text></g>
+      <g transform="translate(330 48)"><circle cx="14" cy="14" r="14" class="attach"/><text x="40" y="20" class="sans body" font-size="15">依恋席 · 茜土色 #8C5042</text></g>
+      <g transform="translate(0 96)"><circle cx="14" cy="14" r="14" class="time"/><text x="40" y="20" class="sans body" font-size="15">远望席 · 烟紫 #5E5369</text></g>
+      <g transform="translate(330 96)"><circle cx="14" cy="14" r="14" class="temp"/><text x="40" y="20" class="sans body" font-size="15">临时席 · 茶褐 #76684D</text></g>
+      <g transform="translate(0 144)"><circle cx="14" cy="14" r="14" class="silent"/><text x="40" y="20" class="sans body" font-size="15">沉默席 · 石灰蓝 #899199</text></g>
+      <g transform="translate(330 144)"><circle cx="14" cy="14" r="14" class="exile"/><text x="40" y="20" class="sans body" font-size="15">被流放席 · 暗陶土 #6F3F35</text></g>
+    </g>
+    <line x1="28" y1="296" x2="632" y2="296" class="thin"/>
+    <text x="28" y="323" class="sans mute" font-size="14">落地：头像点、左边框、关系线、短标签。禁止彩色大卡片。</text>
+  </g>
+
+  <!-- Application -->
+  <g transform="translate(732 470)">
+    <rect width="656" height="352" rx="18" class="paper"/>
+    <text x="28" y="46" class="sans mute label">05 · APPLICATION PATTERN</text>
+    <rect x="28" y="72" width="282" height="206" rx="14" class="sunk"/>
+    <text x="52" y="110" class="sans mute label">本次议题</text>
+    <text x="52" y="150" class="title ink h3">收入自由，还是</text>
+    <text x="52" y="180" class="title ink h3">家庭安心？</text>
+    <line x1="52" y1="204" x2="286" y2="204" class="thin"/>
+    <text x="52" y="238" class="sans body" font-size="15">核心冲突：自我选择 vs 关系安心</text>
+    <rect x="198" y="252" width="88" height="30" rx="15" fill="#191713"/>
+    <text x="225" y="272" class="sans" font-size="12" fill="#FFFCF5">立案</text>
+
+    <g transform="translate(342 72)">
+      <rect width="266" height="46" rx="9" fill="#FFFCF5" stroke="#D8CBB8"/>
+      <rect width="4" height="46" rx="2" fill="#8A6F3D"/>
+      <circle cx="22" cy="23" r="6" class="money"/>
+      <text x="42" y="29" class="sans body" font-size="14">资源席 · 常任 · 保护现金流</text>
+      <rect y="62" width="266" height="46" rx="9" fill="#FFFCF5" stroke="#D8CBB8"/>
+      <rect y="62" width="4" height="46" rx="2" fill="#8C5042"/>
+      <circle cx="22" cy="85" r="6" class="attach"/>
+      <text x="42" y="91" class="sans body" font-size="14">依恋席 · 常任 · 保护关系</text>
+      <rect y="124" width="266" height="46" rx="9" fill="#FFFCF5" stroke="#76684D" stroke-dasharray="5 5"/>
+      <circle cx="22" cy="147" r="6" class="temp"/>
+      <text x="42" y="153" class="sans body" font-size="14">怕选错 · 临时 · 保护不可逆感</text>
+    </g>
+    <text x="28" y="320" class="sans mute" font-size="14">页面高级感来自比例与克制，不来自更多颜色。</text>
+  </g>
+
+  <!-- README guide -->
+  <g transform="translate(72 876)">
+    <rect width="1280" height="190" rx="18" class="paper"/>
+    <text x="28" y="46" class="sans mute label">README DESIGN RULES</text>
+    <g transform="translate(28 82)">
+      <text x="0" y="0" class="title ink h3">Do</text>
+      <text x="0" y="38" class="sans body" font-size="16">用纸墨控制层级；用矿物色做席位识别；状态必须有文字；证据链独立用 trace 色。</text>
+      <text x="0" y="70" class="sans body" font-size="16">把签字色留给真正的承诺动作，保持它有重量。</text>
+    </g>
+    <g transform="translate(710 82)">
+      <text x="0" y="0" class="title ink h3">Don't</text>
+      <text x="0" y="38" class="sans body" font-size="16">不要让五个席位变成五张彩色卡；不要用席位色做主按钮或正文。</text>
+      <text x="0" y="70" class="sans body" font-size="16">不要用大面积红表达被流放席，避免强化威胁感。</text>
+    </g>
+  </g>
+</svg>

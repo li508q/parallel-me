@@ -166,6 +166,38 @@ L3  Reflective memory   跨会话归纳                    "你总是在 9 月�
 
 整条链路全程 **Server-Sent Events 流式**——分身一个一个出现，体感像真在听内心对话。
 
+### V3 Design & Architecture (开发前定稿)
+
+V3 正在从「五声 demo」升级为「可管理、可调用、有记忆的内在组阁系统」。**冲突时以 [`V3-IVY-FINAL-DIRECTION.md`](./docs/design/V3-IVY-FINAL-DIRECTION.md) 为准**。
+
+**上层宪法（Source of Truth）**
+
+- [`V3-IVY-FINAL-DIRECTION.md`](./docs/design/V3-IVY-FINAL-DIRECTION.md) — V3 上层宪法：5 锁定决策、七条军规、视觉/产品/字体最终判决、路线图
+- [`V3-TECH-DIRECTION.md`](./docs/design/V3-TECH-DIRECTION.md) — V3 技术 ADR：Dexie / Vercel AI SDK 5 / Anthropic prompt caching / Tailwind v4 design tokens / SSE 状态机
+
+**产品宪法 + 技术架构**
+
+- [`DESIGN-V3-CABINET.md`](./docs/design/DESIGN-V3-CABINET.md) — V3 产品宪法：阁、席位、议题、会议、档案
+- [`V3-LOCAL-FIRST-TECH-ARCH.md`](./docs/design/V3-LOCAL-FIRST-TECH-ARCH.md) — 本地优先架构：API Key 引导、本地工作区、记忆、账号路线
+
+**视觉与交互详细规范**
+
+- [`V3-COLOR-DESIGN-GUIDE.md`](./docs/design/V3-COLOR-DESIGN-GUIDE.md) — 色彩规范（已被 IVY-FINAL § 2.1 修订）
+- [`V3-IA-DESIGN-GUIDE.md`](./docs/design/V3-IA-DESIGN-GUIDE.md) — 信息架构（席位为横切对象）
+- [`V3-INTERACTION-DESIGN-GUIDE.md`](./docs/design/V3-INTERACTION-DESIGN-GUIDE.md) — 交互流（4 道用户参与门 + off-ramp）
+- [`DESIGN-V3-UI-INTERACTION.md`](./docs/design/DESIGN-V3-UI-INTERACTION.md) — UI 美学方案与交互逻辑
+- [`DESIGN-V3-RESEARCH-REFINEMENT.md`](./docs/design/DESIGN-V3-RESEARCH-REFINEMENT.md) — 色彩与交互研究修订案（已被 IVY-FINAL 收束）
+- [`V3-PRE-DEVELOPMENT-EXPERT-REVIEW.md`](./docs/design/V3-PRE-DEVELOPMENT-EXPERT-REVIEW.md) — 开发前专家审查（已被 IVY-FINAL 收束）
+
+**竞品全景**
+
+- [`V3-COMPETITIVE-LANDSCAPE.md`](./docs/competitive/V3-COMPETITIVE-LANDSCAPE.md) — IFS 类 / AI 陪伴 / 心理健康 / 设计参考四层竞品 + ParallelMe 差异化矩阵
+
+**调研档案库**
+
+- [`docs/research/V3/README.md`](./docs/research/V3/README.md) — 调研档案索引
+- 11 个分类档案：Apple Liquid Glass · Material 3 Expressive · 多智能体 UX · AI 陪伴留存 · 心理健康 AI 安全 · 色彩趋势 2026 · 字体趋势 2026 · Linear/Things 设计哲学 · 反 chat / canvas · IFS 数字化竞品 · 技术栈参考
+
 ---
 
 ## 🚀 Quickstart
@@ -343,9 +375,14 @@ curl -N -X POST $BASE/api/parallel \
 - [x] **V1** · 5 分身 + 固定 pair + SSE 流（`323ae2a`）
 - [x] **V2 Phase A** · IFS 双层人格 + GAN harness + 动态 pair + 反中庸 NowMe（`30fb1be`）
 - [x] **V2 Phase B** · me.md / Taste 三色板 / L1-L3 记忆 / 5 个 me 子页（`b2c4bb9`）
-- [ ] **V2 Phase C** · 30 秒 First-run 仪式 · Wrapped 7 帧报告 · 时间感知文案
-- [ ] **V2 Phase D** · README V2（本文件） · Vercel 公网部署 · 提交 ZIP 重打
-- [ ] **Post-赛** · L3 反思树 · Vercel KV 跨设备同步 · 移动端动效
+- [x] **V3 设计定稿** · IVY-FINAL-DIRECTION + TECH-DIRECTION + 11 份调研档案 + 竞品全景（开发前完整路线确定）
+- [ ] **V3 Week 0** · Design System Foundation：tokens（colors/typography/spacing/radius/motion）+ Tailwind v4 `@theme` + V2 旧色值清理
+- [ ] **V3 Week 1** · Provider Setup Wizard + 我的阁首页（今日开会 / 待复盘 / 反复议题）
+- [ ] **V3 Week 2** · Quick Meeting MVP（立案 → 三席 → 追问 → 裁决 → 签字）+ DocketPaper / SeatNameplate / StageRail / SignatureSlip
+- [ ] **V3 Week 3** · 完整内阁会议 + 档案（5 席组阁 + 交叉质询 + 议案修订 + 摘要/原声/余波）
+- [ ] **V3 Week 4** · 阁的演化（Loop A 承诺复盘 + Loop C 临时席转正）+ Memory Consent Gate + 我的阁详情
+- [ ] **V3 Week 5** · 心理安全（危机词 off-ramp + AI 身份显式标注）+ WCAG AA 实测 + 上线打磨
+- [ ] **Post-MVP** · Loop B/D · 周度侧记 · 跨设备同步 · 阁导出（PDF/Markdown）· B2B 治疗师副线
 
 ---
 

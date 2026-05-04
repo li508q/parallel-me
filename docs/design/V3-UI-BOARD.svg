@@ -1,0 +1,187 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1320" viewBox="0 0 1800 1320">
+  <defs>
+    <filter id="grain">
+      <feTurbulence type="fractalNoise" baseFrequency="0.78" numOctaves="2" stitchTiles="stitch"/>
+      <feColorMatrix values="0 0 0 0 0.05  0 0 0 0 0.04  0 0 0 0 0.02  0 0 0 0.035 0"/>
+    </filter>
+    <style>
+      .bg { fill: #FAF6EC; }
+      .paper { fill: #FFFDF8; stroke: #E6E0D4; stroke-width: 1.5; }
+      .paperDeep { fill: #F1E8D8; stroke: #E6E0D4; stroke-width: 1.5; }
+      .ink { fill: #14161A; }
+      .ink2 { fill: #3A3D45; }
+      .ink3 { fill: #7A7E88; }
+      .rule { stroke: #E6E0D4; stroke-width: 1.5; }
+      .thin { stroke: #E6E0D4; stroke-width: 1; }
+      .title { font-family: "Songti SC", "Source Han Serif SC", serif; font-weight: 700; }
+      .serif { font-family: "Songti SC", "Source Han Serif SC", serif; }
+      .sans { font-family: "PingFang SC", -apple-system, BlinkMacSystemFont, sans-serif; }
+      .small { font-size: 17px; letter-spacing: 1.6px; }
+      .label { font-size: 14px; letter-spacing: 1.9px; }
+      .body { font-size: 20px; }
+      .h1 { font-size: 42px; }
+      .h2 { font-size: 28px; }
+      .display { font-size: 56px; }
+      .lay { fill: #5B7A99; }
+      .money { fill: #B5862F; }
+      .roam { fill: #2F8266; }
+      .filial { fill: #B4593C; }
+      .future { fill: #6B4F8C; }
+      .temp { fill: #8A6F3D; }
+      .mutedStroke { stroke: #D8CEBD; stroke-width: 1.3; }
+      .stageOn { fill: #14161A; }
+      .stageOff { fill: #B8AD9C; }
+    </style>
+  </defs>
+
+  <rect class="bg" width="1800" height="1320"/>
+  <rect width="1800" height="1320" fill="url(#grain)" opacity="0.55"/>
+
+  <text x="80" y="82" class="title ink display">ParallelMe V3</text>
+  <text x="80" y="121" class="sans ink3 body">纸面上的私人会议室 · UI 方案板</text>
+  <line x1="80" y1="154" x2="1720" y2="154" class="rule"/>
+
+  <!-- Board 1: Home -->
+  <g transform="translate(80 210)">
+    <text x="0" y="-32" class="title ink h2">01 · 会议入口</text>
+    <rect x="0" y="0" width="780" height="470" rx="18" class="paper"/>
+    <text x="42" y="58" class="sans ink3 label">PARALLELME · 内阁会议</text>
+    <text x="42" y="132" class="title ink display">今天要开什么会？</text>
+    <text x="42" y="174" class="sans ink2 body">写下那个没人能替你决定的议题。</text>
+    <rect x="42" y="218" width="696" height="152" rx="12" fill="#FAF6EC" stroke="#D8CEBD" stroke-width="1.5"/>
+    <text x="72" y="267" class="serif ink3 body">把那件反复想、但一直没有开口的事写下来。</text>
+    <line x1="72" y1="315" x2="708" y2="315" class="thin"/>
+    <text x="72" y="345" class="sans ink3" font-size="15">越具体，组阁越准。</text>
+    <rect x="585" y="392" width="153" height="46" rx="23" fill="#14161A"/>
+    <text x="626" y="422" class="sans" font-size="17" fill="#FAF6EC">立案</text>
+    <text x="42" y="421" class="sans ink3" font-size="15">上次档案：3 天前，你暂缓了「是否回老家」。</text>
+  </g>
+
+  <!-- Board 2: Case + Cabinet -->
+  <g transform="translate(940 210)">
+    <text x="0" y="-32" class="title ink h2">02 · 立案与组阁</text>
+    <rect x="0" y="0" width="780" height="470" rx="18" class="paper"/>
+    <text x="42" y="52" class="sans ink3 label">立案</text>
+    <rect x="42" y="76" width="696" height="104" rx="10" class="paperDeep"/>
+    <text x="66" y="118" class="title ink h2">我要不要牺牲收入和城市自由，换取妈妈眼里的稳定？</text>
+    <text x="66" y="153" class="sans ink3" font-size="16">可编辑议题 · 先问准，再开会</text>
+
+    <g transform="translate(42 206)">
+      <rect x="0" y="0" width="210" height="42" rx="21" fill="#FBF8F3" stroke="#E6E0D4"/>
+      <text x="24" y="27" class="sans ink2" font-size="16">收入自由 vs 家庭安心</text>
+      <rect x="230" y="0" width="218" height="42" rx="21" fill="#FBF8F3" stroke="#E6E0D4"/>
+      <text x="254" y="27" class="sans ink2" font-size="16">自我选择 vs 不让妈妈失望</text>
+      <rect x="468" y="0" width="184" height="42" rx="21" fill="#FBF8F3" stroke="#E6E0D4"/>
+      <text x="492" y="27" class="sans ink2" font-size="16">眼前安全 vs 长期身份</text>
+    </g>
+
+    <text x="42" y="298" class="sans ink3 label">本次组阁</text>
+    <g transform="translate(42 326)">
+      <rect x="0" y="0" width="128" height="72" rx="8" fill="#FFFDF8" stroke="#B5862F"/>
+      <circle cx="20" cy="24" r="6" class="money"/>
+      <text x="36" y="28" class="sans ink" font-size="17">搞钱的我</text>
+      <text x="18" y="54" class="sans ink3" font-size="13">常任 · 资源席</text>
+      <rect x="142" y="0" width="128" height="72" rx="8" fill="#FFFDF8" stroke="#B4593C"/>
+      <circle cx="162" cy="24" r="6" class="filial"/>
+      <text x="178" y="28" class="sans ink" font-size="17">讨妈欢心</text>
+      <text x="160" y="54" class="sans ink3" font-size="13">常任 · 依恋席</text>
+      <rect x="284" y="0" width="128" height="72" rx="8" fill="#FFFDF8" stroke="#6B4F8C"/>
+      <circle cx="304" cy="24" r="6" class="future"/>
+      <text x="320" y="28" class="sans ink" font-size="17">5 年后</text>
+      <text x="302" y="54" class="sans ink3" font-size="13">常任 · 远望席</text>
+      <rect x="426" y="0" width="128" height="72" rx="8" fill="#FFFDF8" stroke="#8A6F3D"/>
+      <circle cx="446" cy="24" r="6" class="temp"/>
+      <text x="462" y="28" class="sans ink" font-size="17">怕选错</text>
+      <text x="444" y="54" class="sans ink3" font-size="13">临时 · 风险感</text>
+      <rect x="568" y="0" width="128" height="72" rx="8" fill="#FFFDF8" stroke="#8A6F3D"/>
+      <circle cx="588" cy="24" r="6" class="temp"/>
+      <text x="604" y="28" class="sans ink" font-size="17">想证明</text>
+      <text x="586" y="54" class="sans ink3" font-size="13">临时 · 身份感</text>
+    </g>
+    <rect x="578" y="412" width="160" height="40" rx="20" fill="#14161A"/>
+    <text x="617" y="438" class="sans" font-size="16" fill="#FAF6EC">确认组阁</text>
+  </g>
+
+  <!-- Board 3: Meeting -->
+  <g transform="translate(80 790)">
+    <text x="0" y="-32" class="title ink h2">03 · 会议进行</text>
+    <rect x="0" y="0" width="780" height="430" rx="18" class="paper"/>
+    <text x="42" y="48" class="sans ink3 label">立案 → 组阁 → 表态 → 点名 → 质询 → 裁决 → 签字</text>
+    <circle cx="340" cy="228" r="118" fill="#F1E8D8" stroke="#D8CEBD" stroke-width="1.5"/>
+    <text x="266" y="212" class="sans ink3" font-size="14" text-anchor="middle">本次议题</text>
+    <text x="340" y="246" class="title ink" font-size="24" text-anchor="middle">收入自由</text>
+    <text x="340" y="276" class="title ink" font-size="24" text-anchor="middle">还是家庭安心？</text>
+
+    <g>
+      <rect x="284" y="80" width="112" height="54" rx="8" fill="#FFFDF8" stroke="#6B4F8C"/>
+      <text x="340" y="113" class="sans future" font-size="16" text-anchor="middle">5 年后</text>
+      <line x1="340" y1="134" x2="340" y2="110" class="mutedStroke"/>
+    </g>
+    <g>
+      <rect x="120" y="184" width="118" height="58" rx="8" fill="#FFFDF8" stroke="#B5862F"/>
+      <text x="179" y="217" class="sans money" font-size="16" text-anchor="middle">搞钱的我</text>
+      <line x1="238" y1="213" x2="224" y2="224" class="mutedStroke"/>
+    </g>
+    <g>
+      <rect x="444" y="184" width="126" height="58" rx="8" fill="#FFFDF8" stroke="#B4593C"/>
+      <text x="507" y="217" class="sans filial" font-size="16" text-anchor="middle">讨妈欢心</text>
+      <line x1="444" y1="213" x2="456" y2="224" class="mutedStroke"/>
+    </g>
+    <g>
+      <rect x="184" y="344" width="112" height="54" rx="8" fill="#FFFDF8" stroke="#8A6F3D"/>
+      <text x="240" y="377" class="sans temp" font-size="16" text-anchor="middle">怕选错</text>
+    </g>
+    <g>
+      <rect x="386" y="344" width="112" height="54" rx="8" fill="#FFFDF8" stroke="#8A6F3D"/>
+      <text x="442" y="377" class="sans temp" font-size="16" text-anchor="middle">想证明</text>
+    </g>
+
+    <rect x="598" y="86" width="140" height="236" rx="12" fill="#FFFDF8" stroke="#E6E0D4"/>
+    <text x="620" y="120" class="sans ink3 label">当前发言</text>
+    <text x="620" y="158" class="serif ink" font-size="22">搞钱的我</text>
+    <text x="620" y="196" class="sans ink2" font-size="15">投票：反对</text>
+    <text x="620" y="225" class="sans ink2" font-size="15">恐惧：失去选择权</text>
+    <text x="620" y="254" class="sans ink2" font-size="15">要求：算五年现金流</text>
+    <rect x="598" y="342" width="140" height="40" rx="20" fill="#14161A"/>
+    <text x="632" y="368" class="sans" font-size="15" fill="#FAF6EC">点名追问</text>
+  </g>
+
+  <!-- Board 4: Verdict + My Cabinet -->
+  <g transform="translate(940 790)">
+    <text x="0" y="-32" class="title ink h2">04 · 签字与我的阁</text>
+    <rect x="0" y="0" width="780" height="430" rx="18" class="paper"/>
+    <rect x="42" y="42" width="330" height="342" rx="12" class="paperDeep"/>
+    <text x="72" y="84" class="sans ink3 label">会议决议</text>
+    <text x="72" y="130" class="title ink h2">我愿意先走一步</text>
+    <line x1="72" y1="154" x2="342" y2="154" class="thin"/>
+    <text x="72" y="194" class="sans ink2" font-size="17">我决定暂时听：5 年后的我</text>
+    <text x="72" y="228" class="sans ink2" font-size="17">我决定暂时不听：搞钱的我</text>
+    <text x="72" y="262" class="sans ink2" font-size="17">我承认代价：短期不再追求最优</text>
+    <text x="72" y="296" class="sans ink2" font-size="17">24 小时：给妈妈发 30 秒语音</text>
+    <rect x="218" y="326" width="124" height="38" rx="19" fill="#B4593C"/>
+    <text x="257" y="351" class="sans" font-size="15" fill="#FFFDF8">签字</text>
+
+    <text x="426" y="62" class="sans ink3 label">我的阁</text>
+    <text x="426" y="103" class="title ink h2">本周席位变化</text>
+    <g transform="translate(426 132)">
+      <rect x="0" y="0" width="270" height="48" rx="8" fill="#FFFDF8" stroke="#E6E0D4"/>
+      <circle cx="22" cy="24" r="6" class="money"/>
+      <text x="42" y="30" class="sans ink2" font-size="16">本周掌权：搞钱的我 · 3 次</text>
+      <rect x="0" y="64" width="270" height="48" rx="8" fill="#FFFDF8" stroke="#E6E0D4"/>
+      <circle cx="22" cy="88" r="6" class="roam"/>
+      <text x="42" y="94" class="sans ink2" font-size="16">最近沉默：出走的我</text>
+      <rect x="0" y="128" width="270" height="48" rx="8" fill="#FFFDF8" stroke="#E6E0D4"/>
+      <circle cx="22" cy="152" r="6" class="temp"/>
+      <text x="42" y="158" class="sans ink2" font-size="16">等待转正：怕选错的我</text>
+    </g>
+    <g transform="translate(426 342)">
+      <line x1="10" y1="20" x2="230" y2="20" stroke="#D8CEBD" stroke-width="1.4"/>
+      <circle cx="10" cy="20" r="8" class="money"/>
+      <circle cx="230" cy="20" r="8" class="roam"/>
+      <text x="62" y="14" class="sans ink3" font-size="13">强冲突</text>
+      <text x="0" y="56" class="sans ink3" font-size="14">关系图像纸边手绘，不像数据看板。</text>
+    </g>
+  </g>
+
+  <text x="80" y="1278" class="sans ink3 body">设计原则：用户不是观看 AI 表演，而是在立案、组阁、点名、质询、签字中恢复主持权。</text>
+</svg>
