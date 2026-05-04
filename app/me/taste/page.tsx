@@ -203,7 +203,7 @@ export default function TastePage() {
 
       {/* Profile result */}
       {taste.profile && (
-        <section className="mb-14 bg-[#1A1B20] text-paper p-7 sm:p-10 rounded-r-3xl border-l-[3px] border-paper animate-fade-up">
+        <section className="mb-14 bg-surface-deep text-paper p-7 sm:p-10 rounded-r-3xl border-l-[3px] border-paper animate-fade-up">
           <div className="font-display text-xs tracking-[0.18em] text-paper/60 uppercase mb-3">你看起来像</div>
           <div className="font-display text-2xl sm:text-3xl mb-5 leading-tight">「{taste.profile.identity_hint}」</div>
           <div className="text-sm text-paper/80 leading-relaxed">
@@ -215,7 +215,7 @@ export default function TastePage() {
       )}
 
       {/* Save bar */}
-      <div className="sticky bottom-4 sm:bottom-6 bg-paper/90 backdrop-blur border-2 border-ink rounded-full px-5 py-3 flex items-center gap-3 shadow-[4px_4px_0_-1px_#0E0F12]">
+      <div className="sticky bottom-4 sm:bottom-6 bg-paper/90 backdrop-blur border-2 border-ink rounded-full px-5 py-3 flex items-center gap-3 shadow-[4px_4px_0_-1px_var(--color-ink-core)]">
         <span className="text-xs text-ink3 flex-1">{statusText}</span>
         {hasUnsaved && (
           <button onClick={save} className="text-sm text-ink2 hover:text-ink px-3 py-1.5 rounded-full border border-ink/30">保存</button>

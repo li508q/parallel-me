@@ -142,7 +142,7 @@ export default function InsightsPage() {
       {peak && (
         <section className="mb-14 animate-fade-up text-center">
           <div className="font-display text-xs tracking-[0.18em] text-ink3 uppercase mb-4">⓷ 那一刻</div>
-          <div className="bg-[#1A1B20] text-paper p-8 sm:p-12 rounded-3xl">
+          <div className="bg-surface-deep text-paper p-8 sm:p-12 rounded-3xl">
             <div className="font-display text-3xl sm:text-4xl mb-4 leading-tight">「{peak.title}」</div>
             <p className="text-paper/80 text-base leading-relaxed mb-5">{peak.summary}</p>
             <div className="text-xs text-paper/50">— 你, {new Date(peak.ts).toLocaleDateString("zh-CN")}</div>
@@ -174,7 +174,7 @@ export default function InsightsPage() {
               a.click();
             });
           }}
-          className="inline-block px-8 py-4 bg-ink text-paper rounded-full font-display text-base hover:bg-ink/85 shadow-[6px_6px_0_-1px_#0E0F12]"
+          className="inline-block px-8 py-4 bg-ink text-paper rounded-full font-display text-base hover:bg-ink/85 shadow-[6px_6px_0_-1px_var(--color-ink-core)]"
         >
           ↓ 让另一个我也看到
         </button>

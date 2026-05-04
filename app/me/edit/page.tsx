@@ -103,7 +103,7 @@ export default function MeEditPage() {
           className="w-full bg-transparent border-2 border-filial/30 focus:border-filial outline-none p-3 rounded-xl resize-none text-sm leading-relaxed placeholder-ink3/60"/>
       </section>
 
-      <div className="sticky bottom-4 sm:bottom-6 bg-paper/90 backdrop-blur border-2 border-ink rounded-full px-5 py-3 flex items-center gap-3 shadow-[4px_4px_0_-1px_#0E0F12]">
+      <div className="sticky bottom-4 sm:bottom-6 bg-paper/90 backdrop-blur border-2 border-ink rounded-full px-5 py-3 flex items-center gap-3 shadow-[4px_4px_0_-1px_var(--color-ink-core)]">
         <span className="text-xs text-ink3 flex-1">{saved ? "✓ 已保存到这台设备" : "改完点保存即可"}</span>
         <button onClick={save} className="text-sm bg-ink text-paper px-6 py-2 rounded-full font-display hover:bg-ink/85">保存</button>
       </div>

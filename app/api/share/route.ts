@@ -12,12 +12,14 @@ function score(t: string): number {
   return s;
 }
 
+// V3 seat colors — see lib/design/tokens/colors.ts (mirrored here because
+// SVG string interpolation cannot import runtime values without rebuild churn).
 const SELF_META = {
-  lay:    { name: "躺平", color: "#5B7A99", emoji: "🛋" },
-  money:  { name: "搞钱", color: "#B5862F", emoji: "💰" },
-  roam:   { name: "出走", color: "#2F8266", emoji: "✈" },
-  filial: { name: "陪妈", color: "#B4593C", emoji: "🥟" },
-  future: { name: "未来", color: "#6B4F8C", emoji: "🔮" }
+  lay:    { name: "躺平", color: "#556F7A", emoji: "🛋" },  // seat.rest
+  money:  { name: "搞钱", color: "#8A6F3D", emoji: "💰" },  // seat.money
+  roam:   { name: "出走", color: "#3F6B5A", emoji: "✈" },   // seat.roam
+  filial: { name: "陪妈", color: "#8C5042", emoji: "🥟" },  // seat.filial
+  future: { name: "未来", color: "#5E5369", emoji: "🔮" }   // seat.future
 } as const;
 
 export async function POST(req: NextRequest) {
@@ -66,20 +68,20 @@ export async function POST(req: NextRequest) {
       <feColorMatrix values="0 0 0 0 0.05  0 0 0 0 0.04  0 0 0 0 0.02  0 0 0 0.04 0"/>
     </filter>
   </defs>
-  <rect width="800" height="1000" fill="#FBF8F3"/>
+  <rect width="800" height="1000" fill="#F4F1EC"/>
   <rect width="800" height="1000" fill="url(#grain)" opacity="0.5"/>
 
   <!-- Header -->
-  <text x="60" y="80" font-family="Songti SC, Source Han Serif SC, serif" font-size="22" fill="#7A7E88" font-weight="500">🪞 平行的我 · ParallelMe</text>
-  <text x="60" y="140" font-family="Songti SC, Source Han Serif SC, serif" font-size="44" fill="#0E0F12" font-weight="700">今天最响的那个我，是</text>
+  <text x="60" y="80" font-family="Songti SC, Source Han Serif SC, serif" font-size="22" fill="#7C7568" font-weight="500">🪞 平行的我 · ParallelMe</text>
+  <text x="60" y="140" font-family="Songti SC, Source Han Serif SC, serif" font-size="44" fill="#191713" font-weight="700">今天最响的那个我，是</text>
   <text x="60" y="200" font-family="Songti SC, Source Han Serif SC, serif" font-size="68" fill="${loudest.color}" font-weight="700">${loudest.emoji} ${loudest.name}的我</text>
 
   <!-- Question -->
-  <text x="60" y="250" font-family="PingFang SC, sans-serif" font-size="16" fill="#3A3D45" font-style="italic">「${inputText}${input?.length > 60 ? '…' : ''}」</text>
+  <text x="60" y="250" font-family="PingFang SC, sans-serif" font-size="16" fill="#3C3932" font-style="italic">「${inputText}${input?.length > 60 ? '…' : ''}」</text>
 
   <!-- Pentagon grid -->
-  ${gridLevels.map(g => `<polygon points="${g}" fill="none" stroke="#E6E0D4" stroke-width="1"/>`).join("")}
-  ${order.map((_,i) => `<line x1="${cx}" y1="${cy}" x2="${(cx + Math.cos(angles[i])*R).toFixed(1)}" y2="${(cy + Math.sin(angles[i])*R).toFixed(1)}" stroke="#E6E0D4" stroke-width="1"/>`).join("")}
+  ${gridLevels.map(g => `<polygon points="${g}" fill="none" stroke="#D8CBB8" stroke-width="1"/>`).join("")}
+  ${order.map((_,i) => `<line x1="${cx}" y1="${cy}" x2="${(cx + Math.cos(angles[i])*R).toFixed(1)}" y2="${(cy + Math.sin(angles[i])*R).toFixed(1)}" stroke="#D8CBB8" stroke-width="1"/>`).join("")}
 
   <!-- User's pentagon -->
   <polygon points="${polygon}" fill="${loudest.color}" fill-opacity="0.18" stroke="${loudest.color}" stroke-width="2.5" stroke-linejoin="round"/>
@@ -89,9 +91,9 @@ export async function POST(req: NextRequest) {
   ${labelPos.map(l => `<g><text x="${l.x.toFixed(1)}" y="${l.y.toFixed(1)}" font-family="Songti SC, serif" font-size="22" fill="${l.color}" font-weight="600" text-anchor="middle" dominant-baseline="middle">${l.emoji} ${l.name}</text></g>`).join("")}
 
   <!-- Footer -->
-  <line x1="60" y1="900" x2="740" y2="900" stroke="#E6E0D4" stroke-width="1"/>
-  <text x="60" y="940" font-family="Songti SC, serif" font-size="18" fill="#0E0F12" font-weight="600">让 5 个平行宇宙的你吵一架</text>
-  <text x="60" y="965" font-family="PingFang SC, sans-serif" font-size="14" fill="#7A7E88">parallelme.app</text>
+  <line x1="60" y1="900" x2="740" y2="900" stroke="#D8CBB8" stroke-width="1"/>
+  <text x="60" y="940" font-family="Songti SC, serif" font-size="18" fill="#191713" font-weight="600">让 5 个平行宇宙的你吵一架</text>
+  <text x="60" y="965" font-family="PingFang SC, sans-serif" font-size="14" fill="#7C7568">parallelme.app</text>
 </svg>`;
 
   return new Response(svg, {

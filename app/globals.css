@@ -1,37 +1,137 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
 
+/* =============================================================================
+   ParallelMe V3 Design Tokens · CSS-first @theme (Tailwind v4)
+   Mirror of lib/design/tokens/*.ts. See V3-IVY-FINAL-DIRECTION.md § 1-2.
+   ============================================================================= */
+
+@theme {
+  /* ===== Color · Paper ===== */
+  --color-paper-base: #F4F1EC; /* 页面底色（去黄、向 Quiet Luxury 收敛） */
+  --color-paper-lift: #FBF9F4; /* 议案纸 / 主内容 */
+  --color-paper-sunk: #EDE2D0;
+  --color-paper-edge: #D8CBB8;
+
+  /* ===== Color · Surface (深色仪式) ===== */
+  --color-surface-deep: #1A1816; /* 仅裁决 / 签字页 */
+
+  /* ===== Color · Ink ===== */
+  --color-ink-core: #191713;
+  --color-ink-body: #3C3932;
+  --color-ink-mute: #7C7568;
+  --color-ink-faint: #B7AC9B;
+
+  /* ===== Color · Seat (席位身份点 / 边框 / 关系线) ===== */
+  --color-seat-rest:      #556F7A; /* 休整 / 躺平 */
+  --color-seat-money:     #8A6F3D; /* 资源 / 搞钱 */
+  --color-seat-roam:      #3F6B5A; /* 自由 / 出走 */
+  --color-seat-filial:    #8C5042; /* 依恋 / 讨妈 */
+  --color-seat-future:    #5E5369; /* 远望 / 5 年后 */
+  --color-seat-temporary: #76684D;
+  --color-seat-silent:    #899199;
+  --color-seat-exiled:    #6F3F35;
+
+  /* ===== Color · Status ===== */
+  --color-seal-action:      #8E3F32; /* 签字 / 重要确认 */
+  --color-attention-copper: #A8844D; /* 等待转正 / 重点（禁写小字） */
+  --color-safe-green:       #536E5A; /* 完成 / 低风险 */
+  --color-trace-blue:       #455F70; /* 证据链 / 可追溯引用 */
+
+  /* ===== V2 backward-compat alias (auto-migrate visually until pages refactored) ===== */
+  --color-paper:  var(--color-paper-base);
+  --color-ink:    var(--color-ink-core);
+  --color-ink2:   var(--color-ink-body);
+  --color-ink3:   var(--color-ink-mute);
+  --color-rule:   var(--color-paper-edge);
+  --color-accent: var(--color-seal-action);   /* V2 #C65D4A → V3 火漆红 */
+  --color-gold:   var(--color-attention-copper); /* V2 #C9A227 → V3 老铜金 */
+  --color-lay:    var(--color-seat-rest);
+  --color-money:  var(--color-seat-money);
+  --color-roam:   var(--color-seat-roam);
+  --color-filial: var(--color-seat-filial);
+  --color-future: var(--color-seat-future);
+  --color-now:    var(--color-ink-core);
+
+  /* ===== Typography · Font Stacks =====
+     Geist registered by next/font in app/layout.tsx as --font-geist / --font-geist-mono. */
+  --font-sans:
+    var(--font-geist), "PingFang SC", "Noto Sans SC",
+    "HarmonyOS Sans", system-ui, -apple-system, sans-serif;
+  --font-serif:
+    "Source Han Serif SC", "Noto Serif SC", "Songti SC",
+    ui-serif, Georgia, serif;
+  --font-mono:
+    var(--font-geist-mono), "IBM Plex Mono", "SF Mono",
+    ui-monospace, monospace;
+
+  /* ===== Typography · Discrete Type Scale (no fluid clamp) ===== */
+  --text-display:        44px;  --text-display--line-height:        52px;
+  --text-headline:       30px;  --text-headline--line-height:       38px;
+  --text-title:          22px;  --text-title--line-height:          30px;
+  --text-title-sm:       18px;  --text-title-sm--line-height:       26px;
+  --text-body:           16px;  --text-body--line-height:           26px;
+  --text-body-long:      16px;  --text-body-long--line-height:      28px;
+  --text-body-sm:        14px;  --text-body-sm--line-height:        22px;
+  --text-label:          12px;  --text-label--line-height:          16px;
+  --text-verdict:        24px;  --text-verdict--line-height:        36px;
+  --text-signature:      20px;  --text-signature--line-height:      32px;
+
+  /* ===== Radius ===== */
+  --radius-sm: 2px;
+  --radius-md: 4px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+
+  /* ===== Motion · Easing ===== */
+  --ease-paper: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --ease-ink:   cubic-bezier(0.16, 0.84, 0.44, 1);
+}
+
+/* Mobile type-scale overrides */
+@media (max-width: 767px) {
+  :root {
+    --text-display:   36px;  --text-display--line-height:   44px;
+    --text-headline:  26px;  --text-headline--line-height:  32px;
+    --text-title:     20px;  --text-title--line-height:     28px;
+    --text-title-sm:  17px;  --text-title-sm--line-height:  24px;
+    --text-body:      15px;  --text-body--line-height:      24px;
+    --text-body-long: 15px;  --text-body-long--line-height: 26px;
+    --text-body-sm:   13px;  --text-body-sm--line-height:   20px;
+    --text-verdict:   22px;  --text-verdict--line-height:   32px;
+    --text-signature: 18px;  --text-signature--line-height: 28px;
+  }
+}
+
+/* =============================================================================
+   Base
+   ============================================================================= */
 :root {
   color-scheme: light;
-  --paper: #FAF6EC;
-  --ink: #14161A;
-  --ink2: #3A3D45;
-  --ink3: #7A7E88;
-  --rule: #E6E0D4;
-  --accent: #C65D4A; /* 暖砖红 - 用于强调按钮 */
-  --gold: #C9A227;   /* 鹅黄 */
 }
 
 html, body {
-  background: var(--paper);
-  color: var(--ink);
+  background: var(--color-paper-base);
+  color: var(--color-ink-core);
+  font-family: var(--font-sans);
+  font-weight: 450;
+  /* V3 hard rule: CJK letter-spacing = 0. Per-element overrides only for Latin uppercase labels. */
+  letter-spacing: 0;
   font-feature-settings: "kern" 1, "liga" 1, "ss01" 1;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
 
 body {
-  /* Subtle paper grain — looks expensive */
+  /* Subtle paper warmth — kept until pages refactored in Week 1+. */
   background:
-    radial-gradient(circle at 20% 0%, rgba(181, 134, 47, 0.04), transparent 50%),
-    radial-gradient(circle at 80% 100%, rgba(107, 79, 140, 0.04), transparent 50%),
-    var(--paper);
+    radial-gradient(circle at 20% 0%, rgba(138, 111, 61, 0.04), transparent 50%),
+    radial-gradient(circle at 80% 100%, rgba(94, 83, 105, 0.04), transparent 50%),
+    var(--color-paper-base);
   background-attachment: fixed;
   min-height: 100vh;
 }
 
-/* paper grain texture — 真纸感 */
+/* paper grain texture — DEPRECATED V2 残留, kept until pages refactored */
 body::before {
   content: "";
   position: fixed; inset: 0;
@@ -43,79 +143,64 @@ body::before {
 }
 main, header, footer { position: relative; z-index: 1; }
 
-/* 手写下划线 — 给关键词 */
+/* =============================================================================
+   V2 Compat Layer
+   These classes drive the entire current V2 codebase. Kept verbatim through V3
+   Week 0; their VALUES are now driven by V3 tokens, so visual migrates
+   automatically. To be deleted in Week 1+ as pages are rewritten.
+   ============================================================================= */
+
+/* Hand-drawn underline (scribble) — DEPRECATED, used in every V2 page */
 .scribble {
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 14'><path d='M2 9 Q50 2 100 9 T198 7' stroke='%23C9A227' stroke-width='4' fill='none' stroke-linecap='round'/></svg>");
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 14'><path d='M2 9 Q50 2 100 9 T198 7' stroke='%23A8844D' stroke-width='4' fill='none' stroke-linecap='round'/></svg>");
   background-repeat: no-repeat;
   background-position: 0 100%;
   background-size: 100% 0.4em;
   padding-bottom: 0.18em;
 }
 .scribble-thin {
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 8'><path d='M2 4 L198 4' stroke='%230E0F12' stroke-width='1.5' fill='none' stroke-linecap='round'/></svg>");
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 8'><path d='M2 4 L198 4' stroke='%23191713' stroke-width='1.5' fill='none' stroke-linecap='round'/></svg>");
   background-repeat: no-repeat;
   background-position: 0 100%;
   background-size: 100% 0.25em;
   padding-bottom: 0.1em;
 }
 
-/* hairline rule */
-.rule { border-color: var(--rule); }
+/* hairline */
+.rule { border-color: var(--color-paper-edge); }
 
-/* 5-selves color tokens */
-.text-lay    { color: #5B7A99; }
-.text-money  { color: #B5862F; }
-.text-roam   { color: #2F8266; }
-.text-filial { color: #B4593C; }
-.text-future { color: #6B4F8C; }
-.text-now    { color: #0E0F12; }
+/* Font utility classes — V3 letter-spacing -0.01em DELETED */
+.font-display { font-family: var(--font-serif); font-weight: 600; }
+.font-body    { font-family: var(--font-sans); }
 
-.bg-lay-soft    { background: rgba(91, 122, 153, 0.06); }
-.bg-money-soft  { background: rgba(181, 134, 47, 0.06); }
-.bg-roam-soft   { background: rgba(47, 130, 102, 0.06); }
-.bg-filial-soft { background: rgba(180, 89, 60, 0.06); }
-.bg-future-soft { background: rgba(107, 79, 140, 0.06); }
-.bg-now-soft    { background: rgba(14, 15, 18, 0.04); }
-
-.border-lay    { border-color: rgba(91, 122, 153, 0.30); }
-.border-money  { border-color: rgba(181, 134, 47, 0.30); }
-.border-roam   { border-color: rgba(47, 130, 102, 0.30); }
-.border-filial { border-color: rgba(180, 89, 60, 0.30); }
-.border-future { border-color: rgba(107, 79, 140, 0.30); }
-.border-now    { border-color: rgba(14, 15, 18, 0.40); }
-
-/* 字体 utility */
-.font-display { font-family: "Source Han Serif SC", "Songti SC", "Noto Serif CJK SC", ui-serif, Georgia, serif; font-weight: 600; letter-spacing: -0.01em; }
-.font-body { font-family: "PingFang SC", ui-sans-serif, system-ui, -apple-system, sans-serif; }
-
-/* 卡片 hover */
+/* Card hover */
 .lift {
-  transition: transform 0.4s cubic-bezier(0.2, 0.7, 0.2, 1), box-shadow 0.4s;
+  transition: transform 400ms var(--ease-paper), box-shadow 400ms var(--ease-paper);
 }
 .lift:hover {
   transform: translateY(-2px);
-  box-shadow: 0 18px 40px -24px rgba(14, 15, 18, 0.18);
+  box-shadow: 0 18px 40px -24px rgba(25, 23, 19, 0.18);
 }
 
-/* hand-drawn box */
+/* hand-drawn box — DEPRECATED V2, used in app/page.tsx */
 .hand-box {
-  border: 1.5px solid var(--ink);
+  border: 1.5px solid var(--color-ink-core);
   border-radius: 14px 12px 14px 12px / 12px 14px 12px 14px;
-  box-shadow: 4px 4px 0 -1px var(--ink);
+  box-shadow: 4px 4px 0 -1px var(--color-ink-core);
 }
 
-/* 闪烁光标 */
+/* Blink cursor */
 @keyframes blink { 50% { opacity: 0; } }
 .cursor::after {
   content: "▍";
   margin-left: 2px;
   animation: blink 1s step-end infinite;
-  color: var(--ink);
+  color: var(--color-ink-core);
 }
 
-/* drop cap — 给最终回答用，提升文学感 */
+/* Drop cap — DEPRECATED, only NowMe verdict ritual */
 .dropcap::first-letter {
-  font-family: "Source Han Serif SC", "Songti SC", serif;
+  font-family: var(--font-serif);
   font-size: 3.4em;
   float: left;
   line-height: 0.88;
@@ -123,19 +208,63 @@ main, header, footer { position: relative; z-index: 1; }
   font-weight: 700;
 }
 
-/* scrollbar — 隐于纸感 */
+/* 5-selves color tokens (V2 alias → now driven by V3 seat tokens) */
+.text-lay    { color: var(--color-seat-rest); }
+.text-money  { color: var(--color-seat-money); }
+.text-roam   { color: var(--color-seat-roam); }
+.text-filial { color: var(--color-seat-filial); }
+.text-future { color: var(--color-seat-future); }
+.text-now    { color: var(--color-ink-core); }
+
+.bg-lay-soft    { background: color-mix(in srgb, var(--color-seat-rest)   6%, transparent); }
+.bg-money-soft  { background: color-mix(in srgb, var(--color-seat-money)  6%, transparent); }
+.bg-roam-soft   { background: color-mix(in srgb, var(--color-seat-roam)   6%, transparent); }
+.bg-filial-soft { background: color-mix(in srgb, var(--color-seat-filial) 6%, transparent); }
+.bg-future-soft { background: color-mix(in srgb, var(--color-seat-future) 6%, transparent); }
+.bg-now-soft    { background: color-mix(in srgb, var(--color-ink-core)    4%, transparent); }
+
+.border-lay    { border-color: color-mix(in srgb, var(--color-seat-rest)   30%, transparent); }
+.border-money  { border-color: color-mix(in srgb, var(--color-seat-money)  30%, transparent); }
+.border-roam   { border-color: color-mix(in srgb, var(--color-seat-roam)   30%, transparent); }
+.border-filial { border-color: color-mix(in srgb, var(--color-seat-filial) 30%, transparent); }
+.border-future { border-color: color-mix(in srgb, var(--color-seat-future) 30%, transparent); }
+.border-now    { border-color: color-mix(in srgb, var(--color-ink-core)    40%, transparent); }
+
+/* Scrollbar */
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(14, 15, 18, 0.18); border-radius: 6px; border: 2px solid transparent; background-clip: padding-box; }
-::-webkit-scrollbar-thumb:hover { background: rgba(14, 15, 18, 0.32); border: 2px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--color-ink-core) 18%, transparent);
+  border-radius: 6px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--color-ink-core) 32%, transparent);
+}
 
-/* 选区颜色 */
-::selection { background: rgba(107, 79, 140, 0.20); color: var(--ink); }
+::selection {
+  background: color-mix(in srgb, var(--color-seat-future) 20%, transparent);
+  color: var(--color-ink-core);
+}
 
-/* 流式文字光标 */
+/* Streaming cursor */
 .streaming::after {
   content: "▍";
   animation: blink 1s step-end infinite;
   margin-left: 1px;
   opacity: 0.5;
 }
+
+/* =============================================================================
+   V3 Animations (kept; previously in tailwind.config.ts)
+   ============================================================================= */
+@keyframes inkIn   { 0% { opacity: 0; filter: blur(6px); transform: translateY(10px); } 100% { opacity: 1; filter: blur(0); transform: translateY(0); } }
+@keyframes fadeUp  { 0% { opacity: 0; transform: translateY(16px); } 100% { opacity: 1; transform: translateY(0); } }
+@keyframes typeIn  { 0% { width: 0; } 100% { width: 100%; } }
+@keyframes softPulse { 0%, 100% { opacity: 0.4; } 50% { opacity: 1; } }
+
+.animate-ink-in    { animation: inkIn 900ms var(--ease-paper) both; }
+.animate-fade-up   { animation: fadeUp 700ms var(--ease-paper) both; }
+.animate-type      { animation: typeIn 1400ms steps(40, end) both; }
+.animate-soft-pulse { animation: softPulse 2400ms ease-in-out infinite; }

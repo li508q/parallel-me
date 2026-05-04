@@ -281,7 +281,7 @@ export default function Home() {
             <button
               onClick={() => run()}
               disabled={running || !input.trim()}
-              className="font-display px-7 py-3 bg-[#C65D4A] text-paper rounded-full text-sm font-semibold hover:bg-[#A8482F] disabled:bg-[#C65D4A]/40 disabled:cursor-not-allowed transition-all shadow-[0_4px_0_-1px_rgba(20,22,26,0.85)] hover:shadow-[0_2px_0_-1px_rgba(20,22,26,0.85)] hover:translate-y-[2px]"
+              className="font-display px-7 py-3 bg-seal-action text-paper rounded-full text-sm font-semibold hover:bg-seal-action/85 disabled:bg-seal-action/40 disabled:cursor-not-allowed transition-all shadow-[0_4px_0_-1px_rgba(25,23,19,0.85)] hover:shadow-[0_2px_0_-1px_rgba(25,23,19,0.85)] hover:translate-y-[2px]"
             >
               {running ? "5 个我正在赶来…" : "让 5 个我都来吵一吵 →"}
             </button>
@@ -405,7 +405,7 @@ export default function Home() {
               <span className="flex-1 h-[2px] bg-ink"/>
               <span className="font-display text-xs text-ink">此刻的我</span>
             </div>
-            <article className="-mx-2 sm:mx-0 bg-[#1A1B20] text-paper p-7 sm:p-12 rounded-r-3xl border-l-[3px] border-paper animate-fade-up shadow-[0_30px_60px_-30px_rgba(20,22,26,0.5)]">
+            <article className="-mx-2 sm:mx-0 bg-surface-deep text-paper p-7 sm:p-12 rounded-r-3xl border-l-[3px] border-paper animate-fade-up shadow-[0_30px_60px_-30px_rgba(25,23,19,0.5)]">
               <div className="flex items-center gap-4 mb-6">
                 <div className="bg-paper rounded-full p-1">
                   <SelfAvatar id="now" size={48}/>
@@ -423,7 +423,7 @@ export default function Home() {
         {insight && (
           <section className="mb-16 animate-fade-up max-w-2xl mx-auto">
             <blockquote className="relative pl-8 py-2">
-              <span className="absolute left-0 top-0 font-display text-7xl text-[#C65D4A] leading-[0.7] select-none">{"\""}</span>
+              <span className="absolute left-0 top-0 font-display text-7xl text-seal-action leading-[0.7] select-none">{"\""}</span>
               <div className="font-display text-xs tracking-[0.18em] text-ink3 uppercase mb-3">心理学旁注 · IFS · Internal Family Systems</div>
               <p className="font-display text-lg sm:text-xl leading-relaxed text-ink2 italic">{insight}</p>
               <p className="mt-3 text-xs text-ink3">— 此刻的你，最响的声音背后藏着的</p>
@@ -433,7 +433,7 @@ export default function Home() {
 
         {stage === "done" && (
           <section className="mb-16 animate-fade-up text-center">
-            <div className="inline-flex flex-col items-center gap-4 p-8 bg-paper border-2 border-ink rounded-3xl shadow-[6px_6px_0_-1px_#0E0F12]">
+            <div className="inline-flex flex-col items-center gap-4 p-8 bg-paper border-2 border-ink rounded-3xl shadow-[6px_6px_0_-1px_var(--color-ink-core)]">
               <div className="font-display text-xs tracking-[0.2em] text-ink3 uppercase">带走它</div>
               <div className="font-display text-2xl text-ink">把今天的「内心地图」存下来</div>
               <button
