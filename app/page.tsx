@@ -25,9 +25,12 @@ const PRESETS = [
   "凌晨 2 点老板在群里发了个 OK?，我现在心率 120。",
 ];
 
+type MeetingMode = "quick" | "full";
+
 export default function Home() {
   const router = useRouter();
   const [input, setInput] = useState("");
+  const [mode, setMode] = useState<MeetingMode>("quick");
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [pending, setPending] = useState<Meeting[]>([]);
   const [legacyEpisode, setLegacyEpisode] = useState<Episode | null>(null);
@@ -38,10 +41,12 @@ export default function Home() {
     setLegacyEpisode(lastEpisode());
   }, []);
 
-  function startMeeting(topic: string) {
+  function startMeeting(topic: string, modeOverride?: MeetingMode) {
     const t = topic.trim();
     if (!t) return;
-    router.push(`/meeting?topic=${encodeURIComponent(t)}`);
+    const m = modeOverride ?? mode;
+    const suffix = m === "full" ? "&mode=full" : "";
+    router.push(`/meeting?topic=${encodeURIComponent(t)}${suffix}`);
   }
 
   function onSubmit(e: React.FormEvent) {
@@ -129,17 +134,53 @@ export default function Home() {
             }}
             className="w-full bg-transparent outline-none resize-none text-body-long text-ink-body placeholder-ink-faint font-serif"
           />
-          <div className="flex items-center justify-between pt-3 mt-1 border-t border-paper-edge">
+          <div className="flex flex-wrap items-center justify-between gap-3 pt-3 mt-1 border-t border-paper-edge">
             <span className="text-xs text-ink-mute">
               ⌘ / Ctrl + Enter 立刻开会 · {input.length}/800
             </span>
-            <button
-              type="submit"
-              disabled={!input.trim()}
-              className="px-5 py-2.5 rounded-md bg-ink-core text-paper-base text-body-sm font-medium hover:bg-ink-body disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-            >
-              开会 →
-            </button>
+            <div className="flex items-center gap-3">
+              <div
+                className="inline-flex items-center text-xs rounded-md border border-paper-edge overflow-hidden"
+                role="radiogroup"
+                aria-label="会议模式"
+              >
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={mode === "quick"}
+                  onClick={() => setMode("quick")}
+                  className={`px-3 py-1.5 transition-colors ${
+                    mode === "quick"
+                      ? "bg-ink-core text-paper-base"
+                      : "text-ink-mute hover:text-ink-core"
+                  }`}
+                  title="3 席 · 5 分钟"
+                >
+                  快速
+                </button>
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={mode === "full"}
+                  onClick={() => setMode("full")}
+                  className={`px-3 py-1.5 transition-colors ${
+                    mode === "full"
+                      ? "bg-ink-core text-paper-base"
+                      : "text-ink-mute hover:text-ink-core"
+                  }`}
+                  title="5 席 + 交叉质询 + 议案修订 · 10-15 分钟"
+                >
+                  完整
+                </button>
+              </div>
+              <button
+                type="submit"
+                disabled={!input.trim()}
+                className="px-5 py-2.5 rounded-md bg-ink-core text-paper-base text-body-sm font-medium hover:bg-ink-body disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              >
+                开会 →
+              </button>
+            </div>
           </div>
         </DocketPaper>
 

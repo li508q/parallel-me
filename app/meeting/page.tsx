@@ -1,15 +1,13 @@
 "use client";
 
-// V3 Quick Meeting — 5-stage state machine.
-// case → statements → interrogation → verdict → signature → memory_consent → archived
+// V3 Meeting state machine — Quick (3 seats) and Full (5 seats + cross-exam +
+// revision) share the same scaffold; full-only stages branch off where needed.
 //
-// Hard rules (V3-IVY-FINAL § 3.3):
-//   1. 立案确认  · user must confirm topic before SSE starts
-//   2. 点名追问  · user must call on one seat AND ask one question
-//   3. 签字/暂缓 · user makes a 24h commitment or honest pause
-//   4. Memory Consent · user explicitly opts memories in/out before write
-// All four gates are non-skippable. SSE delivers verdict + insight early but
-// they are kept hidden until the user has discharged the interrogation gate.
+// Hard rules (V3-IVY-FINAL § 3.3): four user gates are non-skippable in both
+// modes — case confirm / 点名追问 / 签字 / Memory Consent. Full mode adds two
+// optional-but-strongly-encouraged gates: assembly confirm and cross-exam
+// judgement. Verdict + insight arrive early on the SSE; we hold them until
+// the user has discharged interrogation (and cross-exam, in full mode).
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -31,6 +29,8 @@ import {
   type Meeting,
   type MemoryCandidate,
   type SignatureDecision,
+  type CrossExam,
+  type UserMark,
 } from "@/lib/db";
 import {
   loadProfile,
@@ -40,20 +40,36 @@ import {
 } from "@/lib/profile";
 import { getRecentContextForPrompt } from "@/lib/memory";
 
+type MeetingMode = "quick" | "full";
+
 type Stage =
   | "loading"
   | "case"
+  | "assembly"        // full only
   | "statements"
   | "interrogation"
+  | "cross_exam"      // full only
+  | "revision_check"  // full only
   | "verdict"
   | "signature"
   | "memory_consent"
   | "archived";
 
-const STAGE_RAIL: { id: string; label: string }[] = [
+const STAGE_RAIL_QUICK: { id: string; label: string }[] = [
   { id: "case", label: "立案" },
   { id: "statements", label: "三席表态" },
   { id: "interrogation", label: "点名追问" },
+  { id: "verdict", label: "裁决" },
+  { id: "signature", label: "签字" },
+];
+
+const STAGE_RAIL_FULL: { id: string; label: string }[] = [
+  { id: "case", label: "立案" },
+  { id: "assembly", label: "组阁" },
+  { id: "statements", label: "五席表态" },
+  { id: "interrogation", label: "点名追问" },
+  { id: "cross_exam", label: "交叉质询" },
+  { id: "revision_check", label: "议案修订" },
   { id: "verdict", label: "裁决" },
   { id: "signature", label: "签字" },
 ];
@@ -72,24 +88,29 @@ interface FollowupRecord {
   answer: string;
 }
 
+interface CrossEvent {
+  fromId: SelfId;
+  toId: SelfId;
+  fromName: string;
+  toName: string;
+  text: string;
+}
+
 function MeetingInner() {
   const router = useRouter();
   const params = useSearchParams();
   const topicParam = (params.get("topic") ?? "").trim();
+  const modeParam: MeetingMode = params.get("mode") === "full" ? "full" : "quick";
 
-  // Refs that survive re-renders without triggering them
   const meetingIdRef = useRef<string>(newMeetingId());
   const startedAtRef = useRef<number>(Date.now());
 
-  // Stage
   const [stage, setStage] = useState<Stage>("loading");
 
-  // Topic
   const [topic, setTopic] = useState("");
   const [editingTopic, setEditingTopic] = useState(false);
   const [topicDraft, setTopicDraft] = useState("");
 
-  // Provider (snapshot at meeting start)
   const [provider, setProvider] = useState<ProviderConfig | null>(null);
 
   // SSE state
@@ -107,16 +128,27 @@ function MeetingInner() {
   const [followupAsking, setFollowupAsking] = useState(false);
   const [followup, setFollowup] = useState<FollowupRecord | null>(null);
 
+  // Full-only: cross-exam
+  const [crossEvents, setCrossEvents] = useState<CrossEvent[]>([]);
+  const [crossIndex, setCrossIndex] = useState(0);
+  const [userMarks, setUserMarks] = useState<UserMark[]>([]);
+  const [iWantToReply, setIWantToReply] = useState("");
+
+  // Full-only: revision
+  const [topicRevised, setTopicRevised] = useState("");
+  const [verdictBasedOn, setVerdictBasedOn] =
+    useState<"original" | "revised" | "both">("original");
+
   // Signature
   const [signature, setSignature] = useState<{
     decision: SignatureDecision;
     action: string;
   } | null>(null);
 
-  // Memory candidates (computed at signature → memory_consent transition)
+  // Memory candidates
   const [memoryCandidates, setMemoryCandidates] = useState<MemoryCandidate[]>([]);
 
-  // ─── init: validate topic, snapshot provider, advance to case ─────────
+  // ─── init ─────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!topicParam) {
       router.replace("/");
@@ -127,10 +159,16 @@ function MeetingInner() {
     setStage("case");
   }, [topicParam, router]);
 
-  // ─── stage 1: case confirm ────────────────────────────────────────────
+  const stageRail = modeParam === "full" ? STAGE_RAIL_FULL : STAGE_RAIL_QUICK;
+
+  // ─── stage 1: case ────────────────────────────────────────────────────
   function confirmCase() {
-    setStage("statements");
-    void runSse();
+    if (modeParam === "full") {
+      setStage("assembly");
+    } else {
+      setStage("statements");
+      void runSse();
+    }
   }
   function startEditTopic() {
     setTopicDraft(topic);
@@ -141,7 +179,13 @@ function MeetingInner() {
     setEditingTopic(false);
   }
 
-  // ─── stage 2: SSE statements ──────────────────────────────────────────
+  // ─── stage 2 (full only): assembly ────────────────────────────────────
+  function confirmAssembly() {
+    setStage("statements");
+    void runSse();
+  }
+
+  // ─── SSE statements (+ cross events buffer in full mode) ─────────────
   async function runSse() {
     setRunning(true);
     setError("");
@@ -169,7 +213,7 @@ function MeetingInner() {
         body: JSON.stringify({
           input: topic,
           context,
-          mode: "quick",
+          mode: modeParam,
           provider: providerPayload,
         }),
       });
@@ -192,6 +236,17 @@ function MeetingInner() {
             setSeats((prev) => [
               ...prev,
               { id: f.id, name: f.name, emoji: f.emoji, tagline: f.tagline, text: f.text },
+            ]);
+          } else if (f.type === "cross") {
+            setCrossEvents((prev) => [
+              ...prev,
+              {
+                fromId: f.fromId,
+                toId: f.toId,
+                fromName: f.from,
+                toName: f.to,
+                text: f.text,
+              },
             ]);
           } else if (f.type === "loudest") {
             setLoudestId(f.id);
@@ -263,28 +318,63 @@ function MeetingInner() {
     setFollowup(null);
   }
 
-  function advanceToVerdict() {
+  function advanceFromInterrogation() {
+    if (modeParam === "full" && crossEvents.length > 0) {
+      setStage("cross_exam");
+    } else {
+      setStage("verdict");
+    }
+  }
+
+  // ─── stage 4 (full only): cross-exam ──────────────────────────────────
+  function judgeCross(judgement: UserMark["judgement"]) {
+    const mark: UserMark = {
+      targetKind: "cross",
+      targetIndex: crossIndex,
+      judgement,
+      reply: judgement === "i-want-to-answer" ? iWantToReply.trim() : undefined,
+      at: Date.now(),
+    };
+    setUserMarks((prev) => [...prev, mark]);
+    setIWantToReply("");
+    if (crossIndex + 1 >= crossEvents.length) {
+      setStage("revision_check");
+      setCrossIndex(0);
+    } else {
+      setCrossIndex(crossIndex + 1);
+    }
+  }
+
+  function skipRemainingCross() {
+    setStage("revision_check");
+  }
+
+  // ─── stage 5 (full only): revision check ──────────────────────────────
+  function chooseRevision(based: "original" | "revised" | "both") {
+    setVerdictBasedOn(based);
     setStage("verdict");
   }
 
-  // ─── stage 4-5: verdict → signature ───────────────────────────────────
+  // ─── stage 6: verdict → signature ─────────────────────────────────────
   function startSignature() {
     setStage("signature");
   }
   function handleSign(action: string) {
-    setSignature({ decision: "signed", action });
-    enterMemoryConsent({ decision: "signed", action });
+    const sig = { decision: "signed" as SignatureDecision, action };
+    setSignature(sig);
+    enterMemoryConsent(sig);
   }
   function handlePause() {
-    setSignature({ decision: "paused", action: "" });
-    enterMemoryConsent({ decision: "paused", action: "" });
+    const sig = { decision: "paused" as SignatureDecision, action: "" };
+    setSignature(sig);
+    enterMemoryConsent(sig);
   }
   function handleEscape() {
-    setSignature({ decision: "escaped", action: "" });
-    enterMemoryConsent({ decision: "escaped", action: "" });
+    const sig = { decision: "escaped" as SignatureDecision, action: "" };
+    setSignature(sig);
+    enterMemoryConsent(sig);
   }
 
-  // ─── memory candidate generation ──────────────────────────────────────
   function enterMemoryConsent(sig: { decision: SignatureDecision; action: string }) {
     setMemoryCandidates(buildCandidates(sig));
     setStage("memory_consent");
@@ -304,13 +394,34 @@ function MeetingInner() {
       });
     }
 
-    const silenced =
-      (episode?.silenced_voice as SelfId | undefined) ?? null;
+    const silenced = (episode?.silenced_voice as SelfId | undefined) ?? null;
     if (silenced && SELVES[silenced] && silenced !== loudestId) {
       cands.push({
         id: "c-silent",
         statement: `「${SELVES[silenced].name}」被你按下来了。`,
         category: "avoided",
+      });
+    }
+
+    // Full-only: hit rate
+    const hitMarks = userMarks.filter((m) => m.judgement === "hit");
+    if (modeParam === "full" && hitMarks.length > 0) {
+      const example = crossEvents[hitMarks[0].targetIndex];
+      if (example) {
+        cands.push({
+          id: "c-cross-hit",
+          statement: `「${example.fromName}」对「${example.toName}」的质询你说了"问中了"。`,
+          category: "pattern",
+        });
+      }
+    }
+
+    // Topic revision
+    if (modeParam === "full" && topicRevised.trim()) {
+      cands.push({
+        id: "c-revision",
+        statement: `质询之后，你看见的真问题：${topicRevised.trim().slice(0, 40)}${topicRevised.length > 40 ? "…" : ""}`,
+        category: "pattern",
       });
     }
 
@@ -345,7 +456,7 @@ function MeetingInner() {
     return cands.slice(0, 3);
   }
 
-  // ─── stage 6: archive to Dexie ────────────────────────────────────────
+  // ─── archive ──────────────────────────────────────────────────────────
   async function archiveMeeting(savedIds: string[]) {
     const status: Meeting["status"] =
       signature?.decision === "signed"
@@ -356,14 +467,24 @@ function MeetingInner() {
             ? "escaped"
             : "abandoned";
 
+    const crossExamRecords: CrossExam[] = crossEvents.map((c) => ({
+      fromSeatId: c.fromId,
+      toSeatId: c.toId,
+      text: c.text,
+      at: Date.now(),
+    }));
+
     const meeting: Meeting = {
       id: meetingIdRef.current,
       createdAt: startedAtRef.current,
       closedAt: Date.now(),
       status,
-      mode: "quick",
+      mode: modeParam,
       topicRaw: topicParam,
       topicRefined: topic !== topicParam ? topic : undefined,
+      topicRevised: topicRevised.trim() || undefined,
+      verdictBasedOn:
+        modeParam === "full" && topicRevised.trim() ? verdictBasedOn : undefined,
       seatIds: seats.map((s) => s.id),
       turns: seats.map((s) => ({ seatId: s.id, text: s.text, at: Date.now() })),
       followups: followup
@@ -376,6 +497,8 @@ function MeetingInner() {
             },
           ]
         : [],
+      crossExams: modeParam === "full" ? crossExamRecords : undefined,
+      userMarks: modeParam === "full" ? userMarks : undefined,
       verdict: verdict
         ? {
             text: verdict,
@@ -406,41 +529,38 @@ function MeetingInner() {
     setTimeout(() => router.push("/"), 1600);
   }
 
-  // ─── derive stage rail visuals ────────────────────────────────────────
-  const doneStageIds = (() => {
-    const out: string[] = [];
-    const order: Stage[] = [
-      "case",
-      "statements",
-      "interrogation",
-      "verdict",
-      "signature",
-    ];
-    const currentIdx = order.indexOf(
-      stage === "memory_consent" || stage === "archived" ? "signature" : (stage as any)
-    );
-    for (let i = 0; i < currentIdx; i++) out.push(order[i]);
-    if (stage === "memory_consent" || stage === "archived") out.push("signature");
-    return out;
-  })();
-  const currentRailId =
-    stage === "loading"
-      ? "case"
-      : stage === "memory_consent" || stage === "archived"
-        ? "signature"
-        : stage;
+  // ─── stage rail computation ───────────────────────────────────────────
+  const railIds = stageRail.map((s) => s.id);
+  let currentRailId: string;
+  if (stage === "memory_consent" || stage === "archived") {
+    currentRailId = "signature";
+  } else if (stage === "loading") {
+    currentRailId = "case";
+  } else {
+    currentRailId = stage;
+  }
+  const currentIdx = railIds.indexOf(currentRailId);
+  const doneStageIds = railIds.slice(0, Math.max(0, currentIdx));
+  if (stage === "memory_consent" || stage === "archived") {
+    doneStageIds.push("signature");
+  }
 
   // ─── render ───────────────────────────────────────────────────────────
   return (
     <main className="min-h-screen px-5 sm:px-10 py-10 sm:py-14 max-w-3xl mx-auto font-sans text-ink-body">
-      <header className="mb-10 flex items-center justify-between gap-3 flex-wrap">
+      <header className="mb-10 flex items-start justify-between gap-3 flex-wrap">
         <Link
           href="/"
-          className="text-xs tracking-[0.18em] text-ink-mute uppercase hover:text-ink-core transition-colors"
+          className="text-xs tracking-[0.18em] text-ink-mute uppercase hover:text-ink-core transition-colors mt-1"
         >
           ← 我的阁
         </Link>
-        <StageRail stages={STAGE_RAIL} current={currentRailId} done={doneStageIds} />
+        <div className="flex flex-col items-end gap-2">
+          <span className="text-[10px] tracking-[0.18em] text-ink-faint uppercase">
+            {modeParam === "full" ? "完整内阁会议" : "快速会议"}
+          </span>
+          <StageRail stages={stageRail} current={currentRailId} done={doneStageIds} />
+        </div>
       </header>
 
       {error && (
@@ -463,7 +583,9 @@ function MeetingInner() {
                 {topic}
               </p>
               <p className="text-body-sm text-ink-mute mb-6">
-                这是你刚才提交的议题。下一步，三席会同时表态。
+                {modeParam === "full"
+                  ? "下一步，先组阁——决定这次让谁入席。"
+                  : "下一步，三席会同时表态。"}
               </p>
               <div className="flex flex-wrap gap-3 items-center">
                 <button
@@ -514,6 +636,69 @@ function MeetingInner() {
         </DocketPaper>
       )}
 
+      {/* ─── stage: assembly (full only) ─── */}
+      {stage === "assembly" && modeParam === "full" && (
+        <>
+          <DocketPaper stage="议题" dense className="mb-6">
+            <p className="font-serif text-title text-ink-core leading-snug">{topic}</p>
+          </DocketPaper>
+
+          <DocketPaper
+            stage="组阁"
+            marginalia="先决定谁入席。这是你的会议，你是主持人。"
+          >
+            <p className="text-body text-ink-body leading-relaxed mb-5">
+              本次会议，建议这五席入席：
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {(Object.values(SELVES) as any[]).map((s) => (
+                <div
+                  key={s.id}
+                  className="bg-paper-base border border-paper-edge rounded-md p-3"
+                  style={{
+                    borderLeft: `3px solid var(--color-seat-${
+                      s.id === "lay"
+                        ? "rest"
+                        : s.id === "money"
+                          ? "money"
+                          : s.id === "roam"
+                            ? "roam"
+                            : s.id === "filial"
+                              ? "filial"
+                              : "future"
+                    })`,
+                  }}
+                >
+                  <div className="flex items-baseline justify-between gap-2 mb-1">
+                    <span className="font-medium text-ink-core">{s.name}</span>
+                    <span className="text-[10px] tracking-wider text-ink-faint uppercase">
+                      常任
+                    </span>
+                  </div>
+                  <p className="text-body-sm text-ink-mute leading-snug mb-1.5">
+                    {s.ifs_label}
+                  </p>
+                  <p className="text-body-sm text-ink-body leading-snug italic font-serif">
+                    保护：{s.core_value}
+                  </p>
+                </div>
+              ))}
+            </div>
+            <div className="mt-6 flex flex-wrap gap-3">
+              <button
+                onClick={confirmAssembly}
+                className="px-5 py-2.5 rounded-md bg-ink-core text-paper-base text-body-sm font-medium hover:bg-ink-body transition-colors"
+              >
+                确认组阁，开始表态 →
+              </button>
+              <span className="text-body-sm text-ink-mute self-center italic">
+                替换 / 旁听是 Week 4 功能
+              </span>
+            </div>
+          </DocketPaper>
+        </>
+      )}
+
       {/* ─── stage: statements + interrogation share UI ─── */}
       {(stage === "statements" || stage === "interrogation") && (
         <>
@@ -523,7 +708,13 @@ function MeetingInner() {
             </p>
           </DocketPaper>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-8">
+          <div
+            className={`grid gap-3 mb-8 ${
+              modeParam === "full"
+                ? "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3"
+                : "grid-cols-1 sm:grid-cols-3"
+            }`}
+          >
             {seats.map((s) => (
               <SeatNameplate
                 key={s.id}
@@ -539,7 +730,7 @@ function MeetingInner() {
                 text={s.text}
               />
             ))}
-            {running && seats.length < 3 && (
+            {running && seats.length < (modeParam === "full" ? 5 : 3) && (
               <div className="p-4 text-body-sm text-ink-mute italic font-serif">
                 正在召集中…
               </div>
@@ -621,10 +812,12 @@ function MeetingInner() {
               </DocketPaper>
               <div className="mt-6 flex gap-3 flex-wrap">
                 <button
-                  onClick={advanceToVerdict}
+                  onClick={advanceFromInterrogation}
                   className="px-5 py-2.5 rounded-md bg-ink-core text-paper-base text-body-sm font-medium hover:bg-ink-body transition-colors"
                 >
-                  够了，让此刻的我裁决 →
+                  {modeParam === "full" && crossEvents.length > 0
+                    ? "进入交叉质询 →"
+                    : "够了，让此刻的我裁决 →"}
                 </button>
                 <button
                   onClick={resetFollowup}
@@ -644,13 +837,80 @@ function MeetingInner() {
         </>
       )}
 
+      {/* ─── stage: cross_exam (full only) ─── */}
+      {stage === "cross_exam" && modeParam === "full" && (
+        <CrossExamStage
+          events={crossEvents}
+          index={crossIndex}
+          marks={userMarks}
+          iWantToReply={iWantToReply}
+          onIWantToReplyChange={setIWantToReply}
+          onJudge={judgeCross}
+          onSkipRest={skipRemainingCross}
+        />
+      )}
+
+      {/* ─── stage: revision_check (full only) ─── */}
+      {stage === "revision_check" && modeParam === "full" && (
+        <DocketPaper
+          stage="议案修订"
+          marginalia="原议题不一定是真问题。修订是一种诚实。"
+        >
+          <div className="text-[10px] tracking-[0.18em] text-ink-mute uppercase mb-2">
+            原议题
+          </div>
+          <p className="font-serif text-title text-ink-core leading-snug mb-5">
+            {topic}
+          </p>
+
+          <p className="text-body text-ink-body mb-3 leading-relaxed">
+            质询之后，你看见的真问题，可能是另一个：
+          </p>
+          <textarea
+            value={topicRevised}
+            onChange={(e) => setTopicRevised(e.target.value.slice(0, 400))}
+            rows={3}
+            placeholder={"重写一个更精准的议题。\n比如：「我要不要在不让妈妈失望的前提下，找到自己的步调」"}
+            className="w-full p-3 rounded-md bg-paper-base border border-paper-edge focus:border-ink-core focus:outline-none text-body text-ink-body font-serif resize-none mb-4"
+          />
+
+          <div className="flex flex-wrap gap-3">
+            <button
+              onClick={() => chooseRevision("original")}
+              className="px-4 py-2 rounded-md bg-paper-base border border-paper-edge hover:border-ink-core text-body-sm text-ink-body transition-colors"
+            >
+              按原议题裁决 →
+            </button>
+            <button
+              onClick={() => chooseRevision("revised")}
+              disabled={!topicRevised.trim()}
+              className="px-4 py-2 rounded-md bg-ink-core text-paper-base text-body-sm font-medium hover:bg-ink-body disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            >
+              按修订议题裁决 →
+            </button>
+            <button
+              onClick={() => chooseRevision("both")}
+              disabled={!topicRevised.trim()}
+              className="px-4 py-2 rounded-md text-body-sm text-ink-body hover:bg-paper-base disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            >
+              两个都记入
+            </button>
+          </div>
+        </DocketPaper>
+      )}
+
       {/* ─── stage: verdict ─── */}
       {stage === "verdict" && (
         <>
           <DocketPaper stage="议题" dense className="mb-6">
             <p className="font-serif text-title text-ink-core leading-snug">
-              {topic}
+              {verdictBasedOn === "revised" && topicRevised ? topicRevised : topic}
             </p>
+            {verdictBasedOn === "both" && topicRevised && (
+              <p className="mt-2 text-body-sm text-ink-mute italic">
+                + 修订议题：{topicRevised}
+              </p>
+            )}
           </DocketPaper>
 
           <DocketPaper
@@ -707,6 +967,125 @@ function MeetingInner() {
         </DocketPaper>
       )}
     </main>
+  );
+}
+
+// ───────────────────────────────────────────────────────────
+// Cross-exam stage UI
+// ───────────────────────────────────────────────────────────
+function CrossExamStage({
+  events,
+  index,
+  marks,
+  iWantToReply,
+  onIWantToReplyChange,
+  onJudge,
+  onSkipRest,
+}: {
+  events: CrossEvent[];
+  index: number;
+  marks: UserMark[];
+  iWantToReply: string;
+  onIWantToReplyChange: (v: string) => void;
+  onJudge: (j: UserMark["judgement"]) => void;
+  onSkipRest: () => void;
+}) {
+  const ev = events[index];
+  if (!ev) return null;
+  const showReply =
+    marks.find((m) => m.targetIndex === index)?.judgement === "i-want-to-answer";
+  const replyMode = !showReply && iWantToReply.length > 0;
+
+  return (
+    <DocketPaper
+      stage={`交叉质询 · ${index + 1} / ${events.length}`}
+      marginalia="问中了？没问中？还是你想替它回答？"
+    >
+      <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_1fr] gap-3 items-center mb-6">
+        <div className="text-center sm:text-right">
+          <div className="text-[10px] tracking-[0.18em] text-ink-mute uppercase mb-1">
+            发问
+          </div>
+          <div className="font-medium text-ink-core">{ev.fromName}</div>
+        </div>
+        <div className="text-center text-ink-mute">→</div>
+        <div className="text-center sm:text-left">
+          <div className="text-[10px] tracking-[0.18em] text-ink-mute uppercase mb-1">
+            被问
+          </div>
+          <div className="font-medium text-ink-core">{ev.toName}</div>
+        </div>
+      </div>
+
+      <blockquote className="border-l-3 border-ink-core pl-5 py-2 mb-6">
+        <p className="font-serif text-verdict text-ink-core leading-relaxed">
+          「{ev.text}」
+        </p>
+      </blockquote>
+
+      {!replyMode ? (
+        <>
+          <p className="text-body-sm text-ink-mute mb-3 tracking-wider uppercase text-[11px]">
+            你怎么看
+          </p>
+          <div className="flex flex-wrap gap-3 mb-4">
+            <button
+              onClick={() => onJudge("hit")}
+              className="px-4 py-2 rounded-md bg-safe-green/10 border border-safe-green/40 text-safe-green text-body-sm hover:bg-safe-green/20 transition-colors"
+            >
+              问中了
+            </button>
+            <button
+              onClick={() => onJudge("miss")}
+              className="px-4 py-2 rounded-md bg-paper-base border border-paper-edge text-ink-body text-body-sm hover:border-ink-mute transition-colors"
+            >
+              没问中
+            </button>
+            <button
+              onClick={() => onIWantToReplyChange(" ")}
+              className="px-4 py-2 rounded-md text-body-sm text-ink-mute hover:text-ink-core hover:bg-paper-base transition-colors"
+            >
+              我想回答
+            </button>
+          </div>
+          <div className="text-xs text-ink-faint">
+            {index + 1} / {events.length} ·{" "}
+            <button onClick={onSkipRest} className="underline-offset-4 hover:underline">
+              跳过剩下，进入修订
+            </button>
+          </div>
+        </>
+      ) : (
+        <>
+          <p className="text-body-sm text-ink-mute mb-2">
+            你替自己回答：
+          </p>
+          <textarea
+            value={iWantToReply.trimStart()}
+            onChange={(e) => onIWantToReplyChange(e.target.value.slice(0, 300))}
+            rows={3}
+            autoFocus
+            placeholder="说出口的那一句。"
+            className="w-full p-3 rounded-md bg-paper-base border border-paper-edge focus:border-ink-core focus:outline-none text-body text-ink-body font-serif resize-none mb-4"
+          />
+          <div className="flex gap-3">
+            <button
+              onClick={() => onJudge("i-want-to-answer")}
+              disabled={!iWantToReply.trim()}
+              className="px-4 py-2 rounded-md bg-ink-core text-paper-base text-body-sm font-medium hover:bg-ink-body disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            >
+              记入档案
+            </button>
+            <button
+              onClick={() => onIWantToReplyChange("")}
+              className="px-3 py-2 text-body-sm text-ink-mute hover:text-ink-core"
+            >
+              算了
+            </button>
+          </div>
+        </>
+      )}
+    </DocketPaper>
   );
 }
 

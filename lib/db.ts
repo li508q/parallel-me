@@ -21,6 +21,24 @@ export interface MeetingFollowup {
   at: number;
 }
 
+/** Cross-examine event: one seat reframes/challenges another (full mode only). */
+export interface CrossExam {
+  fromSeatId: SelfId;
+  toSeatId: SelfId;
+  text: string;          // the challenging question
+  at: number;
+}
+
+/** User judgement on a cross-exam or seat statement. */
+export interface UserMark {
+  /** What the mark targets — references CrossExam by index or SeatTurn by id. */
+  targetKind: "cross" | "turn";
+  targetIndex: number;
+  judgement: "hit" | "miss" | "i-want-to-answer";
+  reply?: string;        // when judgement is "i-want-to-answer"
+  at: number;
+}
+
 export interface MeetingVerdict {
   text: string;
   loudestSeatId?: SelfId;
@@ -64,10 +82,18 @@ export interface Meeting {
 
   topicRaw: string;
   topicRefined?: string;
+  /** Set if user revised the issue mid-meeting (full mode only). */
+  topicRevised?: string;
+  /** Whether the verdict was made on the revised vs original topic. */
+  verdictBasedOn?: "original" | "revised" | "both";
 
   seatIds: SelfId[];
   turns: MeetingTurn[];
   followups: MeetingFollowup[];
+  /** Full-mode only: cross-examine exchanges. */
+  crossExams?: CrossExam[];
+  /** Full-mode only: user judgement of cross-exams or turns. */
+  userMarks?: UserMark[];
 
   verdict?: MeetingVerdict;
   signature?: MeetingSignature;
@@ -79,9 +105,14 @@ class CabinetDB extends Dexie {
 
   constructor() {
     super("ParallelMeV3");
+    // v1: initial Quick Meeting schema (Week 2)
     this.version(1).stores({
-      // Indexed fields. status & mode are useful for filtering;
-      // createdAt for sort.
+      meetings: "id, createdAt, closedAt, status, mode",
+    });
+    // v2: same indexes, extended fields (crossExams, userMarks, topicRevised)
+    // Index set unchanged → no migration callback needed; new fields are
+    // optional and read as undefined on old rows.
+    this.version(2).stores({
       meetings: "id, createdAt, closedAt, status, mode",
     });
   }
