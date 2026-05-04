@@ -36,14 +36,19 @@ function resolveRuntime(rt?: LlmRuntime) {
   };
 }
 
+/** True when there is a usable API key (request override or env). */
+function hasRealKey(rt?: LlmRuntime): boolean {
+  return !!resolveRuntime(rt).apiKey;
+}
+
 export type Msg = { role: "system" | "user" | "assistant"; content: string };
 
 // ────────────────────────────────────────────────────────────
 // 话题分类（演员模式用）
 // ────────────────────────────────────────────────────────────
-type Topic = "career" | "relationship" | "family" | "money" | "lifestyle" | "general";
+export type Topic = "career" | "relationship" | "family" | "money" | "lifestyle" | "general";
 
-function classifyTopic(text: string): Topic {
+export function classifyTopic(text: string): Topic {
   const s = text.toLowerCase();
   if (/(辞职|跳槽|升职|考公|考研|加班|裸辞|副业|失业|996|班味|大厂|国企|体制|offer|工作|老板|同事|kpi|okr)/i.test(text)) return "career";
   if (/(对象|男友|女友|分手|结婚|离婚|相亲|暗恋|表白|前任|喜欢|爱|男朋友|女朋友|搭子|断联)/i.test(text)) return "relationship";
@@ -113,7 +118,8 @@ export async function callSelf(
   selfId: SelfId | "now",
   userInput: string,
   otherSays?: string,
-  ctx?: ContextBundle
+  ctx?: ContextBundle,
+  runtime?: LlmRuntime,
 ): Promise<string> {
   const me = selfId === "now" ? NOWME : SELVES[selfId];
   const systemContent = me.system_prompt + buildContextBlock(ctx);
@@ -126,7 +132,7 @@ export async function callSelf(
   } else {
     messages.push({ role: "user", content: userInput });
   }
-  return chat(messages);
+  return chat(messages, { runtime });
 }
 
 // ────────────────────────────────────────────────────────────
@@ -137,6 +143,7 @@ export async function crossExamine(
   target: SelfId,
   userInput: string,
   targetSaid: string,
+  runtime?: LlmRuntime,
 ): Promise<string> {
   const me = SELVES[challenger];
   const t = SELVES[target];
@@ -152,14 +159,15 @@ export async function crossExamine(
       content: `用户的纠结：${userInput}\n\n${t.name}刚说：「${targetSaid.slice(0, 220)}」\n\n你的一句话反问：`,
     },
   ];
-  return chat(messages, { temperature: 0.95, max_tokens: 120 });
+  return chat(messages, { temperature: 0.95, max_tokens: 120, runtime });
 }
 
 // ────────────────────────────────────────────────────────────
 // 动态 pair 选择 — 一次 LLM 打 5x5 对立矩阵
 // ────────────────────────────────────────────────────────────
 export async function pickOpposingPairs(
-  answers: { id: SelfId; text: string }[]
+  answers: { id: SelfId; text: string }[],
+  runtime?: LlmRuntime,
 ): Promise<[SelfId, SelfId][]> {
   // 默认配对（演员模式 / API fail 时）
   const defaultPairs: [SelfId, SelfId][] = [
@@ -168,7 +176,7 @@ export async function pickOpposingPairs(
     ["roam", "filial"],
     ["filial", "roam"],
   ];
-  if (!API_KEY || answers.length < 4) return defaultPairs;
+  if (!hasRealKey(runtime) || answers.length < 4) return defaultPairs;
 
   const block = answers.map(a => `[${a.id}] ${SELVES[a.id].name}: ${a.text.slice(0, 200)}`).join("\n\n");
   const messages: Msg[] = [
@@ -184,7 +192,7 @@ export async function pickOpposingPairs(
     { role: "user", content: block },
   ];
   try {
-    const out = await chat(messages, { temperature: 0.3, max_tokens: 200, json: true });
+    const out = await chat(messages, { temperature: 0.3, max_tokens: 200, json: true, runtime });
     const j = JSON.parse(out);
     const pairs = j.pairs as [SelfId, SelfId][];
     if (Array.isArray(pairs) && pairs.length >= 2) {
@@ -214,14 +222,15 @@ function violatesBan(text: string): string[] {
 export async function callNowMeWithCritic(
   userInput: string,
   otherSays: string,
-  ctx?: ContextBundle
+  ctx?: ContextBundle,
+  runtime?: LlmRuntime,
 ): Promise<string> {
-  let attempt = await callSelf("now", userInput, otherSays, ctx);
+  let attempt = await callSelf("now", userInput, otherSays, ctx, runtime);
   const violations = violatesBan(attempt);
   if (violations.length === 0) return attempt;
   // 回炉一次（meta-critic feedback）
   console.log(`[meta-critic] NowMe used banned words: ${violations.join(", ")} — regenerating`);
-  if (!API_KEY) return attempt; // mock 模式不重生
+  if (!hasRealKey(runtime)) return attempt; // mock 模式不重生
   const messages: Msg[] = [
     { role: "system", content: NOWME.system_prompt + buildContextBlock(ctx) },
     {
@@ -232,7 +241,7 @@ export async function callNowMeWithCritic(
         `（重要！上一版回答违规使用了禁用词：${violations.join("、")}。请重新写一次，必须做出明确选择。）`,
     },
   ];
-  const retry = await chat(messages, { temperature: 0.7, max_tokens: 500 });
+  const retry = await chat(messages, { temperature: 0.7, max_tokens: 500, runtime });
   return retry || attempt;
 }
 
@@ -244,7 +253,8 @@ export async function followUp(
   userInput: string,
   prevAnswer: string,
   question: string,
-  ctx?: ContextBundle
+  ctx?: ContextBundle,
+  runtime?: LlmRuntime,
 ): Promise<string> {
   const me = SELVES[selfId];
   const messages: Msg[] = [
@@ -258,7 +268,7 @@ export async function followUp(
     { role: "assistant", content: prevAnswer },
     { role: "user", content: `（最初的纠结：${userInput}）\n\n我想再问你：${question}` },
   ];
-  return chat(messages, { temperature: 0.85, max_tokens: 280 });
+  return chat(messages, { temperature: 0.85, max_tokens: 280, runtime });
 }
 
 // ────────────────────────────────────────────────────────────
@@ -267,7 +277,8 @@ export async function followUp(
 export async function psychInsight(
   userInput: string,
   topResponses: string[],
-  loudestId: SelfId
+  loudestId: SelfId,
+  runtime?: LlmRuntime,
 ): Promise<string> {
   const sys = `你是一位资深心理咨询师，IFS（Internal Family Systems）取向。
 现在用户面对一个纠结，他内心 5 个不同声音都说了话——其中「${SELVES[loudestId].name}」的声音最响（IFS 类型：${SELVES[loudestId].ifs_label}）。
@@ -286,11 +297,11 @@ export async function psychInsight(
       content: `用户纠结：${userInput}\n\n他内心 5 个声音说的话:\n${topResponses.join("\n\n")}`,
     },
   ];
-  if (!API_KEY) {
+  if (!hasRealKey(runtime)) {
     const t = classifyTopic(userInput);
     return MOCK_INSIGHT[t];
   }
-  return chat(messages, { temperature: 0.7, max_tokens: 280 });
+  return chat(messages, { temperature: 0.7, max_tokens: 280, runtime });
 }
 
 // ────────────────────────────────────────────────────────────
@@ -300,7 +311,8 @@ export async function extractEpisode(
   userInput: string,
   selfAnswers: { id: SelfId; text: string }[],
   nowMeText: string,
-  loudestId: SelfId
+  loudestId: SelfId,
+  runtime?: LlmRuntime,
 ): Promise<{
   title: string;
   summary: string;
@@ -311,7 +323,7 @@ export async function extractEpisode(
   silenced_voice: SelfId;
   decision: string;
 } | null> {
-  if (!API_KEY) return null; // mock 模式不抽
+  if (!hasRealKey(runtime)) return null; // mock 模式不抽
   const sys = `你是用户的私人编年史。读完这次对话后，抽取一张「事件卡」。
 重要性评分：
 - 是否做出/逼近一个人生选择？(+0.4)
@@ -341,7 +353,7 @@ importance < 0.3 时，不要写入（直接输出 null）。
     },
   ];
   try {
-    const out = await chat(messages, { temperature: 0.3, max_tokens: 500, json: true });
+    const out = await chat(messages, { temperature: 0.3, max_tokens: 500, json: true, runtime });
     const j = JSON.parse(out);
     if (typeof j.importance === "number" && j.importance < 0.3) return null;
     if (!j.title) return null;
@@ -361,12 +373,15 @@ export interface TasteInput {
   music: { title: string; why?: string }[];
 }
 
-export async function extractTasteProfile(taste: TasteInput): Promise<{
+export async function extractTasteProfile(
+  taste: TasteInput,
+  runtime?: LlmRuntime,
+): Promise<{
   themes: string[];
   moods: string[];
   identity_hint: string;
 } | null> {
-  if (!API_KEY) {
+  if (!hasRealKey(runtime)) {
     return {
       themes: ["孤独", "时间", "失而复得"],
       moods: ["慢", "雨天"],
@@ -387,7 +402,7 @@ export async function extractTasteProfile(taste: TasteInput): Promise<{
   try {
     const out = await chat(
       [{ role: "system", content: sys }, { role: "user", content: txt }],
-      { temperature: 0.7, max_tokens: 300, json: true }
+      { temperature: 0.7, max_tokens: 300, json: true, runtime }
     );
     return JSON.parse(out);
   } catch (e) {

@@ -1,496 +1,209 @@
 "use client";
-import Link from "next/link";
-import { useState, useRef, useEffect } from "react";
-import { SELVES, NOWME, type SelfId } from "@/lib/selves";
-import { SelfAvatar } from "@/components/SelfAvatar";
-import { ProviderStatusPill } from "@/components/ProviderStatusPill";
-import { loadProfile, loadTaste, profileToMarkdown, tasteToProfileHint } from "@/lib/profile";
-import { addEpisode, getOpeningLine, getRecentContextForPrompt, lastEpisode, loadEpisodes, updateEpisode } from "@/lib/memory";
-import type { Episode } from "@/lib/memory";
 
-type SelfFrame = { id: SelfId; name: string; emoji: string; tagline: string; text: string };
-type CrossFrame = { from: string; fromId: SelfId; to: string; toId: SelfId; text: string };
-type FollowMsg = { role: "user" | "self"; text: string };
-type OpenerAnswer = "done" | "not-done" | "forgot";
-type Stage = "idle" | "selves" | "cross" | "now" | "insight" | "done";
-type FollowupMap = Record<SelfId, FollowMsg[]>;
-type SeedMap = Record<string, string>;
+// V3 cabinet workbench home.
+// Submits route to /meeting (Quick Meeting state machine).
+// V2's SSE rendering, callback opener, follow-up sidecar, and share-card
+// helpers have been retired here — the surfaces still live in /me/*.
+
+import Link from "next/link";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { ProviderStatusPill } from "@/components/ProviderStatusPill";
+import { DocketPaper } from "@/components/DocketPaper";
+import {
+  recentMeetings,
+  pendingCommitments,
+  type Meeting,
+} from "@/lib/db";
+import { lastEpisode, type Episode } from "@/lib/memory";
 
 const PRESETS = [
-  "我妈让我考公，我现在大厂月薪 2.5w，回老家月薪能到 6k 吗？",
+  "我妈让我考公，我现在大厂月薪 2.5w，回老家月薪能到 6k。",
   "处了 3 年的对象想结婚了，但我一想到结婚就喘不过气。",
-  "副业月入 8k，本职 2w，要不要辞职 all in 副业？",
+  "副业月入 8k，本职 2w，要不要 all in 副业？",
   "26 岁，朋友都开始定居了，我还想去清迈待半年。",
   "凌晨 2 点老板在群里发了个 OK?，我现在心率 120。",
 ];
 
-const PLACEHOLDERS = [
-  "把那件让你睡不着的事，原原本本地写下来。\n越具体越好——越具体，5 个我才越能为你较劲。",
-  "今天最不想说出口的那句。",
-  "刚才那个念头，写在这里。",
-  "把「我该不该……」那句话写完。",
-];
-
 export default function Home() {
+  const router = useRouter();
   const [input, setInput] = useState("");
-  const [running, setRunning] = useState(false);
-  const [stage, setStage] = useState<Stage>("idle");
-  const [selves, setSelves] = useState<SelfFrame[]>([]);
-  const [crosses, setCrosses] = useState<CrossFrame[]>([]);
-  const [now, setNow] = useState<string>("");
-  const [insight, setInsight] = useState<string>("");
-  const [loudestId, setLoudestId] = useState<SelfId | null>(null);
-  const [error, setError] = useState<string>("");
-  const [openSelf, setOpenSelf] = useState<SelfId | null>(null);
-  const [followups, setFollowups] = useState<FollowupMap>({} as any);
-  const [followAsking, setFollowAsking] = useState<SelfId | null>(null);
-  const [phIdx, setPhIdx] = useState(0);
-  const [opener, setOpener] = useState<string | null>(null);   // callback 开场
-  const [contextHint, setContextHint] = useState<string | null>(null); // 输入框上方「她在听」提示
-  const [pendingFollowups, setPendingFollowups] = useState<Episode[]>([]);
-  const [recentMeetings, setRecentMeetings] = useState<Episode[]>([]);
-  const lastEpisodeIdRef = useRef<string | null>(null);
-  const resultsRef = useRef<HTMLDivElement>(null);
+  const [meetings, setMeetings] = useState<Meeting[]>([]);
+  const [pending, setPending] = useState<Meeting[]>([]);
+  const [legacyEpisode, setLegacyEpisode] = useState<Episode | null>(null);
 
   useEffect(() => {
-    setPhIdx(Math.floor(Math.random() * PLACEHOLDERS.length));
-    // Cabinet snapshot data — read V2 episodes as best-available source.
-    const eps = loadEpisodes();
-    setPendingFollowups(eps.filter(e => e.followup == null && e.decision).slice(0, 1));
-    setRecentMeetings(eps.slice(0, 1));
-    // callback 开场
-    const o = getOpeningLine();
-    if (o) setOpener(o);
-    // 读 me.md / taste 用于 hint
-    const p = loadProfile();
-    const t = loadTaste();
-    if (p.season || t.profile?.identity_hint) {
-      const bits = [];
-      if (p.season) bits.push(p.season);
-      if (t.profile?.identity_hint) bits.push(t.profile.identity_hint);
-      setContextHint(bits.join(" · "));
-    }
+    recentMeetings(3).then(setMeetings).catch(() => {});
+    pendingCommitments().then(setPending).catch(() => {});
+    setLegacyEpisode(lastEpisode());
   }, []);
 
-  async function run(text?: string) {
-    const q = (text ?? input).trim();
-    if (!q || running) return;
-    setRunning(true); setStage("selves");
-    setSelves([]); setCrosses([]); setNow(""); setInsight(""); setLoudestId(null);
-    setError(""); setOpenSelf(null); setFollowups({} as any); setInput(q);
-    setTimeout(() => resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
+  function startMeeting(topic: string) {
+    const t = topic.trim();
+    if (!t) return;
+    router.push(`/meeting?topic=${encodeURIComponent(t)}`);
+  }
 
-    // Build ContextBundle from local profile/taste/memory
-    const profile = loadProfile();
-    const taste = loadTaste();
-    const meCard = profileToMarkdown(profile, taste);
-    const tasteProfile = tasteToProfileHint(taste);
-    const recent = getRecentContextForPrompt();
-    const context = (meCard || tasteProfile || recent) ? {
-      meCard: meCard || undefined,
-      tasteProfile: tasteProfile || undefined,
-      recentEpisode: recent || undefined,
-    } : undefined;
+  function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    startMeeting(input);
+  }
 
-    try {
-      const r = await fetch("/api/parallel", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ input: q, context }),
-      });
-      if (!r.ok || !r.body) throw new Error("请求失败");
-      const reader = r.body.getReader();
-      const dec = new TextDecoder();
-      let buf = "";
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buf += dec.decode(value, { stream: true });
-        const parts = buf.split("\n\n");
-        buf = parts.pop() || "";
-        for (const p of parts) {
-          if (!p.startsWith("data: ")) continue;
-          const f = JSON.parse(p.slice(6));
-          if (f.type === "self") setSelves(s => [...s, f]);
-          else if (f.type === "cross") { setCrosses(c => [...c, f]); setStage("cross"); }
-          else if (f.type === "loudest") setLoudestId(f.id);
-          else if (f.type === "now") { setNow(f.text); setStage("now"); }
-          else if (f.type === "insight") { setInsight(f.text); setStage("insight"); }
-          else if (f.type === "episode") {
-            // 保存到 localStorage
-            try {
-              const saved = addEpisode({
-                title: f.ep.title,
-                summary: f.ep.summary,
-                emotion: f.ep.emotion,
-                intensity: f.ep.intensity,
-                importance: f.ep.importance,
-                dominant_voice: f.ep.dominant_voice,
-                silenced_voice: f.ep.silenced_voice,
-                decision: f.ep.decision,
-                raw_excerpt: q,
-                followup: null,
-              });
-              lastEpisodeIdRef.current = saved.id;
-            } catch {}
-          }
-          else if (f.type === "done") setStage("done");
-          else if (f.type === "error") setError(f.message || "出错");
-        }
+  // Cabinet snapshot resolution: prefer V3 Dexie; gracefully fall back to
+  // pre-existing V2 episodes so users with V2 data still see a populated home.
+  const recentMeetingCard: CardData | null = meetings[0]
+    ? {
+        title: meetings[0].topicRefined ?? meetings[0].topicRaw,
+        meta: timeAgo(meetings[0].createdAt),
+        href: undefined, // direct meeting view is Week 3
       }
-    } catch (e: any) {
-      setError(e?.message || "出错了");
-    } finally {
-      setRunning(false);
-    }
-  }
+    : legacyEpisode
+      ? {
+          title: legacyEpisode.title,
+          meta: `${timeAgo(legacyEpisode.ts)} · 旧版档案`,
+          href: "/me/pages",
+        }
+      : null;
 
-  async function askFollow(selfId: SelfId, q: string) {
-    if (!q.trim() || followAsking) return;
-    setFollowAsking(selfId);
-    setFollowups(prev => ({ ...prev, [selfId]: [...(prev[selfId]||[]), { role: "user", text: q }] }));
-    try {
-      const prevAnswer = selves.find(s => s.id === selfId)?.text || "";
-      const profile = loadProfile();
-      const taste = loadTaste();
-      const context = {
-        meCard: profileToMarkdown(profile, taste) || undefined,
-        tasteProfile: tasteToProfileHint(taste) || undefined,
-      };
-      const r = await fetch("/api/followup", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ selfId, userInput: input, prevAnswer, question: q, context }),
-      });
-      const j = await r.json();
-      setFollowups(prev => ({ ...prev, [selfId]: [...(prev[selfId]||[]), { role: "self", text: j.text || j.error || "..." }] }));
-    } finally { setFollowAsking(null); }
-  }
-
-  function shareCard() {
-    fetch("/api/share", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ input, selves, loudestId }),
-    }).then(r => r.text()).then(svg => {
-      const blob = new Blob([svg], { type: "image/svg+xml" });
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = `parallelme-${Date.now()}.svg`;
-      a.click();
-    });
-  }
-
-  function reset() {
-    setSelves([]); setCrosses([]); setNow(""); setInsight(""); setStage("idle"); setInput("");
-    setLoudestId(null); setOpenSelf(null); setFollowups({} as any);
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  }
-
-  function answerOpener(v: OpenerAnswer) {
-    const ep = lastEpisode();
-    if (ep) updateEpisode(ep.id, { followup: v });
-    setOpener(null);
-    // 把回答作为新一轮输入的种子
-    const seeds: SeedMap = {
-      done: `我做了上次说会做的事——${ep?.decision}。然后呢？`,
-      "not-done": `我没做上次说会做的事——${ep?.decision}。我又卡住了。`,
-      forgot: `我把上次说会做的事忘了——${ep?.decision}。`,
-    };
-    setInput(seeds[v] || "");
-  }
+  const pendingCard: CardData | null = pending[0]?.signature?.action24h
+    ? {
+        title: `「${pending[0].signature.action24h}」`,
+        meta: `${timeAgo(pending[0].closedAt ?? pending[0].createdAt)} · 你说会做`,
+      }
+    : legacyEpisode?.followup == null && legacyEpisode?.decision
+      ? {
+          title: `「${legacyEpisode.decision}」`,
+          meta: `${timeAgo(legacyEpisode.ts)} · 旧版承诺`,
+          href: "/me/insights",
+        }
+      : null;
 
   return (
-    <main className="min-h-screen px-5 sm:px-10 pt-10 sm:pt-16 pb-24 max-w-4xl mx-auto font-body">
-
-      {/* V3 CABINET WORKBENCH HEADER */}
+    <main className="min-h-screen px-5 sm:px-10 pt-10 sm:pt-16 pb-24 max-w-4xl mx-auto font-sans text-ink-body">
+      {/* ─── header ─── */}
       <header className="mb-10 sm:mb-14 animate-ink-in">
         <div className="flex items-center justify-between mb-10 gap-3 flex-wrap">
           <div className="flex items-center gap-2 text-xs tracking-[0.18em] text-ink-mute uppercase">
-            <span className="w-1 h-1 rounded-full bg-ink-core animate-soft-pulse"/>
+            <span className="w-1 h-1 rounded-full bg-ink-core animate-soft-pulse" />
             ParallelMe · 我的阁
           </div>
           <div className="flex items-center gap-3 flex-wrap">
             <ProviderStatusPill />
-            <Link href="/me" className="text-xs tracking-wider text-ink-mute hover:text-ink-core underline-offset-4 hover:underline">底片</Link>
-            <Link href="/about" className="text-xs tracking-wider text-ink-mute hover:text-ink-core underline-offset-4 hover:underline">序</Link>
+            <Link
+              href="/me"
+              className="text-xs tracking-wider text-ink-mute hover:text-ink-core underline-offset-4 hover:underline"
+            >
+              底片
+            </Link>
+            <Link
+              href="/about"
+              className="text-xs tracking-wider text-ink-mute hover:text-ink-core underline-offset-4 hover:underline"
+            >
+              序
+            </Link>
           </div>
         </div>
 
         <h1 className="font-serif font-semibold text-headline sm:text-display text-ink-core leading-[1.05] mb-4">
-          今天<br/>要开什么会？
+          今天<br />
+          要开什么会？
         </h1>
         <p className="text-body sm:text-body-long text-ink-body max-w-xl leading-relaxed">
-          写下那个没人能替你决定的议题。<br className="hidden sm:block"/>
+          写下那个没人能替你决定的议题。<br className="hidden sm:block" />
           这里不是聊天框，是你的内在会议室。
         </p>
       </header>
 
-      {/* CABINET SNAPSHOT — 3 cards */}
-      <section className="mb-10 grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <CabinetCard
-          label="待复盘承诺"
-          empty={pendingFollowups.length === 0}
-          emptyHint="签字之后，这里会出现你的 24h 承诺。"
-        >
-          {pendingFollowups[0] && (
-            <>
-              <p className="text-body-sm text-ink-body leading-snug line-clamp-2 mb-1">
-                「{pendingFollowups[0].decision}」
-              </p>
-              <p className="text-xs text-ink-mute">
-                {timeAgo(pendingFollowups[0].ts)} · 你说会做
-              </p>
-            </>
-          )}
-        </CabinetCard>
-
-        <CabinetCard
-          label="反复议题"
-          empty={true}
-          emptyHint="同一个问题反复回来时，这里会标记。"
-        />
-
-        <CabinetCard
-          label="最近会议"
-          empty={recentMeetings.length === 0}
-          emptyHint="第一次开会后，这里会显示档案。"
-          href="/me/pages"
-        >
-          {recentMeetings[0] && (
-            <>
-              <p className="text-body-sm text-ink-body leading-snug line-clamp-2 mb-1">
-                {recentMeetings[0].title}
-              </p>
-              <p className="text-xs text-ink-mute">
-                {timeAgo(recentMeetings[0].ts)}
-              </p>
-            </>
-          )}
-        </CabinetCard>
-      </section>
-
-      {/* CALLBACK opener — 第二次回来才出现 */}
-      {opener && (
-        <section className="mb-10 bg-future-soft border-l-2 border-future pl-5 pr-5 py-5 rounded-r-2xl animate-fade-up">
-          <div className="font-display text-xs tracking-[0.18em] text-future uppercase mb-3">回来了</div>
-          <p className="font-body text-[15px] leading-[1.85] text-ink2 whitespace-pre-line mb-4">{opener}</p>
-          <div className="flex flex-wrap gap-2">
-            <button onClick={()=>answerOpener("done")} className="px-3 py-1.5 text-xs rounded-full border border-money text-money hover:bg-money hover:text-paper transition-colors">做了</button>
-            <button onClick={()=>answerOpener("not-done")} className="px-3 py-1.5 text-xs rounded-full border border-filial text-filial hover:bg-filial hover:text-paper transition-colors">没做</button>
-            <button onClick={()=>answerOpener("forgot")} className="px-3 py-1.5 text-xs rounded-full border border-ink3 text-ink3 hover:bg-ink3 hover:text-paper transition-colors">忘了</button>
-            <button onClick={()=>setOpener(null)} className="ml-auto text-xs text-ink3 hover:text-ink underline-offset-4 hover:underline">先不说，问别的 →</button>
-          </div>
-        </section>
-      )}
-
-      {/* INPUT */}
-      <section className="mb-16">
-        <div className="flex items-baseline justify-between mb-3">
-          <label className="font-display text-sm text-ink3 tracking-wider uppercase">写下你的纠结</label>
-          <span className="text-xs text-ink3">{input.length}/800</span>
-        </div>
-        <div className="hand-box bg-paper p-1">
+      {/* ─── topic input ─── */}
+      <form onSubmit={onSubmit} className="mb-8">
+        <DocketPaper>
           <textarea
             value={input}
-            onChange={e => setInput(e.target.value.slice(0, 800))}
-            placeholder={PLACEHOLDERS[phIdx]}
+            onChange={(e) => setInput(e.target.value.slice(0, 800))}
+            placeholder={
+              "把那件让你睡不着的事，原原本本地写下来。\n越具体，三席越能为你较劲。"
+            }
             rows={4}
-            disabled={running}
-            className="w-full bg-transparent text-ink placeholder-ink3/60 px-5 py-4 outline-none resize-none font-body text-base leading-relaxed"
-            onKeyDown={e => { if ((e.metaKey||e.ctrlKey) && e.key==="Enter") run(); }}
+            onKeyDown={(e) => {
+              if ((e.metaKey || e.ctrlKey) && e.key === "Enter") onSubmit(e as any);
+            }}
+            className="w-full bg-transparent outline-none resize-none text-body-long text-ink-body placeholder-ink-faint font-serif"
           />
-          <div className="flex items-center justify-between px-5 pb-3 pt-2 border-t rule">
-            <span className="text-xs text-ink3">
-              {contextHint ? `她们记得：${contextHint}` : "⌘/Ctrl + Enter 直接召唤"}
+          <div className="flex items-center justify-between pt-3 mt-1 border-t border-paper-edge">
+            <span className="text-xs text-ink-mute">
+              ⌘ / Ctrl + Enter 立刻开会 · {input.length}/800
             </span>
             <button
-              onClick={() => run()}
-              disabled={running || !input.trim()}
-              className="font-display px-7 py-3 bg-seal-action text-paper rounded-full text-sm font-semibold hover:bg-seal-action/85 disabled:bg-seal-action/40 disabled:cursor-not-allowed transition-all shadow-[0_4px_0_-1px_rgba(25,23,19,0.85)] hover:shadow-[0_2px_0_-1px_rgba(25,23,19,0.85)] hover:translate-y-[2px]"
+              type="submit"
+              disabled={!input.trim()}
+              className="px-5 py-2.5 rounded-md bg-ink-core text-paper-base text-body-sm font-medium hover:bg-ink-body disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
             >
-              {running ? "5 个我正在赶来…" : "让 5 个我都来吵一吵 →"}
+              开会 →
             </button>
           </div>
-        </div>
+        </DocketPaper>
 
-        <div className="mt-5 flex flex-wrap gap-2">
-          <span className="text-xs text-ink3 self-center mr-1">没头绪？试试：</span>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <span className="text-xs text-ink-mute self-center mr-1">
+            没头绪？试试：
+          </span>
           {PRESETS.map((p, i) => (
             <button
               key={i}
-              disabled={running}
-              onClick={() => run(p)}
-              className="text-xs px-3 py-1.5 rounded-full border rule text-ink2 hover:bg-ink hover:text-paper hover:border-ink transition-all disabled:opacity-30"
+              type="button"
+              onClick={() => startMeeting(p)}
+              className="text-xs px-3 py-1.5 rounded-full border border-paper-edge text-ink-body hover:border-ink-core hover:bg-paper-lift transition-colors"
             >
               {p.length > 22 ? p.slice(0, 22) + "…" : p}
             </button>
           ))}
         </div>
+      </form>
+
+      {/* ─── cabinet snapshot ─── */}
+      <section className="mb-10 grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <CabinetCard
+          label="待复盘承诺"
+          data={pendingCard}
+          emptyHint="签字之后，这里会出现你的 24 小时承诺。"
+        />
+        <CabinetCard
+          label="反复议题"
+          data={null}
+          emptyHint="同一个问题反复回来时，这里会标记。"
+        />
+        <CabinetCard
+          label="最近会议"
+          data={recentMeetingCard}
+          emptyHint="第一次开会后，这里会显示档案。"
+        />
       </section>
 
-      {error && (
-        <div className="mb-12 p-4 rounded-xl border border-filial bg-filial-soft text-filial text-sm">{error}</div>
-      )}
-
-      {/* RESULTS */}
-      <div ref={resultsRef}>
-
-        {selves.length > 0 && (
-          <section className="mb-20">
-            <div className="flex items-center gap-3 mb-6">
-              <span className="font-display text-xs tracking-[0.18em] text-ink3 uppercase">第一幕</span>
-              <span className="flex-1 h-px bg-rule"/>
-              <span className="font-display text-xs text-ink3">五个我，同时开口</span>
-            </div>
-
-            <div className="grid sm:grid-cols-2 gap-5">
-              {selves.map((s, i) => {
-                const meta = (SELVES as any)[s.id];
-                const isLoud = loudestId === s.id;
-                return (
-                  <article
-                    key={s.id}
-                    className={`relative bg-${s.id}-soft border-l-2 border-${s.id} p-5 sm:p-6 rounded-r-2xl lift animate-fade-up`}
-                    style={{ animationDelay: `${i * 80}ms` }}
-                  >
-                    {isLoud && (
-                      <div className="absolute -top-2 -right-2 px-2.5 py-0.5 bg-ink text-paper text-[10px] tracking-wider rounded-full font-display font-semibold">
-                        声音最响
-                      </div>
-                    )}
-                    <div className="flex items-start gap-3 mb-4">
-                      <SelfAvatar id={s.id} size={44}/>
-                      <div className="flex-1 min-w-0 pt-0.5">
-                        <div className={`font-display font-semibold text-${s.id}`}>{s.name}</div>
-                        <div className="text-[11px] text-ink3 italic mt-0.5 leading-snug">{meta?.ifs_label}</div>
-                      </div>
-                    </div>
-                    <p className="font-body text-[15px] leading-[1.85] text-ink2 whitespace-pre-line">{s.text}</p>
-                    <div className="mt-4 pt-3 border-t rule flex items-center justify-between gap-3">
-                      <span className="text-[11px] text-ink3 italic line-clamp-1 flex-1">{meta?.core_belief}</span>
-                      <button
-                        onClick={() => setOpenSelf(openSelf === s.id ? null : s.id)}
-                        className="text-xs text-ink2 hover:text-ink underline-offset-4 hover:underline shrink-0"
-                      >
-                        {openSelf === s.id ? "合上" : "继续问 ta →"}
-                      </button>
-                    </div>
-
-                    {openSelf === s.id && (
-                      <div className="mt-4 pt-4 border-t rule animate-fade-up">
-                        {(followups[s.id] || []).map((m, j) => (
-                          <div key={j} className={`mb-3 ${m.role === "user" ? "text-right" : ""}`}>
-                            <div className={`inline-block px-3 py-2 rounded-2xl text-sm leading-relaxed max-w-[85%] ${m.role === "user" ? "bg-ink text-paper" : `bg-paper text-ink2 border border-${s.id}`}`}>
-                              {m.text}
-                            </div>
-                          </div>
-                        ))}
-                        <FollowInput selfId={s.id} disabled={followAsking === s.id} onSubmit={(q) => askFollow(s.id, q)} placeholder={`继续问${s.name}…`}/>
-                      </div>
-                    )}
-                  </article>
-                );
-              })}
-            </div>
-          </section>
-        )}
-
-        {crosses.length > 0 && (
-          <section className="mb-20">
-            <div className="flex items-center gap-3 mb-6">
-              <span className="font-display text-xs tracking-[0.18em] text-ink3 uppercase">第二幕</span>
-              <span className="flex-1 h-px bg-rule"/>
-              <span className="font-display text-xs text-ink3">他们互相戳穿</span>
-            </div>
-            <div className="space-y-5">
-              {crosses.map((c, i) => (
-                <div key={i} className="grid grid-cols-[auto_1fr_auto] items-stretch gap-3 sm:gap-5 animate-fade-up" style={{ animationDelay: `${i * 80}ms` }}>
-                  <div className="flex flex-col items-center gap-1.5 pt-1">
-                    <SelfAvatar id={c.fromId} size={40}/>
-                    <span className={`text-[10px] font-display text-${c.fromId} font-semibold`}>{c.from.replace("的我","")}</span>
-                  </div>
-                  <div className="relative flex flex-col justify-center px-4 sm:px-6 py-4 bg-paper border-y rule">
-                    <p className="font-display text-lg sm:text-2xl text-ink leading-snug">「{c.text}」</p>
-                    <div className="absolute -top-2 left-4 text-xs px-2 py-0.5 bg-paper text-ink3 font-display tracking-wider">⚔ 对峙</div>
-                  </div>
-                  <div className="flex flex-col items-center gap-1.5 pt-1 opacity-60">
-                    <SelfAvatar id={c.toId} size={32}/>
-                    <span className={`text-[10px] font-display text-${c.toId}`}>{c.to.replace("的我","")}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
-
-        {now && (
-          <section className="mb-16">
-            <div className="flex items-center gap-3 mb-6">
-              <span className="font-display text-xs tracking-[0.18em] text-ink uppercase font-semibold">最 · 终 · 幕</span>
-              <span className="flex-1 h-[2px] bg-ink"/>
-              <span className="font-display text-xs text-ink">此刻的我</span>
-            </div>
-            <article className="-mx-2 sm:mx-0 bg-surface-deep text-paper p-7 sm:p-12 rounded-r-3xl border-l-[3px] border-paper animate-fade-up shadow-[0_30px_60px_-30px_rgba(25,23,19,0.5)]">
-              <div className="flex items-center gap-4 mb-6">
-                <div className="bg-paper rounded-full p-1">
-                  <SelfAvatar id="now" size={48}/>
-                </div>
-                <div>
-                  <div className="font-display font-semibold text-paper text-xl">{NOWME.name}</div>
-                  <div className="text-sm text-paper/60 italic mt-0.5">{NOWME.tagline}</div>
-                </div>
-              </div>
-              <div className="font-body text-[16px] sm:text-[18px] leading-[1.95] text-paper whitespace-pre-line">{now}</div>
-            </article>
-          </section>
-        )}
-
-        {insight && (
-          <section className="mb-16 animate-fade-up max-w-2xl mx-auto">
-            <blockquote className="relative pl-8 py-2">
-              <span className="absolute left-0 top-0 font-display text-7xl text-seal-action leading-[0.7] select-none">{"\""}</span>
-              <div className="font-display text-xs tracking-[0.18em] text-ink3 uppercase mb-3">心理学旁注 · IFS · Internal Family Systems</div>
-              <p className="font-display text-lg sm:text-xl leading-relaxed text-ink2 italic">{insight}</p>
-              <p className="mt-3 text-xs text-ink3">— 此刻的你，最响的声音背后藏着的</p>
-            </blockquote>
-          </section>
-        )}
-
-        {stage === "done" && (
-          <section className="mb-16 animate-fade-up text-center">
-            <div className="inline-flex flex-col items-center gap-4 p-8 bg-paper border-2 border-ink rounded-3xl shadow-[6px_6px_0_-1px_var(--color-ink-core)]">
-              <div className="font-display text-xs tracking-[0.2em] text-ink3 uppercase">带走它</div>
-              <div className="font-display text-2xl text-ink">把今天的「内心地图」存下来</div>
-              <button
-                onClick={shareCard}
-                className="font-display px-7 py-3 bg-ink text-paper rounded-full text-sm font-semibold hover:bg-ink/85"
-              >
-                ↓ 下载我的内心地图
-              </button>
-              <div className="text-xs text-ink3 mt-2">
-                这一次的对话已自动留在 <Link href="/me/pages" className="underline hover:text-ink">「纸页」</Link> 里。
-              </div>
-              <button onClick={reset} className="text-xs text-ink3 hover:text-ink underline-offset-4 underline">
-                问下一个问题
-              </button>
-            </div>
-          </section>
-        )}
-      </div>
-
-      <footer className="mt-32 pt-10 border-t rule text-xs text-ink3 leading-relaxed">
+      {/* ─── footer ─── */}
+      <footer className="mt-32 pt-10 border-t border-paper-edge text-xs text-ink-mute leading-relaxed">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <div className="font-display text-ink mb-1">平行的我 · ParallelMe</div>
-            <div>为傅盛 AI 战队 × EasyClaw Link 黑客松而生 · 我们把 multi-agent 从「公司经营」推向「自我经营」</div>
+            <div className="font-medium text-ink-body mb-1">
+              平行的我 · ParallelMe
+            </div>
+            <div>为傅盛 AI 战队 × EasyClaw Link 黑客松而生</div>
           </div>
           <div className="flex gap-4 flex-wrap">
-            <Link className="hover:text-ink underline-offset-4 hover:underline" href="/me">底片</Link>
-            <a className="hover:text-ink underline-offset-4 hover:underline" href="/AGENTS.md">AGENTS.md</a>
-            <a className="hover:text-ink underline-offset-4 hover:underline" href="/.well-known/agent.json">A2A spec</a>
-            <a className="hover:text-ink underline-offset-4 hover:underline" href="/api/agent">API</a>
-            <Link className="hover:text-ink underline-offset-4 hover:underline" href="/about">关于</Link>
+            <Link href="/me" className="hover:text-ink-core underline-offset-4 hover:underline">
+              底片
+            </Link>
+            <a href="/AGENTS.md" className="hover:text-ink-core underline-offset-4 hover:underline">
+              AGENTS.md
+            </a>
+            <a href="/.well-known/agent.json" className="hover:text-ink-core underline-offset-4 hover:underline">
+              A2A spec
+            </a>
+            <a href="/api/agent" className="hover:text-ink-core underline-offset-4 hover:underline">
+              API
+            </a>
+            <Link href="/about" className="hover:text-ink-core underline-offset-4 hover:underline">
+              关于
+            </Link>
           </div>
         </div>
       </footer>
@@ -498,61 +211,48 @@ export default function Home() {
   );
 }
 
-function FollowInput({ selfId, disabled, onSubmit, placeholder }: { selfId: SelfId; disabled?: boolean; onSubmit: (q: string) => void; placeholder?: string }) {
-  const [v, setV] = useState("");
-  return (
-    <div className="flex gap-2">
-      <input
-        value={v}
-        onChange={e => setV(e.target.value)}
-        onKeyDown={e => { if (e.key === "Enter" && v.trim() && !disabled) { onSubmit(v); setV(""); } }}
-        disabled={disabled}
-        placeholder={placeholder || "继续问…"}
-        className={`flex-1 bg-paper border border-${selfId} rounded-full px-4 py-2 text-sm outline-none focus:border-ink placeholder-ink3 disabled:opacity-50`}
-      />
-      <button
-        onClick={() => { if (v.trim() && !disabled) { onSubmit(v); setV(""); } }}
-        disabled={disabled || !v.trim()}
-        className="px-4 py-2 bg-ink text-paper text-sm rounded-full disabled:opacity-30 hover:bg-ink/85"
-      >
-        {disabled ? "…" : "问"}
-      </button>
-    </div>
-  );
+// ───────────────────────────────────────────────────────────
+// Cabinet snapshot card — empty-friendly, optional href
+// ───────────────────────────────────────────────────────────
+interface CardData {
+  title: string;
+  meta?: string;
+  href?: string;
 }
 
-// ───────────────────────────────────────────────────────────
-// V3 Cabinet snapshot card — empty-friendly, link-optional
-// ───────────────────────────────────────────────────────────
 function CabinetCard({
   label,
-  empty,
+  data,
   emptyHint,
-  href,
-  children,
 }: {
   label: string;
-  empty: boolean;
+  data: CardData | null;
   emptyHint: string;
-  href?: string;
-  children?: React.ReactNode;
 }) {
   const inner = (
     <div className="h-full p-4 rounded-md bg-paper-lift border border-paper-edge transition-colors hover:border-ink-mute">
       <div className="text-[10px] tracking-[0.18em] text-ink-mute uppercase mb-3">
         {label}
       </div>
-      {empty ? (
-        <p className="text-body-sm text-ink-faint italic leading-snug">
+      {!data ? (
+        <p className="text-body-sm text-ink-faint italic leading-snug font-serif">
           {emptyHint}
         </p>
       ) : (
-        <div>{children}</div>
+        <>
+          <p className="text-body-sm text-ink-body leading-snug line-clamp-2 mb-1">
+            {data.title}
+          </p>
+          {data.meta && (
+            <p className="text-xs text-ink-mute">{data.meta}</p>
+          )}
+        </>
       )}
     </div>
   );
-  return href && !empty ? (
-    <Link href={href} className="block h-full">
+
+  return data?.href ? (
+    <Link href={data.href} className="block h-full">
       {inner}
     </Link>
   ) : (
@@ -561,7 +261,7 @@ function CabinetCard({
 }
 
 function timeAgo(ts: number): string {
-  const days = Math.max(0, Math.round((Date.now() - ts) / 86400000));
+  const days = Math.max(0, Math.round((Date.now() - ts) / 86_400_000));
   if (days === 0) return "今天";
   if (days === 1) return "昨天";
   if (days < 7) return `${days} 天前`;
