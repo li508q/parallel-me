@@ -14,7 +14,7 @@ export default function About() {
       <section className="mb-14">
         <h2 className="font-display text-headline text-ink mb-5">⓵ 单 agent 的回答 = 中庸的中位数</h2>
         <p className="leading-[1.95] text-ink2 mb-3">
-          你问 ChatGPT「我该不该辞职」，它会给你一份 PMI 列表，左边写好处、右边写坏处，然后说"祝你好运"。
+          你问 ChatGPT「我该不该辞职」，它会给你一份 PMI 列表，左边写好处、右边写坏处，然后说「祝你好运」。
         </p>
         <p className="leading-[1.95] text-ink2">
           但你不是缺好处坏处，你是缺<span className="scribble-thin">一种能让你在凌晨 3 点醒来时也站得住的语言</span>。
@@ -29,7 +29,7 @@ export default function About() {
           每个人内心都不是一个声音，而是<strong className="text-ink">一组各自有立场、有恐惧、有保护意图的子人格</strong>。
         </p>
         <p className="leading-[1.95] text-ink2 mb-4">
-          那些彼此矛盾、互相打架的"声音"，从来都不是病。是<strong className="text-ink">心智的常态</strong>。
+          那些彼此矛盾、互相打架的「声音」，从来都不是病。是<strong className="text-ink">心智的常态</strong>。
         </p>
         <p className="leading-[1.95] text-ink2">
           我们做的事是：把那些通常只存在于你脑子里的声音——「躺平的我」「搞钱的我」「出走的我」「想让妈高兴的我」「5 年后的我」——具象化、给它们各自的人格、各自的语言，让它们在桌子上吵一架。

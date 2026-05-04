@@ -1,4 +1,4 @@
-// /api/share — 生成"内心地图"分享卡片 (SVG)
+// /api/share — 生成「内心地图」分享卡片 (SVG)
 // 输入：5 个分身的答案文本 → 输出：雷达图 + 大标题 + 关键句的 SVG，可右键存图
 
 import { NextRequest } from "next/server";
