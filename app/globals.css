@@ -1,19 +1,23 @@
-@import "tailwindcss";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
 /* =============================================================================
-   ParallelMe V3 Design Tokens · CSS-first @theme (Tailwind v4)
+   ParallelMe V3 Design Tokens · CSS variables (consumed by tailwind.config.ts)
    Mirror of lib/design/tokens/*.ts. See V3-IVY-FINAL-DIRECTION.md § 1-2.
    ============================================================================= */
 
-@theme {
+:root {
+  color-scheme: light;
+
   /* ===== Color · Paper ===== */
-  --color-paper-base: #F4F1EC; /* 页面底色（去黄、向 Quiet Luxury 收敛） */
-  --color-paper-lift: #FBF9F4; /* 议案纸 / 主内容 */
+  --color-paper-base: #F4F1EC;
+  --color-paper-lift: #FBF9F4;
   --color-paper-sunk: #EDE2D0;
   --color-paper-edge: #D8CBB8;
 
   /* ===== Color · Surface (深色仪式) ===== */
-  --color-surface-deep: #1A1816; /* 仅裁决 / 签字页 */
+  --color-surface-deep: #1A1816;
 
   /* ===== Color · Ink ===== */
   --color-ink-core: #191713;
@@ -22,29 +26,29 @@
   --color-ink-faint: #B7AC9B;
 
   /* ===== Color · Seat (席位身份点 / 边框 / 关系线) ===== */
-  --color-seat-rest:      #556F7A; /* 休整 / 躺平 */
-  --color-seat-money:     #8A6F3D; /* 资源 / 搞钱 */
-  --color-seat-roam:      #3F6B5A; /* 自由 / 出走 */
-  --color-seat-filial:    #8C5042; /* 依恋 / 讨妈 */
-  --color-seat-future:    #5E5369; /* 远望 / 5 年后 */
+  --color-seat-rest:      #556F7A;
+  --color-seat-money:     #8A6F3D;
+  --color-seat-roam:      #3F6B5A;
+  --color-seat-filial:    #8C5042;
+  --color-seat-future:    #5E5369;
   --color-seat-temporary: #76684D;
   --color-seat-silent:    #899199;
   --color-seat-exiled:    #6F3F35;
 
   /* ===== Color · Status ===== */
-  --color-seal-action:      #8E3F32; /* 签字 / 重要确认 */
-  --color-attention-copper: #A8844D; /* 等待转正 / 重点（禁写小字） */
-  --color-safe-green:       #536E5A; /* 完成 / 低风险 */
-  --color-trace-blue:       #455F70; /* 证据链 / 可追溯引用 */
+  --color-seal-action:      #8E3F32;
+  --color-attention-copper: #A8844D;
+  --color-safe-green:       #536E5A;
+  --color-trace-blue:       #455F70;
 
-  /* ===== V2 backward-compat alias (auto-migrate visually until pages refactored) ===== */
+  /* ===== V2 backward-compat alias ===== */
   --color-paper:  var(--color-paper-base);
   --color-ink:    var(--color-ink-core);
   --color-ink2:   var(--color-ink-body);
   --color-ink3:   var(--color-ink-mute);
   --color-rule:   var(--color-paper-edge);
-  --color-accent: var(--color-seal-action);   /* V2 #C65D4A → V3 火漆红 */
-  --color-gold:   var(--color-attention-copper); /* V2 #C9A227 → V3 老铜金 */
+  --color-accent: var(--color-seal-action);
+  --color-gold:   var(--color-attention-copper);
   --color-lay:    var(--color-seat-rest);
   --color-money:  var(--color-seat-money);
   --color-roam:   var(--color-seat-roam);
@@ -76,12 +80,6 @@
   --text-verdict:        24px;  --text-verdict--line-height:        36px;
   --text-signature:      20px;  --text-signature--line-height:      32px;
 
-  /* ===== Radius ===== */
-  --radius-sm: 2px;
-  --radius-md: 4px;
-  --radius-lg: 8px;
-  --radius-xl: 12px;
-
   /* ===== Motion · Easing ===== */
   --ease-paper: cubic-bezier(0.2, 0.7, 0.2, 1);
   --ease-ink:   cubic-bezier(0.16, 0.84, 0.44, 1);
@@ -105,16 +103,13 @@
 /* =============================================================================
    Base
    ============================================================================= */
-:root {
-  color-scheme: light;
-}
 
 html, body {
   background: var(--color-paper-base);
   color: var(--color-ink-core);
   font-family: var(--font-sans);
   font-weight: 450;
-  /* V3 hard rule: CJK letter-spacing = 0. Per-element overrides only for Latin uppercase labels. */
+  /* V3 hard rule: CJK letter-spacing = 0 globally; only Latin uppercase labels override. */
   letter-spacing: 0;
   font-feature-settings: "kern" 1, "liga" 1, "ss01" 1;
   -webkit-font-smoothing: antialiased;
@@ -122,7 +117,7 @@ html, body {
 }
 
 body {
-  /* Subtle paper warmth — kept until pages refactored in Week 1+. */
+  /* Subtle paper warmth — kept until pages refactored in Week 2+ */
   background:
     radial-gradient(circle at 20% 0%, rgba(138, 111, 61, 0.04), transparent 50%),
     radial-gradient(circle at 80% 100%, rgba(94, 83, 105, 0.04), transparent 50%),
@@ -131,7 +126,7 @@ body {
   min-height: 100vh;
 }
 
-/* paper grain texture — DEPRECATED V2 残留, kept until pages refactored */
+/* paper grain texture — DEPRECATED V2, kept until pages refactored */
 body::before {
   content: "";
   position: fixed; inset: 0;
@@ -145,12 +140,11 @@ main, header, footer { position: relative; z-index: 1; }
 
 /* =============================================================================
    V2 Compat Layer
-   These classes drive the entire current V2 codebase. Kept verbatim through V3
-   Week 0; their VALUES are now driven by V3 tokens, so visual migrates
-   automatically. To be deleted in Week 1+ as pages are rewritten.
+   These classes drive the entire current V2 codebase. Their VALUES are now
+   driven by V3 tokens (auto-migration). Will be deleted in Week 2+ as pages
+   are rewritten.
    ============================================================================= */
 
-/* Hand-drawn underline (scribble) — DEPRECATED, used in every V2 page */
 .scribble {
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 14'><path d='M2 9 Q50 2 100 9 T198 7' stroke='%23A8844D' stroke-width='4' fill='none' stroke-linecap='round'/></svg>");
   background-repeat: no-repeat;
@@ -166,14 +160,12 @@ main, header, footer { position: relative; z-index: 1; }
   padding-bottom: 0.1em;
 }
 
-/* hairline */
 .rule { border-color: var(--color-paper-edge); }
 
-/* Font utility classes — V3 letter-spacing -0.01em DELETED */
+/* Font utility — V3 letter-spacing -0.01em DELETED */
 .font-display { font-family: var(--font-serif); font-weight: 600; }
 .font-body    { font-family: var(--font-sans); }
 
-/* Card hover */
 .lift {
   transition: transform 400ms var(--ease-paper), box-shadow 400ms var(--ease-paper);
 }
@@ -182,14 +174,12 @@ main, header, footer { position: relative; z-index: 1; }
   box-shadow: 0 18px 40px -24px rgba(25, 23, 19, 0.18);
 }
 
-/* hand-drawn box — DEPRECATED V2, used in app/page.tsx */
 .hand-box {
   border: 1.5px solid var(--color-ink-core);
   border-radius: 14px 12px 14px 12px / 12px 14px 12px 14px;
   box-shadow: 4px 4px 0 -1px var(--color-ink-core);
 }
 
-/* Blink cursor */
 @keyframes blink { 50% { opacity: 0; } }
 .cursor::after {
   content: "▍";
@@ -198,7 +188,6 @@ main, header, footer { position: relative; z-index: 1; }
   color: var(--color-ink-core);
 }
 
-/* Drop cap — DEPRECATED, only NowMe verdict ritual */
 .dropcap::first-letter {
   font-family: var(--font-serif);
   font-size: 3.4em;
@@ -208,7 +197,7 @@ main, header, footer { position: relative; z-index: 1; }
   font-weight: 700;
 }
 
-/* 5-selves color tokens (V2 alias → now driven by V3 seat tokens) */
+/* 5-selves color tokens (V2 alias → V3 seat values) */
 .text-lay    { color: var(--color-seat-rest); }
 .text-money  { color: var(--color-seat-money); }
 .text-roam   { color: var(--color-seat-roam); }
@@ -230,7 +219,6 @@ main, header, footer { position: relative; z-index: 1; }
 .border-future { border-color: color-mix(in srgb, var(--color-seat-future) 30%, transparent); }
 .border-now    { border-color: color-mix(in srgb, var(--color-ink-core)    40%, transparent); }
 
-/* Scrollbar */
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
@@ -248,23 +236,9 @@ main, header, footer { position: relative; z-index: 1; }
   color: var(--color-ink-core);
 }
 
-/* Streaming cursor */
 .streaming::after {
   content: "▍";
   animation: blink 1s step-end infinite;
   margin-left: 1px;
   opacity: 0.5;
 }
-
-/* =============================================================================
-   V3 Animations (kept; previously in tailwind.config.ts)
-   ============================================================================= */
-@keyframes inkIn   { 0% { opacity: 0; filter: blur(6px); transform: translateY(10px); } 100% { opacity: 1; filter: blur(0); transform: translateY(0); } }
-@keyframes fadeUp  { 0% { opacity: 0; transform: translateY(16px); } 100% { opacity: 1; transform: translateY(0); } }
-@keyframes typeIn  { 0% { width: 0; } 100% { width: 100%; } }
-@keyframes softPulse { 0%, 100% { opacity: 0.4; } 50% { opacity: 1; } }
-
-.animate-ink-in    { animation: inkIn 900ms var(--ease-paper) both; }
-.animate-fade-up   { animation: fadeUp 700ms var(--ease-paper) both; }
-.animate-type      { animation: typeIn 1400ms steps(40, end) both; }
-.animate-soft-pulse { animation: softPulse 2400ms ease-in-out infinite; }

@@ -3,8 +3,10 @@ import Link from "next/link";
 import { useState, useRef, useEffect } from "react";
 import { SELVES, NOWME, type SelfId } from "@/lib/selves";
 import { SelfAvatar } from "@/components/SelfAvatar";
+import { ProviderStatusPill } from "@/components/ProviderStatusPill";
 import { loadProfile, loadTaste, profileToMarkdown, tasteToProfileHint } from "@/lib/profile";
-import { addEpisode, getOpeningLine, getRecentContextForPrompt, lastEpisode, updateEpisode } from "@/lib/memory";
+import { addEpisode, getOpeningLine, getRecentContextForPrompt, lastEpisode, loadEpisodes, updateEpisode } from "@/lib/memory";
+import type { Episode } from "@/lib/memory";
 
 type SelfFrame = { id: SelfId; name: string; emoji: string; tagline: string; text: string };
 type CrossFrame = { from: string; fromId: SelfId; to: string; toId: SelfId; text: string };
@@ -20,17 +22,6 @@ const PRESETS = [
   "副业月入 8k，本职 2w，要不要辞职 all in 副业？",
   "26 岁，朋友都开始定居了，我还想去清迈待半年。",
   "凌晨 2 点老板在群里发了个 OK?，我现在心率 120。",
-];
-
-// 钩子文案 — 每天 / 每次刷新轮换
-const HOOKS = [
-  "今天有哪一刻，你假装没事？",
-  "如果可以删掉今天的一个小时，你会删哪一段？",
-  "刚才那个念头，你愿意让谁听见？",
-  "凌晨睡不着的那个问题，写在这里。",
-  "白天不敢说的那个想法，5 个我帮你一起想。",
-  "你心里那个还没承认的答案，让另外 5 个我先说。",
-  "你不需要更多建议。你需要听见自己。",
 ];
 
 const PLACEHOLDERS = [
@@ -53,16 +44,20 @@ export default function Home() {
   const [openSelf, setOpenSelf] = useState<SelfId | null>(null);
   const [followups, setFollowups] = useState<FollowupMap>({} as any);
   const [followAsking, setFollowAsking] = useState<SelfId | null>(null);
-  const [hookIdx, setHookIdx] = useState(0);
   const [phIdx, setPhIdx] = useState(0);
   const [opener, setOpener] = useState<string | null>(null);   // callback 开场
   const [contextHint, setContextHint] = useState<string | null>(null); // 输入框上方「她在听」提示
+  const [pendingFollowups, setPendingFollowups] = useState<Episode[]>([]);
+  const [recentMeetings, setRecentMeetings] = useState<Episode[]>([]);
   const lastEpisodeIdRef = useRef<string | null>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    setHookIdx(Math.floor(Math.random() * HOOKS.length));
     setPhIdx(Math.floor(Math.random() * PLACEHOLDERS.length));
+    // Cabinet snapshot data — read V2 episodes as best-available source.
+    const eps = loadEpisodes();
+    setPendingFollowups(eps.filter(e => e.followup == null && e.decision).slice(0, 1));
+    setRecentMeetings(eps.slice(0, 1));
     // callback 开场
     const o = getOpeningLine();
     if (o) setOpener(o);
@@ -208,41 +203,72 @@ export default function Home() {
   return (
     <main className="min-h-screen px-5 sm:px-10 pt-10 sm:pt-16 pb-24 max-w-4xl mx-auto font-body">
 
-      {/* HEADER */}
-      <header className="mb-12 sm:mb-16 animate-ink-in">
-        <div className="flex items-center justify-between mb-12">
-          <div className="flex items-center gap-2 text-xs tracking-[0.18em] text-ink3 uppercase">
-            <span className="w-1 h-1 rounded-full bg-ink animate-soft-pulse"/>
-            ParallelMe · 平行的我 · v2
+      {/* V3 CABINET WORKBENCH HEADER */}
+      <header className="mb-10 sm:mb-14 animate-ink-in">
+        <div className="flex items-center justify-between mb-10 gap-3 flex-wrap">
+          <div className="flex items-center gap-2 text-xs tracking-[0.18em] text-ink-mute uppercase">
+            <span className="w-1 h-1 rounded-full bg-ink-core animate-soft-pulse"/>
+            ParallelMe · 我的阁
           </div>
-          <div className="flex items-center gap-5">
-            <Link href="/me" className="text-xs tracking-wider text-ink3 hover:text-ink underline-offset-4 hover:underline">底片</Link>
-            <Link href="/about" className="text-xs tracking-wider text-ink3 hover:text-ink underline-offset-4 hover:underline">序</Link>
+          <div className="flex items-center gap-3 flex-wrap">
+            <ProviderStatusPill />
+            <Link href="/me" className="text-xs tracking-wider text-ink-mute hover:text-ink-core underline-offset-4 hover:underline">底片</Link>
+            <Link href="/about" className="text-xs tracking-wider text-ink-mute hover:text-ink-core underline-offset-4 hover:underline">序</Link>
           </div>
         </div>
 
-        {/* HOOK + TITLE */}
-        <p className="font-display text-base sm:text-lg text-ink3 italic mb-5 leading-relaxed">— {HOOKS[hookIdx]}</p>
-        <h1 className="font-display text-display text-ink mb-7 leading-[1.02]">
-          平行的<span className="scribble">我</span>
+        <h1 className="font-serif font-semibold text-headline sm:text-display text-ink-core leading-[1.05] mb-4">
+          今天<br/>要开什么会？
         </h1>
-        <p className="font-display text-xl sm:text-2xl text-ink2 leading-relaxed max-w-2xl">
-          你不是一个人，你是好几个。<br className="hidden sm:block"/>
-          你说一句，5 个你回信。最后由 <span className="text-ink font-semibold">「此刻的我」</span> 做选择。
+        <p className="text-body sm:text-body-long text-ink-body max-w-xl leading-relaxed">
+          写下那个没人能替你决定的议题。<br className="hidden sm:block"/>
+          这里不是聊天框，是你的内在会议室。
         </p>
-
-        {/* 5 selves intro */}
-        <div className="mt-12 grid grid-cols-5 gap-2 sm:gap-3">
-          {(Object.values(SELVES) as any[]).map((s, i) => (
-            <div key={s.id} className="text-center group cursor-default" style={{ animationDelay: `${i*60}ms` }}>
-              <div className="flex justify-center mb-2 transition-transform group-hover:-translate-y-0.5">
-                <SelfAvatar id={s.id} size={56}/>
-              </div>
-              <div className={`font-display text-[11px] sm:text-sm font-semibold text-${s.id} leading-tight`}>{s.name}</div>
-            </div>
-          ))}
-        </div>
       </header>
+
+      {/* CABINET SNAPSHOT — 3 cards */}
+      <section className="mb-10 grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <CabinetCard
+          label="待复盘承诺"
+          empty={pendingFollowups.length === 0}
+          emptyHint="签字之后，这里会出现你的 24h 承诺。"
+        >
+          {pendingFollowups[0] && (
+            <>
+              <p className="text-body-sm text-ink-body leading-snug line-clamp-2 mb-1">
+                「{pendingFollowups[0].decision}」
+              </p>
+              <p className="text-xs text-ink-mute">
+                {timeAgo(pendingFollowups[0].ts)} · 你说会做
+              </p>
+            </>
+          )}
+        </CabinetCard>
+
+        <CabinetCard
+          label="反复议题"
+          empty={true}
+          emptyHint="同一个问题反复回来时，这里会标记。"
+        />
+
+        <CabinetCard
+          label="最近会议"
+          empty={recentMeetings.length === 0}
+          emptyHint="第一次开会后，这里会显示档案。"
+          href="/me/pages"
+        >
+          {recentMeetings[0] && (
+            <>
+              <p className="text-body-sm text-ink-body leading-snug line-clamp-2 mb-1">
+                {recentMeetings[0].title}
+              </p>
+              <p className="text-xs text-ink-mute">
+                {timeAgo(recentMeetings[0].ts)}
+              </p>
+            </>
+          )}
+        </CabinetCard>
+      </section>
 
       {/* CALLBACK opener — 第二次回来才出现 */}
       {opener && (
@@ -493,4 +519,52 @@ function FollowInput({ selfId, disabled, onSubmit, placeholder }: { selfId: Self
       </button>
     </div>
   );
+}
+
+// ───────────────────────────────────────────────────────────
+// V3 Cabinet snapshot card — empty-friendly, link-optional
+// ───────────────────────────────────────────────────────────
+function CabinetCard({
+  label,
+  empty,
+  emptyHint,
+  href,
+  children,
+}: {
+  label: string;
+  empty: boolean;
+  emptyHint: string;
+  href?: string;
+  children?: React.ReactNode;
+}) {
+  const inner = (
+    <div className="h-full p-4 rounded-md bg-paper-lift border border-paper-edge transition-colors hover:border-ink-mute">
+      <div className="text-[10px] tracking-[0.18em] text-ink-mute uppercase mb-3">
+        {label}
+      </div>
+      {empty ? (
+        <p className="text-body-sm text-ink-faint italic leading-snug">
+          {emptyHint}
+        </p>
+      ) : (
+        <div>{children}</div>
+      )}
+    </div>
+  );
+  return href && !empty ? (
+    <Link href={href} className="block h-full">
+      {inner}
+    </Link>
+  ) : (
+    inner
+  );
+}
+
+function timeAgo(ts: number): string {
+  const days = Math.max(0, Math.round((Date.now() - ts) / 86400000));
+  if (days === 0) return "今天";
+  if (days === 1) return "昨天";
+  if (days < 7) return `${days} 天前`;
+  if (days < 30) return `${Math.floor(days / 7)} 周前`;
+  return `${Math.floor(days / 30)} 个月前`;
 }

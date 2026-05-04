@@ -8,9 +8,33 @@
 
 import { SELVES, NOWME, type SelfId, SELVES_META } from "./selves";
 
-const API_BASE = process.env.OPENAI_BASE_URL || "https://api.openai.com/v1";
-const API_KEY = process.env.OPENAI_API_KEY || "";
-const MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
+// Env defaults for self-host / dev. V3 supports a per-request override via
+// LlmRuntime — see V3-LOCAL-FIRST-TECH-ARCH § 4.5 / V3-TECH-DIRECTION § 4.
+const ENV_API_BASE = process.env.OPENAI_BASE_URL || "https://api.openai.com/v1";
+const ENV_API_KEY = process.env.OPENAI_API_KEY || "";
+const ENV_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
+
+// Backward-compat: V2 inner functions (callSelf, pickOpposingPairs, etc.) still
+// read these module constants and fall back to env. Week 2 SSE refactor will
+// thread LlmRuntime through the full chain so request-supplied keys can win.
+const API_BASE = ENV_API_BASE;
+const API_KEY = ENV_API_KEY;
+const MODEL = ENV_MODEL;
+
+/** V3 per-request runtime override. Any field omitted falls back to env. */
+export interface LlmRuntime {
+  baseUrl?: string;
+  model?: string;
+  apiKey?: string;
+}
+
+function resolveRuntime(rt?: LlmRuntime) {
+  return {
+    apiKey: rt?.apiKey || ENV_API_KEY,
+    baseUrl: rt?.baseUrl || ENV_API_BASE,
+    model: rt?.model || ENV_MODEL,
+  };
+}
 
 export type Msg = { role: "system" | "user" | "assistant"; content: string };
 
@@ -32,19 +56,23 @@ function classifyTopic(text: string): Topic {
 // ────────────────────────────────────────────────────────────
 // LLM 调用
 // ────────────────────────────────────────────────────────────
-export async function chat(messages: Msg[], opts?: { temperature?: number; max_tokens?: number; json?: boolean }): Promise<string> {
-  if (!API_KEY) return mockChat(messages);
+export async function chat(
+  messages: Msg[],
+  opts?: { temperature?: number; max_tokens?: number; json?: boolean; runtime?: LlmRuntime }
+): Promise<string> {
+  const rt = resolveRuntime(opts?.runtime);
+  if (!rt.apiKey) return mockChat(messages);
   try {
     const body: any = {
-      model: MODEL,
+      model: rt.model,
       temperature: opts?.temperature ?? 0.85,
       max_tokens: opts?.max_tokens ?? 400,
       messages,
     };
     if (opts?.json) body.response_format = { type: "json_object" };
-    const r = await fetch(`${API_BASE}/chat/completions`, {
+    const r = await fetch(`${rt.baseUrl}/chat/completions`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${API_KEY}` },
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${rt.apiKey}` },
       body: JSON.stringify(body),
     });
     if (!r.ok) {
