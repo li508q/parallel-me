@@ -37,9 +37,14 @@ export default function MePage() {
   return (
     <main className="min-h-screen px-5 sm:px-10 py-12 sm:py-16 max-w-4xl mx-auto font-body">
       {/* Top nav */}
-      <div className="flex items-center justify-between mb-12">
-        <Link href="/" className="font-display text-xs tracking-[0.18em] text-ink3 hover:text-ink uppercase">← 五声</Link>
-        <span className="font-display text-xs tracking-[0.18em] text-ink3 uppercase">底片 · ParallelMe</span>
+      <div className="flex items-center justify-between mb-12 gap-3 flex-wrap">
+        <Link href="/" className="font-display text-xs tracking-[0.18em] text-ink3 hover:text-ink uppercase">← 我的阁工作台</Link>
+        <div className="flex items-center gap-4">
+          <Link href="/cabinet" className="font-display text-xs tracking-[0.18em] text-ink3 hover:text-ink uppercase underline-offset-4 hover:underline">
+            我的阁 →
+          </Link>
+          <span className="font-display text-xs tracking-[0.18em] text-ink3 uppercase">底片 · ParallelMe</span>
+        </div>
       </div>
 
       {/* Hero — 你是谁 */}

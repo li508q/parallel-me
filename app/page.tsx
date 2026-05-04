@@ -8,12 +8,14 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useLiveQuery } from "dexie-react-hooks";
 import { ProviderStatusPill } from "@/components/ProviderStatusPill";
 import { DocketPaper } from "@/components/DocketPaper";
 import {
-  recentMeetings,
-  pendingCommitments,
+  db,
+  recordCommitmentFollowup,
   type Meeting,
+  type CommitmentFollowupResult,
 } from "@/lib/db";
 import { lastEpisode, type Episode } from "@/lib/memory";
 
@@ -31,13 +33,34 @@ export default function Home() {
   const router = useRouter();
   const [input, setInput] = useState("");
   const [mode, setMode] = useState<MeetingMode>("quick");
-  const [meetings, setMeetings] = useState<Meeting[]>([]);
-  const [pending, setPending] = useState<Meeting[]>([]);
   const [legacyEpisode, setLegacyEpisode] = useState<Episode | null>(null);
 
+  // Live queries — auto-refresh when meetings are written from any tab.
+  const meetings =
+    useLiveQuery(
+      () => db.meetings.orderBy("createdAt").reverse().limit(3).toArray(),
+      []
+    ) ?? [];
+  const pending =
+    useLiveQuery(
+      () =>
+        db.meetings
+          .where("status")
+          .equals("signed")
+          .filter(
+            (m) =>
+              !!m.signature?.action24h &&
+              !m.commitmentFollowup &&
+              (m.closedAt ?? 0) > Date.now() - 14 * 86_400_000
+          )
+          .reverse()
+          .limit(5)
+          .toArray()
+          .then((arr) => arr.sort((a, b) => (b.closedAt ?? 0) - (a.closedAt ?? 0))),
+      []
+    ) ?? [];
+
   useEffect(() => {
-    recentMeetings(3).then(setMeetings).catch(() => {});
-    pendingCommitments().then(setPending).catch(() => {});
     setLegacyEpisode(lastEpisode());
   }, []);
 
@@ -60,7 +83,7 @@ export default function Home() {
     ? {
         title: meetings[0].topicRefined ?? meetings[0].topicRaw,
         meta: timeAgo(meetings[0].createdAt),
-        href: undefined, // direct meeting view is Week 3
+        href: `/archive/${meetings[0].id}`,
       }
     : legacyEpisode
       ? {
@@ -70,18 +93,7 @@ export default function Home() {
         }
       : null;
 
-  const pendingCard: CardData | null = pending[0]?.signature?.action24h
-    ? {
-        title: `「${pending[0].signature.action24h}」`,
-        meta: `${timeAgo(pending[0].closedAt ?? pending[0].createdAt)} · 你说会做`,
-      }
-    : legacyEpisode?.followup == null && legacyEpisode?.decision
-      ? {
-          title: `「${legacyEpisode.decision}」`,
-          meta: `${timeAgo(legacyEpisode.ts)} · 旧版承诺`,
-          href: "/me/insights",
-        }
-      : null;
+  const pendingMeeting = pending[0] ?? null;
 
   return (
     <main className="min-h-screen px-5 sm:px-10 pt-10 sm:pt-16 pb-24 max-w-4xl mx-auto font-sans text-ink-body">
@@ -94,6 +106,12 @@ export default function Home() {
           </div>
           <div className="flex items-center gap-3 flex-wrap">
             <ProviderStatusPill />
+            <Link
+              href="/cabinet"
+              className="text-xs tracking-wider text-ink-mute hover:text-ink-core underline-offset-4 hover:underline"
+            >
+              我的阁
+            </Link>
             <Link
               href="/me"
               className="text-xs tracking-wider text-ink-mute hover:text-ink-core underline-offset-4 hover:underline"
@@ -203,11 +221,7 @@ export default function Home() {
 
       {/* ─── cabinet snapshot ─── */}
       <section className="mb-10 grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <CabinetCard
-          label="待复盘承诺"
-          data={pendingCard}
-          emptyHint="签字之后，这里会出现你的 24 小时承诺。"
-        />
+        <PendingCommitmentCard meeting={pendingMeeting} legacy={legacyEpisode} />
         <CabinetCard
           label="反复议题"
           data={null}
@@ -308,4 +322,97 @@ function timeAgo(ts: number): string {
   if (days < 7) return `${days} 天前`;
   if (days < 30) return `${Math.floor(days / 7)} 周前`;
   return `${Math.floor(days / 30)} 个月前`;
+}
+
+// ───────────────────────────────────────────────────────────
+// Loop A · 24h commitment review card
+// ───────────────────────────────────────────────────────────
+function PendingCommitmentCard({
+  meeting,
+  legacy,
+}: {
+  meeting: Meeting | null;
+  legacy: Episode | null;
+}) {
+  const [submitting, setSubmitting] = useState(false);
+
+  // Empty case — no V3 pending and no V2 legacy
+  const hasV3 = !!meeting?.signature?.action24h;
+  const hasLegacy = !hasV3 && legacy?.followup == null && !!legacy?.decision;
+
+  if (!hasV3 && !hasLegacy) {
+    return (
+      <CabinetCard
+        label="待复盘承诺"
+        data={null}
+        emptyHint="签字之后，这里会出现你的 24 小时承诺。"
+      />
+    );
+  }
+
+  if (hasV3 && meeting) {
+    const action = meeting.signature!.action24h!;
+    const ts = meeting.closedAt ?? meeting.createdAt;
+
+    async function record(result: CommitmentFollowupResult) {
+      if (submitting || !meeting) return;
+      setSubmitting(true);
+      await recordCommitmentFollowup(meeting.id, result);
+      // useLiveQuery picks up the change and removes this card automatically.
+    }
+
+    return (
+      <div className="h-full p-4 rounded-md bg-paper-lift border border-paper-edge transition-colors">
+        <div className="text-[10px] tracking-[0.18em] text-ink-mute uppercase mb-3">
+          待复盘承诺
+        </div>
+        <p className="text-body-sm text-ink-body italic font-serif leading-snug line-clamp-2 mb-1">
+          「{action}」
+        </p>
+        <p className="text-xs text-ink-mute mb-3">
+          {timeAgo(ts)} · 你说会做
+        </p>
+        <div className="flex flex-wrap gap-1.5 text-xs">
+          <button
+            onClick={() => record("done")}
+            disabled={submitting}
+            className="px-2.5 py-1 rounded-full border border-safe-green/40 text-safe-green hover:bg-safe-green/10 transition-colors disabled:opacity-50"
+          >
+            做了
+          </button>
+          <button
+            onClick={() => record("not-done")}
+            disabled={submitting}
+            className="px-2.5 py-1 rounded-full border border-seal-action/40 text-seal-action hover:bg-seal-action/10 transition-colors disabled:opacity-50"
+          >
+            没做
+          </button>
+          <button
+            onClick={() => record("forgot")}
+            disabled={submitting}
+            className="px-2.5 py-1 rounded-full border border-paper-edge text-ink-mute hover:bg-paper-base transition-colors disabled:opacity-50"
+          >
+            忘了
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // V2 legacy fallback — read-only link to /me/pages where the legacy controls live
+  return (
+    <Link href="/me/pages" className="block h-full">
+      <div className="h-full p-4 rounded-md bg-paper-lift border border-paper-edge transition-colors hover:border-ink-mute">
+        <div className="text-[10px] tracking-[0.18em] text-ink-mute uppercase mb-3">
+          待复盘承诺
+        </div>
+        <p className="text-body-sm text-ink-body italic font-serif leading-snug line-clamp-2 mb-1">
+          「{legacy!.decision}」
+        </p>
+        <p className="text-xs text-ink-mute">
+          {timeAgo(legacy!.ts)} · 旧版承诺，去纸页复盘 →
+        </p>
+      </div>
+    </Link>
+  );
 }

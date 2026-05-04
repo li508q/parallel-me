@@ -15,7 +15,12 @@ import { useParams, useRouter } from "next/navigation";
 import { useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { SELVES, type SelfId } from "@/lib/selves";
-import { db, type Meeting } from "@/lib/db";
+import {
+  db,
+  recordCommitmentFollowup,
+  type Meeting,
+  type CommitmentFollowupResult,
+} from "@/lib/db";
 import { DocketPaper } from "@/components/DocketPaper";
 import { SeatNameplate } from "@/components/SeatNameplate";
 
@@ -49,7 +54,7 @@ export default function ArchivePage() {
   const id = params?.id ?? "";
   const [tab, setTab] = useState<Tab>("summary");
 
-  const meeting = useLiveQuery(() => db.meetings.get(id), [id], undefined);
+  const meeting = useLiveQuery(() => db.meetings.get(id), [id]);
 
   if (meeting === undefined) {
     return (
@@ -347,8 +352,9 @@ function AftermathTab({ meeting }: { meeting: Meeting }) {
   const savedCount = savedSet.size;
   const totalCount = consent?.candidates.length ?? 0;
 
-  // "Cabinet's response" — Week 4 will compute true seat-level power deltas;
-  // for now we surface what we can: who was loudest, who was silenced.
+  // "Cabinet's response" — Week 5 will compute true seat-level power deltas
+  // and temporary-seat promotion; for now we surface what we can: who was
+  // loudest, who was silenced.
   const loudest = meeting.verdict?.loudestSeatId
     ? SELVES[meeting.verdict.loudestSeatId as SelfId]
     : null;
@@ -376,6 +382,10 @@ function AftermathTab({ meeting }: { meeting: Meeting }) {
           </p>
         )}
       </DocketPaper>
+
+      {meeting.signature?.action24h && (
+        <CommitmentFollowupCard meeting={meeting} />
+      )}
 
       {consent && (
         <DocketPaper stage="记忆">
@@ -421,6 +431,82 @@ function AftermathTab({ meeting }: { meeting: Meeting }) {
         )}
       </DocketPaper>
     </div>
+  );
+}
+
+// ───────────────────────────────────────────────────────────
+// Loop A · in-archive followup card
+// ───────────────────────────────────────────────────────────
+const FOLLOWUP_LABEL: Record<CommitmentFollowupResult, { text: string; cls: string }> = {
+  done:        { text: "做了 ✓",   cls: "text-safe-green" },
+  "not-done":  { text: "没做",     cls: "text-seal-action" },
+  forgot:      { text: "忘了",     cls: "text-ink-mute" },
+};
+
+function CommitmentFollowupCard({ meeting }: { meeting: Meeting }) {
+  const [submitting, setSubmitting] = useState(false);
+  const followup = meeting.commitmentFollowup;
+
+  if (followup) {
+    const label = FOLLOWUP_LABEL[followup.result];
+    return (
+      <DocketPaper stage="复盘">
+        <div className="flex items-baseline justify-between gap-3">
+          <span className={`font-serif text-title ${label.cls}`}>
+            {label.text}
+          </span>
+          <span className="text-xs text-ink-mute">
+            {formatDateTime(followup.at)}
+          </span>
+        </div>
+        {followup.note && (
+          <p className="mt-2 text-body-sm text-ink-body italic font-serif">
+            「{followup.note}」
+          </p>
+        )}
+      </DocketPaper>
+    );
+  }
+
+  async function record(result: CommitmentFollowupResult) {
+    if (submitting) return;
+    setSubmitting(true);
+    try {
+      await recordCommitmentFollowup(meeting.id, result);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <DocketPaper stage="复盘" marginalia="复盘是一种诚实，不是评分。">
+      <p className="text-body text-ink-body mb-3 leading-relaxed">
+        那件 24 小时的事，做了吗？
+      </p>
+      <div className="flex flex-wrap gap-2">
+        <button
+          onClick={() => record("done")}
+          disabled={submitting}
+          className="px-3 py-1.5 rounded-md border border-safe-green/40 text-safe-green text-body-sm hover:bg-safe-green/10 transition-colors disabled:opacity-50"
+        >
+          做了
+        </button>
+        <button
+          onClick={() => record("not-done")}
+          disabled={submitting}
+          className="px-3 py-1.5 rounded-md border border-seal-action/40 text-seal-action text-body-sm hover:bg-seal-action/10 transition-colors disabled:opacity-50"
+        >
+          没做
+        </button>
+        <button
+          onClick={() => record("forgot")}
+          disabled={submitting}
+          className="px-3 py-1.5 rounded-md border border-paper-edge text-ink-mute text-body-sm hover:bg-paper-base transition-colors disabled:opacity-50"
+        >
+          忘了
+        </button>
+      </div>
+    </DocketPaper>
   );
 }
 

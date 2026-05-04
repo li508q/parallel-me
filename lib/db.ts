@@ -66,6 +66,16 @@ export interface MemoryConsentRecord {
   decidedAt: number;
 }
 
+/** Loop A · 24h commitment follow-up record (set when user reviews a signed
+ *  action24h from the home page or archive). */
+export type CommitmentFollowupResult = "done" | "not-done" | "forgot";
+
+export interface CommitmentFollowup {
+  result: CommitmentFollowupResult;
+  at: number;
+  note?: string;          // optional one-line note from user
+}
+
 export type MeetingStatus =
   | "in_progress"
   | "signed"
@@ -98,6 +108,9 @@ export interface Meeting {
   verdict?: MeetingVerdict;
   signature?: MeetingSignature;
   memoryConsent?: MemoryConsentRecord;
+
+  /** Loop A · written when the user reviews their 24h commitment. */
+  commitmentFollowup?: CommitmentFollowup;
 }
 
 class CabinetDB extends Dexie {
@@ -113,6 +126,10 @@ class CabinetDB extends Dexie {
     // Index set unchanged → no migration callback needed; new fields are
     // optional and read as undefined on old rows.
     this.version(2).stores({
+      meetings: "id, createdAt, closedAt, status, mode",
+    });
+    // v3: added commitmentFollowup. Same story — optional field on existing rows.
+    this.version(3).stores({
       meetings: "id, createdAt, closedAt, status, mode",
     });
   }
@@ -144,11 +161,24 @@ export async function pendingCommitments(maxDays = 14): Promise<Meeting[]> {
     .filter(
       (m) =>
         !!m.signature?.action24h &&
+        !m.commitmentFollowup &&     // not yet reviewed
         (m.closedAt ?? 0) > cutoff
     )
     .reverse()
     .limit(5)
     .toArray();
+}
+
+/** Loop A · record the user's review of a signed 24h commitment. */
+export async function recordCommitmentFollowup(
+  meetingId: string,
+  result: CommitmentFollowupResult,
+  note?: string,
+): Promise<void> {
+  const m = await db.meetings.get(meetingId);
+  if (!m) return;
+  m.commitmentFollowup = { result, at: Date.now(), note };
+  await db.meetings.put(m);
 }
 
 export async function saveMeeting(m: Meeting): Promise<void> {

@@ -41,11 +41,11 @@ const STATUS_DOT: Record<Meeting["status"], string> = {
 };
 
 export default function PagesView() {
-  const meetings = useLiveQuery(
-    () => db.meetings.orderBy("createdAt").reverse().toArray(),
-    [],
-    [] as Meeting[]
-  );
+  const meetings =
+    useLiveQuery(
+      () => db.meetings.orderBy("createdAt").reverse().toArray(),
+      []
+    ) ?? [];
   const [legacyEps, setLegacyEps] = useState<Episode[]>([]);
 
   useEffect(() => {
