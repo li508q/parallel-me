@@ -9,6 +9,7 @@ import { SELVES, type SelfId } from "@/lib/selves";
 import {
   callSelf,
   crossExamine,
+  crossExamRespond,
   callNowMeWithCritic,
   pickOpposingPairs,
   psychInsight,
@@ -24,6 +25,7 @@ export const dynamic = "force-dynamic";
 type Frame =
   | { type: "self"; id: string; name: string; emoji: string; tagline: string; text: string }
   | { type: "cross"; from: string; fromId: string; to: string; toId: string; text: string }
+  | { type: "cross_response"; fromId: string; from: string; text: string }
   | { type: "now"; text: string }
   | { type: "insight"; text: string }
   | { type: "loudest"; id: string; name: string }
@@ -94,6 +96,8 @@ export async function POST(req: NextRequest) {
         );
 
         // ─── Round 2: cross-examine — full mode only
+        // Week 5: each cross is now followed by the addressed seat's response
+        // so the timeline shows a real exchange, not a one-sided question.
         if (mode === "full") {
           const pairs = await pickOpposingPairs(answers, runtime);
           for (const [from, to] of pairs) {
@@ -107,6 +111,17 @@ export async function POST(req: NextRequest) {
               toId: to,
               text: cross,
             });
+            try {
+              const reply = await crossExamRespond(to, from, input, cross, runtime);
+              send({
+                type: "cross_response",
+                fromId: to,
+                from: SELVES[to].name,
+                text: reply,
+              });
+            } catch (e) {
+              console.warn("[cross-response] failed", e);
+            }
           }
         }
 

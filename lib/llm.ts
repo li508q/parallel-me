@@ -138,6 +138,34 @@ export async function callSelf(
 // ────────────────────────────────────────────────────────────
 // Cross-examine — 一个分身反问另一个
 // ────────────────────────────────────────────────────────────
+/** Week 5 · 被质询席的回应。让交叉质询从单向反问变成真对话。
+ *  ≤ 60 字，保持人格，不被说服转向也不无脑反驳。 */
+export async function crossExamRespond(
+  target: SelfId,
+  challenger: SelfId,
+  userInput: string,
+  challengeText: string,
+  runtime?: LlmRuntime,
+): Promise<string> {
+  const me = SELVES[target];
+  const t = SELVES[challenger];
+  const messages: Msg[] = [
+    {
+      role: "system",
+      content:
+        me.system_prompt +
+        `\n\n# 特殊任务：被质询时的回应\n「${t.name}」刚刚反问了你。\n` +
+        "用 ≤ 60 字诚实回应。继续保持你的人格、口头禅、禁忌词。\n" +
+        "不要被说服转向，但也不要无脑反驳——把你真实的反应说出来。",
+    },
+    {
+      role: "user",
+      content: `用户的纠结：${userInput}\n\n${t.name}质问你：「${challengeText}」\n\n你的一句话回应：`,
+    },
+  ];
+  return chat(messages, { temperature: 0.85, max_tokens: 160, runtime });
+}
+
 export async function crossExamine(
   challenger: SelfId,
   target: SelfId,
