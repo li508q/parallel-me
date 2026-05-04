@@ -177,7 +177,7 @@ export async function pickOpposingPairs(
 // ────────────────────────────────────────────────────────────
 // NowMe + Meta-Critic（GAN-inspired）
 // ────────────────────────────────────────────────────────────
-const BAN_WORDS = ["平衡「, 」兼顾「, 」都很重要「, 」看情况「, 」视情况而定「, 」综合考虑「, 」都对「, 」各有道理"];
+const BAN_WORDS = ["平衡", "兼顾", "都很重要", "看情况", "视情况而定", "综合考虑", "都对", "各有道理"];
 
 function violatesBan(text: string): string[] {
   return BAN_WORDS.filter(w => text.includes(w));
@@ -340,8 +340,8 @@ export async function extractTasteProfile(taste: TasteInput): Promise<{
 } | null> {
   if (!API_KEY) {
     return {
-      themes: ["孤独「, 」时间「, 」失而复得"],
-      moods: ["慢「, 」雨天"],
+      themes: ["孤独", "时间", "失而复得"],
+      moods: ["慢", "雨天"],
       identity_hint: "在喧闹中找寂静的人",
     };
   }
@@ -522,26 +522,26 @@ function mockChat(messages: Msg[]): string {
   }
 
   // pickOpposingPairs JSON 调用 — 演员模式给默认 JSON
-  if (sys.includes("辩论裁判「) && sys.includes(」最对立")) {
+  if (sys.includes("辩论裁判") && sys.includes("最对立")) {
     return JSON.stringify({ pairs: [["lay", "money"], ["roam", "filial"]] });
   }
 
   // taste profile
   if (sys.includes("品味分析师") || sys.includes("identity_hint")) {
     return JSON.stringify({
-      themes: ["孤独「, 」时间「, 」失而复得"],
-      moods: ["慢「, 」雨天"],
+      themes: ["孤独", "时间", "失而复得"],
+      moods: ["慢", "雨天"],
       identity_hint: "在喧闹中找寂静的人",
     });
   }
 
   // episode extraction
-  if (sys.includes("私人编年史「) || sys.includes(」事件卡")) {
+  if (sys.includes("私人编年史") || sys.includes("事件卡")) {
     return JSON.stringify({ importance: 0.2 }); // mock 模式不写记忆
   }
 
   // 此刻的我
-  if (sys.includes("此刻真实的自己「) || sys.includes(」此刻的我「) || sys.includes(」最终裁决")) {
+  if (sys.includes("此刻真实的自己") || sys.includes("此刻的我") || sys.includes("最终裁决")) {
     return NOW_PLAYBOOK[topic];
   }
 
@@ -553,9 +553,9 @@ function mockChat(messages: Msg[]): string {
   // 5 个分身 — 用 IFS 关键词精确匹配
   if (sys.includes("5 年后回头看") || sys.includes("Self 远观视角")) return pick(PLAYBOOK.future[topic]);
   if (sys.includes("预防型保护者")) return pick(PLAYBOOK.lay[topic]);
-  if (sys.includes("现实型保护者「) || sys.includes(」把一切换算")) return pick(PLAYBOOK.money[topic]);
-  if (sys.includes("应急保护者「) || sys.includes(」换地方解救")) return pick(PLAYBOOK.roam[topic]);
-  if (sys.includes("被流放的内在小孩「) || sys.includes(」讨妈") || sys.includes("Exile")) return pick(PLAYBOOK.filial[topic]);
+  if (sys.includes("现实型保护者") || sys.includes("把所有事情都换算")) return pick(PLAYBOOK.money[topic]);
+  if (sys.includes("应急保护者") || sys.includes("用换地方解救")) return pick(PLAYBOOK.roam[topic]);
+  if (sys.includes("被流放的内在小孩") || sys.includes("讨妈") || sys.includes("Exile")) return pick(PLAYBOOK.filial[topic]);
 
   return `（演员模式）听到了你说的："${usr.slice(0, 30)}…"`;
 }
