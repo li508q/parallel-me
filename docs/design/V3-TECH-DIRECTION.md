@@ -1,5 +1,7 @@
 # ParallelMe V3 · 技术方向（Tech Direction · ADR）
 
+> **V0.5 Status (2026-05)** — 全部技术决策已实施。Tailwind v4 → v3.4 战术回退（Next.js 14 dev mode 兼容），但 V3 token 系统经由 `tailwind.config.ts theme.extend + CSS variables` 双轨完整保留。Dexie 已上、Provider Wizard 已上、自写 SSE 状态机 + 阶段化 + cross_response 已落地。
+>
 > 这份文档定义 V3 的工程实现方向。
 > 命题：**V3 比 V2 更轻便，技术服务于产品设计。**
 > 它不替代 `V3-LOCAL-FIRST-TECH-ARCH.md`（本地优先架构），而是站在它之上回答更上层的问题：依赖、orchestration、prompt caching、design system 落地、SSE 升级、演员模式契约、部署。
@@ -602,7 +604,7 @@ ANTHROPIC_API_KEY        启用 prompt caching 的 provider
 ### 12.1 测试
 
 V3 MVP 不引入测试框架。原因：
-- 单人 / hackathon 节奏
+- 单人 / 小团队节奏
 - 关键 contract（SSE event schema、Local DB schema）通过 TS 类型守住
 - 演员模式本身就是端到端 smoke test
 

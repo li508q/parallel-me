@@ -241,7 +241,7 @@ export default function Home() {
             <div className="font-medium text-ink-body mb-1">
               平行的我 · ParallelMe
             </div>
-            <div>为傅盛 AI 战队 × EasyClaw Link 黑客松而生</div>
+            <div>你内心的多个声音，第一次被允许同时讲话。</div>
           </div>
           <div className="flex gap-4 flex-wrap">
             <Link href="/me" className="hover:text-ink-core underline-offset-4 hover:underline">

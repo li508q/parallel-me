@@ -5,10 +5,11 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "🪞 平行的我 · ParallelMe",
-  description: "你的纠结，让 5 个平行宇宙的你吵给你听。为傅盛 AI 战队 × EasyClaw Link 黑客松而生。",
+  description:
+    "你内心的多个声音，第一次被允许同时讲话。基于 IFS 心理学的多智能体内阁会议，帮你在重要决策时听见自己。",
   openGraph: {
     title: "🪞 平行的我 · ParallelMe",
-    description: "你的纠结，让 5 个平行宇宙的你吵给你听。",
+    description: "你内心的多个声音，第一次被允许同时讲话。",
     type: "website",
   },
   other: {

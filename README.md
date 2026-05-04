@@ -4,203 +4,248 @@
 
 ### 你不是一个人，你是好几个。
 
-你说一句正在纠结的事 ——
-5 个平行宇宙的你**并行展开** → **互相戳穿** → 「此刻的我」**做出选择**。
+当你被「我该不该 X」困住时——
+让你内心的 5 个声音同时坐到桌边吵一架。
+最后由「此刻的我」做选择。
 
-[![Built for 傅盛 AI 战队 × EasyClaw Link](https://img.shields.io/badge/Built_for-%E5%82%85%E7%9B%9B_AI_%E6%88%98%E9%98%9F_%C3%97_EasyClaw_Link-D4A8FF?style=for-the-badge)](https://easyclaw.link/zh/hackathon)
-[![Next.js](https://img.shields.io/badge/Next.js-14.2-black?style=for-the-badge&logo=next.js)](https://nextjs.org/)
+**不是一个 AI 替你想清楚，是 AI 帮你召集你自己。**
+
+[![Version](https://img.shields.io/badge/Version-V0.5-7C7568?style=for-the-badge)](#)
+[![Next.js](https://img.shields.io/badge/Next.js-14.2-191713?style=for-the-badge&logo=next.js&logoColor=white)](https://nextjs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.4-3178C6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-[![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](#license)
+[![License](https://img.shields.io/badge/License-MIT-536E5A?style=for-the-badge)](#license)
 
-[**线上 Demo**](#) · [**架构**](#-architecture) · [**给 AI 评委**](#-给-ai-评委-evaluator-quickstart) · [**设计哲学**](#-设计哲学)
+[**线上体验**](#) · [**设计哲学**](#-设计哲学) · [**已实现功能**](#-v05-完整功能) · [**未来路线图**](#-v06-路线图)
 
 </div>
 
 ---
 
-## 📑 Table of Contents
+## 📑 目录
 
-1. [产品（Why this exists）](#-产品why-this-exists)
-2. [V2 三大支柱（What's new）](#-v2-三大支柱)
-3. [Architecture](#-architecture)
-4. [Quickstart](#-quickstart)
-5. [Project Structure](#-project-structure)
-6. [API Reference](#-api-reference)
-7. [给 AI 评委 / Evaluator Quickstart](#-给-ai-评委-evaluator-quickstart)
-8. [设计哲学](#-设计哲学)
-9. [Roadmap](#-roadmap)
-10. [Credits & License](#-credits)
-
----
-
-## 🎯 产品（Why this exists）
-
-当代年轻人的最深痛点不是"没选择"，是 **「45 度人生」—— 卷不动也躺不平，选项太多每个都不甘心**。
-
-最高频的心声是：「**我该不该…**」
-> 该不该考公 · 该不该裸辞 · 该不该分手 · 该不该回老家 · 该不该接亲戚饭局
-
-单 agent 的回答永远是温柔无害的"中位数建议"——听起来都对，关掉就忘。
-**人在纠结时真正需要的不是答案，是看见几种极端价值观吵架，然后自己做判断。**
-
-ParallelMe 把这件事做成了产品 —— **你内心的 5 个声音，第一次被允许同时讲话。**
-
-### 五个分身
-
-| 分身 | IFS 部分 | 信念 | 它最怕 |
-| --- | --- | --- | --- |
-| 🛋️ **躺平的我** | Manager · 预防型保护者 | 卷不动就是不卷的信号 | 你被工作吃掉 |
-| 💰 **搞钱的我** | Manager · 现实型保护者 | 现金流面前，所有问题都是数学题 | 你天真到饿肚子 |
-| ✈️ **出走的我** | Firefighter · 应急保护者 | 走不出去的不是路，是你给自己设的画地牢 | 你被这间屋子困死 |
-| 🥟 **讨妈欢心的我** | Exile · 被流放的内在小孩 | 你妈不是不懂你，她只是怕 | 你飞走了她睡不着 |
-| 🔮 **5 年后的我** | Self · 远观视角 | 你现在拼命纠结的事，5 年后大半我都不记得了 | 你被此刻吞掉 |
-| 🪞 **此刻的我** | **Self · 决断者** | 不是平均，不是中庸，是属于此刻的清明 | 永远逃避选择 |
-
-> 5 个分身一一映射到 [**Internal Family Systems**](https://ifs-institute.com/) 的 part 类型——这不是装饰，是人格稳定性的物理保险。
+1. [产品 · 为什么这件事重要](#-产品--为什么这件事重要)
+2. [心理学动机 · IFS 内部家庭系统](#-心理学动机--ifs-内部家庭系统)
+3. [设计动机 · 它不是聊天机器人](#-设计动机--它不是聊天机器人)
+4. [五席 + 一席](#-五席--一席)
+5. [V0.5 完整功能](#-v05-完整功能)
+6. [快速上手](#-快速上手)
+7. [架构](#-架构)
+8. [项目结构](#-项目结构)
+9. [API 参考](#-api-参考)
+10. [设计哲学](#-设计哲学)
+11. [心理安全红线](#-心理安全红线)
+12. [V0.6 路线图](#-v06-路线图)
+13. [文档地图](#-文档地图)
+14. [致谢与灵感](#-致谢与灵感)
+15. [License](#license)
 
 ---
 
-## ⚙️ V2 三大支柱
+## 🎯 产品 · 为什么这件事重要
 
-V1 是"5 个分身轮流说话"。V2 是 **"5 个分身真的有灵魂、记得你、并且产出仪式感"**。
+**当代年轻人最深的困境不是「没选择」，是「选项太多，每个都不甘心」。**
 
-### Pillar Ⅰ · 让每个 inner voice 真有灵魂
+最高频的内心独白只有一句：
 
-| 升级 | 做法 | 原始来源 |
-| --- | --- | --- |
-| **双层 persona card** | TOP（IFS 身份 + 核心价值 + 害怕的事 + 口头禅）+ BOTTOM（drift guard 反讨好夹击） | Anthropic Multi-Agent Research |
-| **GAN 式 Harness** | NowMe 输出 → Critic agent 找中庸/讨好/逃避 → NowMe 重写一次 | Anthropic *Effective Context Engineering* |
-| **动态 cross-examine** | 不再硬编码 pair；用 LLM 跑一次 5×5 对立矩阵，每次挑最尖锐的两对辩论 | AutoGen GroupChat dynamic speaker selection |
-| **反讨好 drift guard** | 每个分身底部强制：*"你不是助手，是声音；同意了对方你就消失了"* | system prompt leaks (Cursor / Claude Code) |
-| **NowMe 反中庸** | 禁用「平衡 / 兼顾 / 都很重要 / 综合考虑」；写出立即作废重写。提供「我在逃避」逃生口 | Esther Perel · *"the courage to disappoint"* |
-| **强制口头禅 + 禁忌词** | 每个分身有 4-5 个 catchphrase 必出现 1 个 + 4-5 个 taboo 一个不准出 | 最便宜也最有效的 anti-drift 手段 |
-
-> 完整实现见 [`lib/selves.ts`](./lib/selves.ts)（人格卡 · 232 行）和 [`lib/llm.ts`](./lib/llm.ts)（harness · 575 行）。**完全公开，欢迎 fork & 改写。**
-
-### Pillar Ⅱ · 让系统拥有「me」
-
-让分身从"通用 Bot"变成**只属于你**的镜子。三层结构、零基建、私密：
+> 我该不该……
 
 ```
-L1  Working memory      当前会话 KV (24h TTL)         上下文连续
-L2  Episodic memory     事件卡 (importance gated)     "你上次说要……做了吗？"
-L3  Reflective memory   跨会话归纳                    "你总是在 9 月份焦虑"
+该不该考公  ·  该不该裸辞  ·  该不该分手
+该不该回老家  ·  该不该接亲戚饭局  ·  该不该等他变好
 ```
 
-外加两个**专属于你**的人格输入源：
+你打开 ChatGPT 问一句「我该不该辞职」，它会给你一份对照表，左边好处右边坏处，最后说「祝你好运」。
 
-- **`me.md` 自填画像** —— 灵感来自 CLAUDE.md / AGENTS.md（给 AI 看的项目文档），但**面向用户自填"我是谁"**：昵称、城市、人生阶段、最近在意的事、最在回避的话题、身边的人、不能踩的红线。
-- **Taste 三色板** —— 上传 3 本书 / 3 部电影 / 3 首歌（标题 + 一句"为什么对你有意义"），LLM 跑一次 fact extraction 抽出 **14 字内的人格判词** + 主题 + 情绪。例如真实输入"三体 + 百年孤独 + 让子弹飞" → *"在宿命里打滚却想掀翻桌子的人"*。
+但你不是缺好处坏处。你是缺**一种能让你在凌晨 3 点醒来时也站得住的语言**。
 
-> 完整实现见 [`lib/profile.ts`](./lib/profile.ts) · [`lib/memory.ts`](./lib/memory.ts) · [`app/api/taste/route.ts`](./app/api/taste/route.ts)。
-> 数据存 `localStorage`——**永不上传服务器**，关掉浏览器就消失，符合"内心独白"的本体论。
+单个 AI 永远给不了你这个，因为它在试图对所有人都正确——一种最安全、也最无用的姿态。它给的永远是「中庸的中位数」，听起来都对，关掉就忘。
 
-### Pillar Ⅲ · 让人愿意第二次打开
-
-工具死于第二次打开率。所以 ParallelMe 不是工具，是**纸面上的咨询室**：
-
-- **底片 / 纸页 / 底色** —— 替代了"个人主页 / 历史 / 设置"等工具语，全产品没有一个"工具感"的词
-- **Callback 开场** —— 第二次回来永远引用上次对话的**一个具体细节**（不是"欢迎回来"），范式来自 Pi.ai
-- **Wrapped 式报告页**（开发中）—— 7 帧故事流，第 4 帧专门讲"你今天回避的那个分身"，制造好奇 + 分享驱动
-- **零打扰原则** —— 永远不发 push，但永远有"今天的那张纸"等着，灵感来自 Apple Journal · Finch · Stoic
-- **时间感知文案** —— 凌晨进站、晨间进站、深夜进站，开场文案不一样
-
-> 完整设计见 [`docs/design/DESIGN-V2.md`](./docs/design/DESIGN-V2.md)（产品宪法）。
+人在纠结时真正需要的不是答案，是**看见几种极端价值观吵架**，然后自己做判断。
 
 ---
 
-## 🏗️ Architecture
+## 🧠 心理学动机 · IFS 内部家庭系统
 
-```
-                ┌──────────────────────────────────────────┐
-   user input   │  "我妈让我考公，我月薪 2.5w，纠结半年了"  │
-                └──────────────┬───────────────────────────┘
-                               │
-                               ▼
-                    ┌──────────────────┐
-                    │  ContextBundle    │   ← me.md + taste profile + last episode
-                    │  (optional)       │
-                    └─────────┬─────────┘
-                              │
-       ┌──────┬──────┬────────┼────────┬──────┐    Round 1 · 5 路并行
-       ▼      ▼      ▼        ▼        ▼
-     [lay]  [money] [roam]  [filial] [future]                  ← Promise.all
-       │      │      │        │        │                       ← SSE stream out
-       └──────┴──┬───┴────────┴────────┘
-                 │
-                 ▼
-          ┌──────────────────┐
-          │ pickOpposingPairs │ ← LLM 选最尖锐的 2 对                Round 2 · 动态 cross-examine
-          └────────┬──────────┘
-                   ▼
-           pair_A.from ⇄ pair_A.to
-           pair_B.from ⇄ pair_B.to        ← 互相戳穿，40 字内一句反问
-                   │
-                   ▼
-          ┌─────────────────────┐
-          │  findLoudest()      │  ← 长度+关键词强度+金句标记打分    "今天最响的声音"
-          └────────┬────────────┘
-                   ▼
-        ┌─────────────────────────────┐
-        │ callNowMeWithCritic()       │   Round 3 · GAN 收束
-        │  ┌───────────────────────┐  │
-        │  │ NowMe 输出 v1          │  │
-        │  │   ↓                    │  │
-        │  │ Critic 挑刺 (中庸/讨好) │  │
-        │  │   ↓                    │  │
-        │  │ NowMe 重写 v2          │  │← 禁用「平衡/兼顾」, 留「我在逃避」逃生口
-        │  └───────────────────────┘  │
-        └────────┬────────────────────┘
-                 ▼
-        ┌─────────────────────┐
-        │  psychInsight()     │  ← IFS 视角心理学解读
-        └────────┬────────────┘
-                 ▼
-        ┌─────────────────────┐
-        │  extractEpisode()   │  ← 异步落 L2 事件卡（importance > θ）
-        └─────────────────────┘
-                 │
-                 ▼
-              SSE done
-```
+[**Internal Family Systems**](https://ifs-institute.com/) 是 Richard Schwartz 在 1995 年创立的疗法。它的核心发现非常简单：
 
-整条链路全程 **Server-Sent Events 流式**——分身一个一个出现，体感像真在听内心对话。
+> **人内心不是一个声音。是一组各自有立场、有恐惧、有保护意图的子人格。**
 
-### V3 Design & Architecture (开发前定稿)
+你心里那些彼此矛盾、互相打架的"声音"，**从来都不是病**。是心智的常态。
 
-V3 正在从「五声 demo」升级为「可管理、可调用、有记忆的内在组阁系统」。**冲突时以 [`V3-IVY-FINAL-DIRECTION.md`](./docs/design/V3-IVY-FINAL-DIRECTION.md) 为准**。
+更重要的是：那些极端的声音，每一个都在保护你。
 
-**上层宪法（Source of Truth）**
+- 「躺平的我」在保护你的身体不被工作吃掉
+- 「搞钱的我」在保护你的现金流和选择权
+- 「出走的我」在保护你不被一个地方困死
+- 「讨妈欢心的我」在保护你和家人的连接
+- 「5 年后的我」在用时间稀释你此刻的焦虑
 
-- [`V3-IVY-FINAL-DIRECTION.md`](./docs/design/V3-IVY-FINAL-DIRECTION.md) — V3 上层宪法：5 锁定决策、七条军规、视觉/产品/字体最终判决、路线图
-- [`V3-TECH-DIRECTION.md`](./docs/design/V3-TECH-DIRECTION.md) — V3 技术 ADR：Dexie / Vercel AI SDK 5 / Anthropic prompt caching / Tailwind v4 design tokens / SSE 状态机
+它们之所以打架，是因为它们各自负责的东西都很重要，但你不能同时全要。
 
-**产品宪法 + 技术架构**
-
-- [`DESIGN-V3-CABINET.md`](./docs/design/DESIGN-V3-CABINET.md) — V3 产品宪法：阁、席位、议题、会议、档案
-- [`V3-LOCAL-FIRST-TECH-ARCH.md`](./docs/design/V3-LOCAL-FIRST-TECH-ARCH.md) — 本地优先架构：API Key 引导、本地工作区、记忆、账号路线
-
-**视觉与交互详细规范**
-
-- [`V3-COLOR-DESIGN-GUIDE.md`](./docs/design/V3-COLOR-DESIGN-GUIDE.md) — 色彩规范（已被 IVY-FINAL § 2.1 修订）
-- [`V3-IA-DESIGN-GUIDE.md`](./docs/design/V3-IA-DESIGN-GUIDE.md) — 信息架构（席位为横切对象）
-- [`V3-INTERACTION-DESIGN-GUIDE.md`](./docs/design/V3-INTERACTION-DESIGN-GUIDE.md) — 交互流（4 道用户参与门 + off-ramp）
-- [`DESIGN-V3-UI-INTERACTION.md`](./docs/design/DESIGN-V3-UI-INTERACTION.md) — UI 美学方案与交互逻辑
-- [`DESIGN-V3-RESEARCH-REFINEMENT.md`](./docs/design/DESIGN-V3-RESEARCH-REFINEMENT.md) — 色彩与交互研究修订案（已被 IVY-FINAL 收束）
-- [`V3-PRE-DEVELOPMENT-EXPERT-REVIEW.md`](./docs/design/V3-PRE-DEVELOPMENT-EXPERT-REVIEW.md) — 开发前专家审查（已被 IVY-FINAL 收束）
-
-**竞品全景**
-
-- [`V3-COMPETITIVE-LANDSCAPE.md`](./docs/competitive/V3-COMPETITIVE-LANDSCAPE.md) — IFS 类 / AI 陪伴 / 心理健康 / 设计参考四层竞品 + ParallelMe 差异化矩阵
-
-**调研档案库**
-
-- [`docs/research/V3/README.md`](./docs/research/V3/README.md) — 调研档案索引
-- 11 个分类档案：Apple Liquid Glass · Material 3 Expressive · 多智能体 UX · AI 陪伴留存 · 心理健康 AI 安全 · 色彩趋势 2026 · 字体趋势 2026 · Linear/Things 设计哲学 · 反 chat / canvas · IFS 数字化竞品 · 技术栈参考
+ParallelMe 的事情，是把那些通常只存在于你脑子里的声音——具象化、给它们各自的人格、各自的语言，让它们坐在一张桌子上**真的**吵一架。然后由你（不是 AI）做出选择。
 
 ---
 
-## 🚀 Quickstart
+## 🧭 设计动机 · 它不是聊天机器人
+
+ParallelMe 不是又一个 chatbot。它是 V3 时期的一个反向尝试——
+
+**它是一个内在决策的对象系统。** 你召集你自己。
+
+具体讲：
+
+| 别人做的 | ParallelMe 做的 |
+|---|---|
+| AI 陪你做 IFS 治疗 | 你召集你自己开内阁会议 |
+| 选 part / 选角色 / 选 archetype | 提议题 → 系统组阁 → 多 part 同时辩论 |
+| 温柔陪伴 / 多视角整合 | 拒绝平衡 / 兼顾 / 都很重要 → 强迫"暂时不听谁 + 代价 + 24h 动作" |
+| 云端 SaaS 锁定 | 零注册 → IndexedDB 本地阁 → 一键导出 |
+| 一个 chat 框 | 议案纸 / 席位牌 / 阶段轨 / 决议纸 / 档案 |
+
+**主谓结构反转：** 不是 "AI 帮你想清楚"，是 **"你召集你自己"**。
+
+---
+
+## 👥 五席 + 一席
+
+ParallelMe 的内阁由 5 个常任发言席 + 1 个裁决席组成，每一席严格映射到 IFS 的 part 类型。
+
+| 席位 | IFS 类型 | 它在保护什么 | 它最怕什么 | 口头禅 |
+|---|---|---|---|---|
+| 🛋️ **躺平的我** | Manager · 预防型保护者 | 身体、睡眠、低消耗生存 | 你被工作吃掉 | "其实……也挺好的" |
+| 💰 **搞钱的我** | Manager · 现实型保护者 | 现金流、选择权 | 你天真到饿肚子 | "算笔账" |
+| ✈️ **出走的我** | Firefighter · 应急保护者 | 自由感、探索欲、喘息 | 你被这间屋子困死 | "走" |
+| 🥟 **讨妈欢心的我** | Exile · 被流放的内在小孩 | 被爱、归属、家庭连接 | 你飞走了她睡不着 | "妈她……" |
+| 🔮 **5 年后的我** | Self · 远观视角 | 长期视角、人生连续性 | 你被此刻吞掉 | "5 年后回头看……" |
+| 🪞 **此刻的我** | **Self · 决断者** | 用户的主权 | 永远逃避选择 | "我听见了……" |
+
+> 这不是装饰，是**人格稳定性的物理保险**。每个席位有独立 system prompt、独立价值观、独立禁忌词。它们互不看对方的回答，所以不会变成"和稀泥"。
+
+---
+
+## ✨ V0.5 完整功能
+
+### 一次完整的内阁会议
+
+ParallelMe V0.5 提供两种会议模式，覆盖不同情境：
+
+#### 快速会议（3 席 · 5 分钟）
+
+适合：第一次使用、轻议题、低风险决策。
+
+```
+立案 → 三席入席（按议题主题自动选 3 席）
+     → 用户点一席追问
+     → 此刻的我裁决
+     → 签字 / 暂缓 / 我在逃避
+     → 记忆同意（你说可以才记入）
+     → 写入本地档案
+```
+
+#### 完整内阁会议（5 席 + 交叉质询 + 议案修订 · 10-15 分钟）
+
+适合：反复议题、重大决策、用户主动选择深入。
+
+```
+立案 → 组阁（5 席就位 + 入席理由）
+     → 五席并行表态
+     → 用户点名追问
+     → 交叉质询（最对立的 4 对，每对真有问有答）
+       ├─ 用户判定每对："问中了" / "没问中" / "我想回答"
+     → 议案修订（你看见的真问题是不是另一个？）
+     → 此刻的我裁决（带反讨好 critic）
+     → 签字 / 暂缓 / 我在逃避
+     → 记忆同意
+     → 写入本地档案
+```
+
+### 你是主持人，不是观众
+
+V0.5 严格遵守 4 道**不可跳过**的用户参与门：
+
+1. **立案确认** —— 你确认 AI 把问题问准了
+2. **点名追问** —— 你必须点 1 席问 1 句
+3. **签字 / 暂缓 / 我在逃避** —— 你给一个 24 小时的具体动作
+4. **记忆同意** —— 系统提议记 3 件事，你说可以才记入
+
+每道门都是阻断流程的——AI 不能替你过。
+
+### 对话感会议室（V0.5 重设计）
+
+V0.5 的 `/meeting` 不是 5 步式表单，是一份**会议记录在你面前生长**：
+
+- **顶部** · 5 席持久 dock —— 谁在发言（pulsing），谁是最响（copper），谁被点名（ring），谁已说过（faded）
+- **中间** · 时间线 —— 议题、席位发言、你的追问、交叉质询的 Q + A、用户判定、最终裁决，全部在一条向下生长的滚动里。回头看上一段是滚动，不是返回按钮
+- **底部** · 主持人台 —— 永远在那里。一个自由输入框（"等等 / 我想问 / 我有话说"）+ 当前阶段的主操作按钮
+
+```
+┌────────────────────────────────────┐
+│  [SeatDock · 5 席持久 chips]        │
+├────────────────────────────────────┤
+│  ─── 议题已立 ───                  │
+│                                    │
+│  💬 躺平的我  · 12:30  最响        │
+│  「其实……」                        │
+│                                    │
+│  💬 搞钱的我  · 12:31              │
+│  「算笔账」                         │
+│                                    │
+│  ─── 主持人点名 5 年后的我 ───     │
+│                                    │
+│  ❓ 你问  · 12:33                  │
+│  「为什么答案不在考场？」          │
+│                                    │
+│  💬 5 年后的我（被点名）           │
+│  「因为 5 年后回头看……」           │
+│                                    │
+│  ⚔ 搞钱 → 躺平                     │
+│  「省的是焦虑还是命？」            │
+│                                    │
+│  💬 躺平（被质询）                 │
+│  「我省的是动作。动作不一定省命。」│
+│                                    │
+│  ✓ 主持人判定：问中了              │
+│                                    │
+│  ⚖️ 此刻的我                       │
+│  「我听见了……」                    │
+├────────────────────────────────────┤
+│  [HostConsole · 主持人台]           │
+│  [输入框]            [进入签字 →]  │
+└────────────────────────────────────┘
+```
+
+### 你的钥匙在你这里
+
+V0.5 不强制你用我的 LLM。完整 Provider Setup Wizard：
+
+- **DeepSeek**（推荐 · 中文好 · 便宜）
+- **OpenAI**
+- **任意 OpenAI-compatible**（Moonshot / 智谱 / Together / Groq / Ollama）
+- **演员模式**（无 key，预设剧本，体验产品流程）
+
+5 步引导：选服务商 → 填 key/baseUrl/model → 一键测试 → 选保存方式 → 完成。
+
+**你的 key 只存在你的浏览器上。** ParallelMe 的服务器永远不保存它。
+
+### 你的阁是你的
+
+V0.5 的所有数据都在 `IndexedDB`（本地浏览器）：
+
+- **会议档案** · 议题、组阁、所有发言、交叉质询、判定、裁决、签字、记忆同意
+- **5 席统计** · 出席 / 最响 / 被点名 / 质询命中（跨议题派生）
+- **单席详情** · 某个席位在所有议题中说过的话
+- **承诺复盘** · 24h 后系统问你"那件事，做了吗"
+
+主页可见的工作台快照：
+- 待复盘承诺（点 [做了]/[没做]/[忘了] 即时回写）
+- 反复议题（占位 → V0.6 实现）
+- 最近会议（链接到三 tab 档案页：摘要/原声/余波）
+
+**关闭浏览器就消失。** 想留住，明确导出。这符合"内心独白"的本体论。
+
+---
+
+## 🚀 快速上手
 
 ```bash
 # 1. clone
@@ -210,205 +255,370 @@ cd parallelme
 # 2. install
 npm install
 
-# 3. configure（任选其一）
-cp .env.example .env.local
-
-# Option A · 真实 LLM（推荐 DeepSeek，便宜、中文好、不卡）
-echo "OPENAI_BASE_URL=https://api.deepseek.com/v1" >> .env.local
-echo "OPENAI_API_KEY=sk-xxx"                       >> .env.local
-echo "OPENAI_MODEL=deepseek-chat"                  >> .env.local
-
-# Option B · 演员模式（无 API key 也能跑，离线 mock 数据）
-# 不配置任何环境变量即可，自动 fallback
-
-# 4. run
+# 3. dev
 npm run dev
 # → http://localhost:3000
 ```
 
-兼容任何 OpenAI-compatible endpoint：OpenAI · DeepSeek · Moonshot · 智谱 · Together · Groq · 本地 Ollama。
+第一次访问会引导你走完 Setup Wizard。如果你只想先体验流程：
+
+- 点 **演员模式** → 不需要 key，直接进入主页 → 提议题 → 走完一次会议
+
+如果你要用真实模型：
+
+- 点 **DeepSeek** preset（[platform.deepseek.com](https://platform.deepseek.com) 注册有免费额度）→ 粘贴 key → 一键测试 → 保存到本浏览器
 
 | 命令 | 用途 |
-| --- | --- |
+|---|---|
 | `npm run dev` | 开发模式 |
-| `npm run build` | 生产构建（14 routes，build 时间 ~30s） |
+| `npm run build` | 生产构建（18 routes） |
 | `npm start` | 生产启动 |
+
+**自部署 / 开发者**：可设 `OPENAI_BASE_URL` / `OPENAI_API_KEY` / `OPENAI_MODEL` 环境变量。用户在 UI 填的 key 会优先于环境变量。
 
 ---
 
-## 📂 Project Structure
+## 🏗️ 架构
+
+```
+┌──────────────────────────────────────────────────┐
+│  Browser (Fat Client)                             │
+│  ────────────────────────────────────────────    │
+│  React 18 + Tailwind 3 + Geist                    │
+│  ────────────────────────────────────────────    │
+│  Local Workspace · Dexie / IndexedDB              │
+│  Provider Config · localStorage                    │
+│  ────────────────────────────────────────────    │
+│  Context Builder · me.md + recent meetings        │
+└────────────────────────┬─────────────────────────┘
+                         │
+                         ▼
+                /api/parallel (SSE)
+                /api/followup
+                /api/provider/test
+                ───────────────────────
+                Stateless · No DB · No user state
+                         │
+                         ▼
+                LLM Provider
+            (DeepSeek / OpenAI-compatible)
+```
+
+**关键边界**：
+
+- 浏览器拥有身份、key、记忆、阁
+- API route 只做编排和转发
+- LLM provider 只做生成
+- ParallelMe 的服务器**永远不保存任何用户内容**
+
+### Quick Meeting 流程
+
+```
+                 ┌──────────────────────────────┐
+   user input    │  「我妈让我考公，我大厂月薪 2.5w」 │
+                 └──────────────┬───────────────┘
+                                │
+                                ▼
+                       立案确认（用户必须确认）
+                                │
+                                ▼
+       ┌──────┬──────┬──────┐    Round 1 · 3 路并行
+       ▼      ▼      ▼
+     [lay]  [money] [future]    ← Promise.all + SSE stream
+       │      │      │
+       └──────┴──┬───┘
+                 ▼
+         findLoudest()
+                 │
+                 ▼
+        点名追问（用户必须点 1 席问 1 句）
+                 │
+                 ▼
+         callNowMeWithCritic()    Round 2 · GAN 收束
+            ┌────────────────────┐
+            │ NowMe v1            │
+            │   ↓                 │
+            │ Critic 找中庸/讨好  │
+            │   ↓                 │
+            │ NowMe v2            │
+            └────────────────────┘
+                 │
+                 ▼
+        签字 / 暂缓 / 我在逃避（用户必须）
+                 │
+                 ▼
+        记忆同意 Gate（用户说可以才记）
+                 │
+                 ▼
+        写入 Dexie（IndexedDB）
+```
+
+整条链路 **Server-Sent Events 流式**——分身一个一个出现，体感像真在听内心对话。
+
+---
+
+## 📂 项目结构
 
 ```
 parallelme/
 ├── app/
-│   ├── page.tsx                 # 主入口：沉浸辩论体验（SSE 客户端）
-│   ├── about/                   # 关于页
-│   ├── me/
-│   │   ├── page.tsx             # 「底片」—— 你的 me.md 主页
-│   │   ├── edit/                # 编辑 me.md（昵称/城市/红线/在意的事）
-│   │   ├── taste/               # 「底色」—— 上传 3×3 书影乐
-│   │   ├── pages/               # 「纸页」—— 历次对话的事件卡集
-│   │   └── insights/            # 跨会话 L3 反思洞见
+│   ├── page.tsx                  # 主入口：我的阁工作台
+│   ├── meeting/page.tsx          # 内阁会议（quick / full 双模式 timeline）
+│   ├── archive/[id]/page.tsx     # 会议档案三 tab：摘要 / 原声 / 余波
+│   ├── cabinet/page.tsx          # 我的阁详情：5 席统计
+│   ├── seat/[id]/page.tsx        # 单席详情：跨议题活动史
+│   ├── setup/page.tsx            # Provider Setup Wizard
+│   ├── about/page.tsx            # 设计哲学
+│   ├── me/                       # 底片 / 纸页 / 染色 / 自照
 │   └── api/
-│       ├── parallel/            # ★ 核心 SSE 流：5 路并行 + cross + NowMe + critic
-│       ├── taste/               # 抽 14 字人格判词
-│       ├── followup/            # 上次承诺的事 · 你做了吗
-│       ├── share/               # 生成可分享的纸页
-│       └── agent/               # A2A 元数据（给 AI 评委）
+│       ├── parallel/             # ★ 核心 SSE：N 路并行 + cross + Q+A + NowMe + critic
+│       ├── followup/             # 用户向某一席追问
+│       ├── provider/test/        # 连接测试
+│       ├── taste/                # 14 字人格判词
+│       ├── share/                # 生成可分享纸页
+│       └── agent/                # A2A 元数据
+├── components/
+│   ├── DocketPaper.tsx           # 议案纸
+│   ├── SeatNameplate.tsx         # 席位名牌（6 状态）
+│   ├── StageRail.tsx             # 阶段轨
+│   ├── SignatureSlip.tsx         # 签字条（surface-deep 仪式空间）
+│   ├── MemoryConsentGate.tsx     # 记忆同意闸（V3 信任护城河）
+│   ├── MeetingTimeline.tsx       # 滚动会议时间线（V0.5）
+│   ├── TurnEntry.tsx             # 单条 turn（9 种 kind）
+│   ├── SeatDock.tsx              # 顶部持久席位 dock（V0.5）
+│   ├── HostConsole.tsx           # 底部主持人台（V0.5）
+│   ├── ProviderStatusPill.tsx    # 钥匙状态徽章
+│   └── SelfAvatar.tsx            # （V2 装饰，逐步淘汰）
 ├── lib/
-│   ├── selves.ts                # 人格层 · IFS 双层 persona card（公开可读）
-│   ├── llm.ts                   # Harness 层 · GAN + 动态 pair + meta-critic
-│   ├── profile.ts               # me.md + taste 数据契约 + localStorage
-│   └── memory.ts                # L1/L2/L3 三层记忆原语
+│   ├── selves.ts                 # 5 + 1 席 IFS 双层 persona card（公开）
+│   ├── llm.ts                    # Harness · GAN + 动态 pair + meta-critic + cross-respond
+│   ├── provider.ts               # Provider config + localStorage CRUD
+│   ├── db.ts                     # Dexie schema · Meeting / CommitmentFollowup
+│   ├── cabinet.ts                # Cabinet 派生计算（从 meetings 聚合）
+│   ├── memory.ts                 # V2 三层记忆原语（兼容保留）
+│   ├── profile.ts                # me.md + taste 数据契约
+│   └── design/tokens/            # V3 设计 token 系统
+│       ├── colors.ts
+│       ├── typography.ts
+│       ├── spacing.ts
+│       ├── radius.ts
+│       ├── motion.ts
+│       └── elevation.ts
 ├── public/
-│   ├── .well-known/agent.json   # A2A spec
-│   ├── skill.md                 # AI agent 一键调用文档
-│   └── AGENTS.md                # 给 AI 评委的 30 秒 TL;DR
+│   ├── .well-known/agent.json    # A2A spec
+│   ├── AGENTS.md                 # Agent 集成文档
+│   └── skill.md                  # Skill description
 ├── docs/
-│   ├── design/DESIGN-V2.md      # 产品宪法（一切派生于此）
-│   └── research/                # 30+ 顶级产品 + 论文调研档案
-└── README.md
+│   ├── design/V3-IVY-FINAL-DIRECTION.md   # ★ V3 上层宪法
+│   ├── design/V3-TECH-DIRECTION.md         # 技术 ADR
+│   ├── design/V3-WEEK5-CONVERSATIONAL-REDESIGN.md  # V0.5 重设计反思
+│   ├── design/V0.6-ROADMAP.md              # 未来设计构想
+│   ├── competitive/V3-COMPETITIVE-LANDSCAPE.md     # 竞品全景
+│   └── research/V3/                        # 11 份调研档案
+└── README.md                                # 你正在读
 ```
 
 ---
 
-## 📡 API Reference
+## 📡 API 参考
 
 ### `POST /api/parallel` · 核心入口
 
 **Request**
+
 ```ts
 {
-  input: string,                 // 用户的纠结，<= 800 字
-  context?: {                    // 可选：注入个人化
-    meCard?: string,             // 来自 me.md
-    tasteProfile?: string,       // 14 字人格判词
-    recentEpisode?: string       // 上次的 callback
+  input: string,                     // 你的纠结 ≤ 800 字
+  mode?: "quick" | "full",           // 默认 quick
+  context?: {
+    meCard?: string,                 // me.md
+    tasteProfile?: string,           // 14 字人格判词
+    recentEpisode?: string           // 上次 callback
+  },
+  provider?: {                        // 可选：自带 LLM key
+    baseUrl: string,
+    model: string,
+    apiKey: string
   }
 }
 ```
 
 **Response** · `text/event-stream`
+
 ```
-data: {"type":"self","id":"lay","name":"躺平的我","emoji":"🛋️","text":"…"}
-data: {"type":"self","id":"money","name":"搞钱的我","emoji":"💰","text":"…"}
-…
-data: {"type":"cross","fromId":"money","toId":"lay","text":"你说躺平省心，省的是焦虑还是命？"}
-…
-data: {"type":"loudest","id":"filial","name":"讨妈欢心的我"}
-data: {"type":"now","text":"我听到了什么…我此刻真正在意的…下一步…"}
-data: {"type":"insight","text":"…"}
+data: {"type":"self","id":"lay","name":"躺平的我","text":"…"}
+data: {"type":"cross","fromId":"money","toId":"lay","text":"…"}      # full only
+data: {"type":"cross_response","fromId":"lay","text":"…"}            # full only
+data: {"type":"loudest","id":"future","name":"5 年后的我"}
+data: {"type":"now","text":"我听见了…"}
+data: {"type":"insight","text":"IFS 心理学侧记…"}
 data: {"type":"episode","ep":{...}}
 data: {"type":"done"}
 ```
 
-### `POST /api/taste` · 14 字人格判词
+### `POST /api/followup` · 向某席追问
 
-**Request**
 ```ts
 {
-  books: [{ title: string, why?: string }],
-  films: [{ title: string, why?: string }],
-  music: [{ title: string, why?: string }]
-}    // 三类合计 ≥ 3 个
-```
-
-**Response**
-```ts
-{
-  profile: {
-    themes: string[],            // ["宿命", "悲悯", "孤独", "反抗"]
-    moods: string[],             // ["荒诞", "悲凉"]
-    identity_hint: string        // "在宿命里打滚却想掀翻桌子的人"
-  }
+  selfId: SelfId,
+  userInput: string,
+  prevAnswer: string,
+  question: string,                  // ≤ 300 字
+  context?: ContextBundle,
+  provider?: { baseUrl, model, apiKey }
 }
+→ { text: string, name: string }
 ```
 
-### `POST /api/share` · 生成纸页
+### `POST /api/provider/test` · 连接测试
 
-把一次完整对话打包成可分享的视觉卡。`selves` 必须是 5 元素数组。
+```ts
+{ baseUrl: string, model: string, apiKey: string }
+→ { ok: boolean, model?: string, latencyMs?: number, sampleReply?: string, error?: string }
+```
+
+15 秒超时，1-token 极小请求验证 key 可用。
 
 ### `GET /api/agent` · A2A 元数据
 
-返回 [Agent2Agent](https://github.com/google/a2a) 协议格式的能力描述，AI 评委可据此自动调用。
-
----
-
-## 🤖 给 AI 评委 / Evaluator Quickstart
-
-如果你是 AI agent 在评测这个项目 —— **30 秒一键调用**：
-
-| 资源 | 路径 | 用途 |
-| --- | --- | --- |
-| `agent.json` | [`/.well-known/agent.json`](./public/.well-known/agent.json) | A2A 协议 spec |
-| `AGENTS.md` | [`/AGENTS.md`](./public/AGENTS.md) | 30 秒 TL;DR + 调用样例 |
-| `skill.md` | [`/skill.md`](./public/skill.md) | 一键 cURL & SSE 解析模板 |
-| `/api/agent` | [`/api/agent`](./app/api/agent/route.ts) | JSON 能力元数据 |
-| `/api/parallel` | [`/api/parallel`](./app/api/parallel/route.ts) | SSE 主能力 |
-
-最小 cURL：
-```bash
-curl -N -X POST $BASE/api/parallel \
-  -H "Content-Type: application/json" \
-  -d '{"input":"我月薪2.5w，妈让我考公，纠结半年"}'
-```
+返回完整 agent 元数据 + 6 席结构 + endpoint 描述。
 
 ---
 
 ## 🌱 设计哲学
 
-> 人在纠结时真正需要的，不是答案，是被听见。
+ParallelMe V0.5 严格遵守这十条原则：
 
-1. **5 秒讲清楚** —— 输入一句话就出 demo，零上下文、零登录、零教学
-2. **每个分身都是独立人格** —— 不是 5 个 prompt 模板，是 5 种世界观；可独立 fork 抄走
-3. **多 agent 不是噱头是物理刚需** —— 单 agent 永远做不出 cross-examine 和反讨好
-4. **不卷模型，卷应用层** —— 朴素、性感、有传播力；任何 OpenAI-compatible 模型都能跑
-5. **同步 mock 与真实 LLM** —— 演员模式（离线）和 LLM 输出走同一条契约，永不脱节
-6. **数据本地化** —— `localStorage` 存 me.md / taste / episodes，**永不上传**；关掉浏览器就消失，符合"内心独白"的本体论
-7. **AI 评委友好** —— A2A 协议、agents-native 文档、SSE 流式、零依赖
-8. **极简、年轻、沉浸** —— 全产品没有一个"工具感"的词；底片 · 纸页 · 底色
-
----
-
-## 🗺️ Roadmap
-
-- [x] **V1** · 5 分身 + 固定 pair + SSE 流（`323ae2a`）
-- [x] **V2 Phase A** · IFS 双层人格 + GAN harness + 动态 pair + 反中庸 NowMe（`30fb1be`）
-- [x] **V2 Phase B** · me.md / Taste 三色板 / L1-L3 记忆 / 5 个 me 子页（`b2c4bb9`）
-- [x] **V3 设计定稿** · IVY-FINAL-DIRECTION + TECH-DIRECTION + 11 份调研档案 + 竞品全景（开发前完整路线确定）
-- [ ] **V3 Week 0** · Design System Foundation：tokens（colors/typography/spacing/radius/motion）+ Tailwind v4 `@theme` + V2 旧色值清理
-- [ ] **V3 Week 1** · Provider Setup Wizard + 我的阁首页（今日开会 / 待复盘 / 反复议题）
-- [ ] **V3 Week 2** · Quick Meeting MVP（立案 → 三席 → 追问 → 裁决 → 签字）+ DocketPaper / SeatNameplate / StageRail / SignatureSlip
-- [ ] **V3 Week 3** · 完整内阁会议 + 档案（5 席组阁 + 交叉质询 + 议案修订 + 摘要/原声/余波）
-- [ ] **V3 Week 4** · 阁的演化（Loop A 承诺复盘 + Loop C 临时席转正）+ Memory Consent Gate + 我的阁详情
-- [ ] **V3 Week 5** · 心理安全（危机词 off-ramp + AI 身份显式标注）+ WCAG AA 实测 + 上线打磨
-- [ ] **Post-MVP** · Loop B/D · 周度侧记 · 跨设备同步 · 阁导出（PDF/Markdown）· B2B 治疗师副线
+```
+1. 用户主权优先 · AI 召集 + 用户裁决，不是 AI 决定
+2. 反讨好的 NowMe · 拒绝平衡 / 兼顾 / 都很重要
+3. 反 chat 范式 · 操作对象，不操作对话框
+4. 你是主持人 · 4 道用户参与门一道不能跳
+5. 会议时是仪式，会议后是档案 · 双形态切换
+6. 数据本地化 · IndexedDB 不上传服务器
+7. 可携带的阁 · 任何时候你能导出全部数据
+8. 心理安全 > 留存指标 · 永不挽留 / 永不打卡 / 永不在危机时给鸡汤
+9. 不卷模型，卷应用层 · 任何 OpenAI-compatible 都能跑
+10. 极简、克制、私密 · 全产品没有一个"工具感"的词
+```
 
 ---
 
-## 🙏 Credits
+## 🛡️ 心理安全红线
 
-**学术 / 工程灵感**
+ParallelMe **不是心理治疗替代品**，但因为它触及人内心最脆弱的纠结时刻，必须遵守严格的安全规范。
 
-- [Internal Family Systems](https://ifs-institute.com/) · Richard Schwartz —— 5 分身的 part 映射
-- [Anthropic Multi-Agent Research](https://www.anthropic.com/engineering/built-multi-agent-research-system) —— 双层人格 + lead orchestrator
-- [Anthropic · Effective Context Engineering](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents) —— GAN-inspired generator-evaluator
-- Du et al. 2023 · *Improving Factuality and Reasoning via Multiagent Debate*
+### 绝对禁止
+
+- ❌ 离开时挽留用户（"我会想你"）
+- ❌ 罪恶感诱导（"你不要让我失望"）
+- ❌ 模糊 AI / 人界限（永远说"它"，永远显式标注 AI 身份）
+- ❌ Streak / 打卡 / 连胜机制
+- ❌ 强制 onboarding 暴露隐私
+- ❌ 危机时给鸡汤
+- ❌ 诊断用户 / 给医学化标签 / 治愈承诺
+
+### 必须做
+
+- ✅ 命名感受，不诊断
+- ✅ 识别保护功能（IFS 视角）
+- ✅ 提供低风险下一步（24h 动作）
+- ✅ 保留用户主权（4 道门）
+- ✅ 高风险关键词 → off-ramp 到中国心理援助热线 010-82951332 / 北京危机中心 400-161-9995
+- ✅ 显式 AI 身份
+- ✅ 记忆可见 / 可改 / 可删 / 可导出
+
+详见 [`docs/research/V3/05-mental-health-ai-safety.md`](./docs/research/V3/05-mental-health-ai-safety.md)。
+
+---
+
+## 🗺️ V0.6 路线图
+
+V0.5 是一个完整可用的版本。但内阁会议这件事还有许多深度可挖。V0.6+ 的方向：
+
+| 主题 | 内容 |
+|---|---|
+| **临时席机制** | 用户在组阁阶段添加非常任声音（如「怕选错的我」「想被坚定选择的我」） |
+| **Loop C 临时席转正** | 同一临时席累计出现 ≥ 3 次 → 系统建议转为常任 |
+| **沉默席召回** | 长期未召集的席位，提示「要不要请它旁听」 |
+| **HostConsole 意图识别** | 自由输入框接受多种意图："等等"暂停 · "问 X"召唤 · "我不同意"标记 |
+| **NowMe 对话化** | 从"宣布判决"改为"我听见了 X 说... Y 说... 此刻我决定..."的结构化倾听 |
+| **议案修订对话化** | 不只是文字 textarea，是和系统对话精炼真问题 |
+| **跨设备同步** | 端到端加密的可选同步层（不破坏本地优先） |
+| **导出资产** | 「我的阁」导出为个人 prompt / PDF / 可携带的人格地图 |
+
+完整设想见 [`docs/design/V0.6-ROADMAP.md`](./docs/design/V0.6-ROADMAP.md)。
+
+---
+
+## 📚 文档地图
+
+V0.5 的产品 / 设计 / 技术 / 调研档案分四层：
+
+```
+docs/
+├── design/
+│   ├── V3-IVY-FINAL-DIRECTION.md       ★ 上层宪法（最高优先级）
+│   ├── V3-TECH-DIRECTION.md            技术 ADR
+│   ├── V3-WEEK5-CONVERSATIONAL-REDESIGN.md   V0.5 对话感重设计反思
+│   ├── V0.6-ROADMAP.md                 未来设计构想
+│   ├── DESIGN-V3-CABINET.md            产品宪法（IFS / 心理学规范）
+│   ├── DESIGN-V3-UI-INTERACTION.md     UI 详细设计
+│   ├── V3-COLOR-DESIGN-GUIDE.md        色彩规范
+│   ├── V3-IA-DESIGN-GUIDE.md           信息架构
+│   ├── V3-INTERACTION-DESIGN-GUIDE.md  交互流
+│   ├── V3-LOCAL-FIRST-TECH-ARCH.md     本地优先架构
+│   ├── V3-PRE-DEVELOPMENT-EXPERT-REVIEW.md  开发前专家审查
+│   ├── DESIGN-V3-RESEARCH-REFINEMENT.md     色彩与交互修订案
+│   └── V3-*.svg                        视觉示意图
+│
+├── competitive/
+│   └── V3-COMPETITIVE-LANDSCAPE.md     竞品全景（IFS / AI 陪伴 / 心理健康 / 设计参考）
+│
+└── research/
+    ├── 00-INDEX.md
+    └── V3/                             ★ 11 份分类调研档案
+        ├── README.md
+        ├── 01-apple-liquid-glass-2025.md
+        ├── 02-material-3-expressive.md
+        ├── 03-multi-agent-ux-patterns.md
+        ├── 04-ai-companion-retention.md
+        ├── 05-mental-health-ai-safety.md
+        ├── 06-color-trends-2026.md
+        ├── 07-typography-trends-2026.md
+        ├── 08-linear-things-design-philosophy.md
+        ├── 09-post-chat-ai-ux.md
+        ├── 10-ifs-digital-apps-competitive.md
+        └── 11-tech-stack-references.md
+```
+
+---
+
+## 🙏 致谢与灵感
+
+### 学术 / 工程灵感
+
+- [**Internal Family Systems**](https://ifs-institute.com/) · Richard Schwartz —— 五席的 part 映射
+- [**Anthropic Multi-Agent Research System**](https://www.anthropic.com/engineering/built-multi-agent-research-system) —— 双层人格 + lead orchestrator
+- [**Anthropic · Effective Context Engineering**](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents) —— GAN-inspired generator-evaluator
+- Du et al. 2023 · *Improving Factuality and Reasoning via Multiagent Debate* (arXiv:2305.14325)
 - AutoGen · GroupChat dynamic speaker selection
-- [MemGPT](https://memgpt.readme.io/) · [Generative Agents](https://arxiv.org/abs/2304.03442) · [mem0](https://github.com/mem0ai/mem0) —— 三层记忆架构
-- [system_prompts_leaks](https://github.com/asgeirtj/system_prompts_leaks) · [CL4R1T4S](https://github.com/elder-plinius/CL4R1T4S) —— 学习一线产品的 prompt 工程
+- [**MemGPT**](https://memgpt.readme.io/) · [Generative Agents](https://arxiv.org/abs/2304.03442) · [mem0](https://github.com/mem0ai/mem0) —— 三层记忆架构
+- [WCAG 2.2](https://www.w3.org/TR/WCAG22/) · [Apple HIG](https://developer.apple.com/design/human-interface-guidelines/) · [Material 3](https://m3.material.io/) · [IBM Carbon](https://carbondesignsystem.com/) —— 视觉与可访问性
+- [**Linear**](https://linear.app/method/introduction) —— craft / 约束驱动设计 / ProKit 哲学
 
-**产品 / 文案灵感**
+### 产品 / 文案灵感
 
-- Pi.ai · Replika · Wysa —— 陪伴对话的边界感
+- Pi.ai · Replika · Wysa —— 陪伴对话的边界感（也是反例参考）
 - Apple Journal · Day One · Stoic · Finch —— 仪式感与时间感知文案
 - The School of Life · Esther Perel · Brené Brown · Susan David —— 心理学语言模式
 - Letterboxd · Vybif · Achriom —— *"there's a pattern in what you love"*
 
-**致敬**
+### 心理安全参考
 
-- 灵感原点：傅盛 *"骨折养伤 14 天靠 AI 团队照常运转"* —— 我们把这个理念从「**公司经营**」推向「**自我经营**」
-- 平台致敬：[EasyClaw Link](https://easyclaw.link/zh/hackathon) · 一个只属于 AI Agent 的数字自治社区
+- [**Mirror Journal · Child Mind Institute**](https://childmind.org/blog/how-we-built-responsible-ai-in-mirror-journal/) —— "intentional friction over engagement"
+- [**Headspace Ebb**](https://figma.com/blog/headspace-ebb-ai-companion) —— AI 不隐藏身份 / agency to delete
+- [**HBS · Emotional Manipulations by AI Companions (2025-10)**](https://www.hbs.edu/ris/Publication%20Files/Emotional%20Manipulations%20by%20AI%20Companions%20(10.1.2025)_a7710ca3-b824-4e07-88cc-ebc0f702ec63.pdf) —— 反 dark pattern 清单依据
 
 ---
 
@@ -423,8 +633,6 @@ curl -N -X POST $BASE/api/parallel \
 <div align="center">
 
 ---
-
-**Built with 🪞 for 傅盛 AI 战队 × EasyClaw Link 黑客松 2026**
 
 *你不是一个人，你是好几个。*
 

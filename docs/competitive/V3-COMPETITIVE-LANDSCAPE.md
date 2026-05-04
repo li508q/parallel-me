@@ -492,7 +492,7 @@ V3-IVY-FINAL-DIRECTION 已锁定：
 | 受众 | 推荐叙事 |
 |---|---|
 | 投资人 | 反 chat 时代第一个真正属于个人的内在决策操作系统 |
-| 黑客松评委 | 多 agent + IFS + GAN harness + 反讨好 NowMe + 本地优先 |
+| 技术评估者 | 多 agent + IFS + GAN harness + 反讨好 NowMe + 本地优先 |
 | 心理学专业人士 | IFS 严格映射 + Voice Dialogue + ACT，强调非治疗替代、有 off-ramp |
 | 普通用户 | 当你被"我该不该"困住时，让 5 个内在的你吵给你听 |
 

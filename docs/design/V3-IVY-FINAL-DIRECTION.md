@@ -1,8 +1,10 @@
 # ParallelMe V3 · 最终方向（Ivy Final Direction）
 
+> **V0.5 Status (2026-05)** — 5 个决策已锁定并实施 · 七条军规全部落地 · Week 0-5 全部完成。Quick / Full 双模式、4 道用户参与门、对话感时间线、本地优先、心理安全规范均已落到代码。后续演化方向见 [`V0.6-ROADMAP.md`](./V0.6-ROADMAP.md)。
+>
 > 这份文档是 V3 全部设计、产品、视觉、技术决策的**上层宪法**。
 > 它不重复 `DESIGN-V3-CABINET.md`、`V3-COLOR-DESIGN-GUIDE.md`、`V3-IA-DESIGN-GUIDE.md`、`V3-INTERACTION-DESIGN-GUIDE.md`、`V3-LOCAL-FIRST-TECH-ARCH.md`、`V3-TECH-DIRECTION.md`、`V3-PRE-DEVELOPMENT-EXPERT-REVIEW.md` 中已经写清的内容。
-> 它**收束、锁定、给军规**。任何 V3 PR 与文档冲突时，以本文为准。
+> 它**收束、锁定、给军规**。任何 PR 与文档冲突时，以本文为准。
 
 ---
 

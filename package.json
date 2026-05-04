@@ -1,8 +1,8 @@
 {
   "name": "parallelme",
-  "version": "1.0.0",
+  "version": "0.5.0",
   "private": true,
-  "description": "🪞 平行的我 · ParallelMe — 你的纠结，让 5 个平行宇宙的你吵给你听。",
+  "description": "🪞 平行的我 · ParallelMe — 你内心的多个声音，第一次被允许同时讲话。基于 IFS 心理学的多智能体内阁会议。",
   "scripts": {
     "dev": "next dev",
     "build": "next build",

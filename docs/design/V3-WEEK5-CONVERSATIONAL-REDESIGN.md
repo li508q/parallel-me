@@ -1,5 +1,7 @@
 # V3 Week 5 · 对话感重设计（Conversational Redesign）
 
+> **V0.5 Status (2026-05)** — Week 5 范围（§ 4.1 必做清单）已全部实施：MeetingTimeline / TurnEntry / SeatDock / HostConsole 4 个组件落地，cross-exam 后端加 cross_response event，/meeting 重写为 timeline + dock + console 模式。§ 4.2 deferred 内容（HostConsole 意图识别 / NowMe 对话化 / 议案修订对话化）已沉淀到 [`V0.6-ROADMAP.md`](./V0.6-ROADMAP.md)。
+>
 > 这份文档是 Week 5 启动前的反思与方向锁定。它不替代 `V3-IVY-FINAL-DIRECTION.md`
 > 的产品宪法，而是补一层 Week 2-4 实施后才看清的问题：**当前 /meeting 是
 > 一份"5 步式表单"，不是一场"真正的会议"**。Week 5 把它扳过来。
