@@ -1,4 +1,4 @@
-// /api/followup — 用户向某个分身追问（带 context 注入 + V3 provider 透传）
+// /api/followup — 用户向某个分身追问（带 context 注入 + provider 透传）
 import { NextRequest, NextResponse } from "next/server";
 import { followUp, type ContextBundle, type LlmRuntime } from "@/lib/llm";
 import { SELVES, type SelfId } from "@/lib/selves";

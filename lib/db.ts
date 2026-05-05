@@ -1,8 +1,8 @@
-// lib/db.ts — V3 Local Workspace · IndexedDB via Dexie
+// lib/db.ts — Local Workspace · IndexedDB via Dexie
 // MVP scope: a single denormalized Meeting record covers the entire
 // Quick Meeting trace (case → statements → followup → verdict → signature →
 // memory consent). Cross-cutting Cabinet/Seat/Issue tables are intentionally
-// deferred to Week 3+; see V3-LOCAL-FIRST-TECH-ARCH.md § 5.3 for the full
+// deferred to Week 3+; see TECH-ARCHITECTURE.md § 5.3 for the full
 // shape.
 
 import Dexie, { type Table } from "dexie";

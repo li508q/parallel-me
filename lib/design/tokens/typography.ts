@@ -1,5 +1,5 @@
-// V3 Typography Tokens — Productive sans / Expressive serif / Mono evidence.
-// See docs/design/V3-IVY-FINAL-DIRECTION.md § 2.2 for rationale.
+// Typography Tokens — Productive sans / Expressive serif / Mono evidence.
+// See docs/design/PRODUCT-DESIGN.md § 2.2 for rationale.
 // Hard rule: CJK letter-spacing = 0; no fluid clamp() in product UI.
 
 // Font family stacks. Geist is loaded via next/font in app/layout.tsx and exposed

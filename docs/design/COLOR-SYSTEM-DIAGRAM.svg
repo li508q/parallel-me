@@ -18,7 +18,7 @@
   <rect width="1500" height="1160" class="bg"/>
   <rect width="1500" height="1160" fill="url(#grain)" opacity=".55"/>
 
-  <text x="72" y="78" class="title ink h1">V3 色彩指导 · Color System</text>
+  <text x="72" y="78" class="title ink h1">色彩指导 · Color System</text>
   <text x="72" y="116" class="sans mute bodyText">墨色定秩序，矿物色定席位。色彩不负责装饰，负责层级、席位、证据与签字。</text>
   <line x1="72" y1="150" x2="1428" y2="150" class="rule"/>
 

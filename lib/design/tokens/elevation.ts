@@ -1,5 +1,5 @@
-// V3 Elevation — restrained shadows, no glass-on-glass.
-// See docs/design/V3-IVY-FINAL-DIRECTION.md § 2.3 — Liquid Glass refraction 拒绝。
+// Elevation — restrained shadows, no glass-on-glass.
+// See docs/design/PRODUCT-DESIGN.md § 2.3 — Liquid Glass refraction 拒绝。
 
 export const elevation = {
   // 无阴影 — 大多数情况

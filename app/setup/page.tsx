@@ -1,7 +1,7 @@
 "use client";
 
-// V3 Provider Setup Wizard — 5 steps. Pure V3 visual (no .scribble/.hand-box).
-// See V3-LOCAL-FIRST-TECH-ARCH.md § 4 for product spec.
+// Provider Setup Wizard — 5 steps. Pure visual (no .scribble/.hand-box).
+// See TECH-ARCHITECTURE.md § 4 for product spec.
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";

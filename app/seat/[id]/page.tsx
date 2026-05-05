@@ -1,6 +1,6 @@
 "use client";
 
-// V3 席位详情 · /seat/[id] — single-seat activity feed across all meetings.
+// 席位详情 · /seat/[id] — single-seat activity feed across all meetings.
 // All data is derived from the meetings table via lib/cabinet.ts.
 
 import Link from "next/link";

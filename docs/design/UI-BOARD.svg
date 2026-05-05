@@ -37,7 +37,7 @@
   <rect class="bg" width="1800" height="1320"/>
   <rect width="1800" height="1320" fill="url(#grain)" opacity="0.55"/>
 
-  <text x="80" y="82" class="title ink display">ParallelMe V3</text>
+  <text x="80" y="82" class="title ink display">ParallelMe</text>
   <text x="80" y="121" class="sans ink3 body">纸面上的私人会议室 · UI 方案板</text>
   <line x1="80" y1="154" x2="1720" y2="154" class="rule"/>
 

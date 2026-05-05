@@ -1,4 +1,4 @@
-// V3 P0 component · 阶段轨 (StageRail)
+// P0 component · 阶段轨 (StageRail)
 // The spine of every meeting. Desktop: horizontal at top of stage column.
 // Mobile: pinned to bottom. Always shows where the user is, never blinks.
 

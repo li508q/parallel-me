@@ -1,4 +1,4 @@
-// V3 Radius — sparse, intentional.
+// Radius — sparse, intentional.
 // Mirror in app/globals.css @theme as --radius-*.
 
 export const radius = {

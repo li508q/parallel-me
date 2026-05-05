@@ -1,9 +1,9 @@
 "use client";
 
-// V3 我的阁 · /cabinet — Standing-seat statistics derived from meetings.
+// 我的阁 · /cabinet — Standing-seat statistics derived from meetings.
 // Loop C (temporary-seat promotion) is reserved as a marginalia placeholder
 // because the temporary-seat capture mechanism (assembly UI + backend SSE
-// support) lands in Week 5. See V3-IVY-FINAL-DIRECTION.md § 3.4.
+// support) lands in Week 5. See PRODUCT-DESIGN.md § 3.4.
 
 import Link from "next/link";
 import { useLiveQuery } from "dexie-react-hooks";

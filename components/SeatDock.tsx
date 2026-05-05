@@ -1,4 +1,4 @@
-// V3 Week 5 · SeatDock — persistent ribbon of seats at the top of /meeting.
+// Week 5 · SeatDock — persistent ribbon of seats at the top of /meeting.
 // Seats are *in the room* the entire meeting, even when they aren't speaking.
 
 "use client";

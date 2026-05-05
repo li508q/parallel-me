@@ -12,7 +12,7 @@ function score(t: string): number {
   return s;
 }
 
-// V3 seat colors — see lib/design/tokens/colors.ts (mirrored here because
+// Seat colors — see lib/design/tokens/colors.ts (mirrored here because
 // SVG string interpolation cannot import runtime values without rebuild churn).
 const SELF_META = {
   lay:    { name: "躺平", color: "#556F7A", emoji: "🛋" },  // seat.rest

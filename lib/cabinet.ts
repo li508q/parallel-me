@@ -8,7 +8,7 @@
 // Week 5+, we may introduce a real Seat table — but only if we genuinely
 // need persistent state that meetings can't carry.
 //
-// See V3-LOCAL-FIRST-TECH-ARCH.md § 5.3 for the eventual full Seat shape.
+// See TECH-ARCHITECTURE.md § 5.3 for the eventual full Seat shape.
 
 import { db, type Meeting } from "./db";
 import { SELVES, type SelfId } from "./selves";

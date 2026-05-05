@@ -1,4 +1,4 @@
-// V3 P0 component · 签字条 (SignatureSlip)
+// P0 component · 签字条 (SignatureSlip)
 // The emotional peak: the verdict carved on a deep-ink ritual surface, with
 // three honest exits — sign / defer / "I'm avoiding". 24h action is editable
 // because users own their own commitment. Surface uses surface-deep token.

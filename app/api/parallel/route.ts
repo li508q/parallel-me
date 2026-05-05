@@ -1,5 +1,5 @@
-// /api/parallel — V3 SSE: GAN-inspired harness, now provider-aware and mode-aware
-//   - mode="quick" (V3 default for /meeting): 3 seats by topic, no cross-exam
+// /api/parallel — SSE: GAN-inspired harness, now provider-aware and mode-aware
+//   - mode="quick" (default for /meeting): 3 seats by topic, no cross-exam
 //   - mode="full"  (V2 legacy main page): 5 seats + dynamic pair + cross-exam
 //   - body.provider.{baseUrl,model,apiKey} threads through every LLM call so
 //     the user-supplied key from /setup actually drives the meeting.
@@ -59,7 +59,7 @@ export async function POST(req: NextRequest) {
   const ctx: ContextBundle | undefined = body.context;
   const mode: "quick" | "full" = body.mode === "quick" ? "quick" : "full";
 
-  // V3 user-supplied provider override (from Setup Wizard).
+  // User-supplied provider override (from Setup Wizard).
   const provider = body.provider as
     | { baseUrl?: string; model?: string; apiKey?: string }
     | undefined;

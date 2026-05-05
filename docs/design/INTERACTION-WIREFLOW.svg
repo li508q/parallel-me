@@ -20,7 +20,7 @@
   <rect width="1500" height="1420" class="bg"/>
   <rect width="1500" height="1420" fill="url(#grain)" opacity=".55"/>
 
-  <text x="72" y="78" class="title ink h1">V3 交互指导 · Interaction Wireflow</text>
+  <text x="72" y="78" class="title ink h1">交互指导 · Interaction Wireflow</text>
   <text x="72" y="116" class="sans mute bodyText">会议时是仪式：每一步轻；会议后是档案：每个结论可追溯。</text>
   <line x1="72" y1="150" x2="1428" y2="150" class="softLine"/>
 

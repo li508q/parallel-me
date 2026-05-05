@@ -1,7 +1,7 @@
 "use client";
 
-// V3 「纸页」/「档案」list — Dexie meetings first, V2 episodes preserved as
-// a legacy section so existing users still see their pre-V3 data.
+// 「纸页」/「档案」list — Dexie meetings first, V2 episodes preserved as
+// a legacy section so existing users still see their pre-current data.
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
@@ -100,7 +100,7 @@ export default function PagesView() {
         </div>
       )}
 
-      {/* V3 Meeting archives */}
+      {/* Meeting archives */}
       {meetings && meetings.length > 0 && (
         <section className="mb-12">
           <div className="flex items-baseline justify-between mb-4">
@@ -230,7 +230,7 @@ export default function PagesView() {
 }
 
 // ───────────────────────────────────────────────────────────
-// V3 Meeting card (links to /archive/[id])
+// Meeting card (links to /archive/[id])
 // ───────────────────────────────────────────────────────────
 function MeetingArchiveCard({ meeting }: { meeting: Meeting }) {
   const days = Math.max(0, Math.round((Date.now() - meeting.createdAt) / 86_400_000));

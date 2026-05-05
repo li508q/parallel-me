@@ -1,8 +1,8 @@
 "use client";
 
-// V3 Provider Status Pill — small badge that shows current provider state and
+// Provider Status Pill — small badge that shows current provider state and
 // links to /setup. Used in the cabinet workbench header and could be reused on
-// any V3 page later.
+// any page later.
 
 import Link from "next/link";
 import { useEffect, useState } from "react";

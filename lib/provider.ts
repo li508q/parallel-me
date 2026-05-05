@@ -1,6 +1,6 @@
-// lib/provider.ts — V3 Provider Setup
+// lib/provider.ts — Provider Setup
 // Local-first: ProviderConfig + apiKey are stored on the user's device only.
-// Server never persists them. See docs/design/V3-LOCAL-FIRST-TECH-ARCH.md § 4.
+// Server never persists them. See docs/design/TECH-ARCHITECTURE.md § 4.
 
 export type ProviderType = "deepseek" | "openai" | "openai-compatible" | "mock";
 

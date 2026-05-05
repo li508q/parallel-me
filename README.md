@@ -88,7 +88,7 @@ ParallelMe 的事情，是把那些通常只存在于你脑子里的声音——
 
 ## 🧭 设计动机 · 它不是聊天机器人
 
-ParallelMe 不是又一个 chatbot。它是 V3 时期的一个反向尝试——
+ParallelMe 不是又一个 chatbot。它是一个反向尝试——
 
 **它是一个内在决策的对象系统。** 你召集你自己。
 
@@ -382,7 +382,7 @@ parallelme/
 │   ├── SeatNameplate.tsx         # 席位名牌（6 状态）
 │   ├── StageRail.tsx             # 阶段轨
 │   ├── SignatureSlip.tsx         # 签字条（surface-deep 仪式空间）
-│   ├── MemoryConsentGate.tsx     # 记忆同意闸（V3 信任护城河）
+│   ├── MemoryConsentGate.tsx     # 记忆同意闸（信任护城河）
 │   ├── MeetingTimeline.tsx       # 滚动会议时间线（V0.5）
 │   ├── TurnEntry.tsx             # 单条 turn（9 种 kind）
 │   ├── SeatDock.tsx              # 顶部持久席位 dock（V0.5）
@@ -397,7 +397,7 @@ parallelme/
 │   ├── cabinet.ts                # Cabinet 派生计算（从 meetings 聚合）
 │   ├── memory.ts                 # V2 三层记忆原语（兼容保留）
 │   ├── profile.ts                # me.md + taste 数据契约
-│   └── design/tokens/            # V3 设计 token 系统
+│   └── design/tokens/            # 设计 token 系统
 │       ├── colors.ts
 │       ├── typography.ts
 │       ├── spacing.ts
@@ -409,13 +409,12 @@ parallelme/
 │   ├── AGENTS.md                 # Agent 集成文档
 │   └── skill.md                  # Skill description
 ├── docs/
-│   ├── design/V3-IVY-FINAL-DIRECTION.md   # ★ V3 上层宪法
-│   ├── design/V3-TECH-DIRECTION.md         # 技术 ADR
-│   ├── design/V3-WEEK5-CONVERSATIONAL-REDESIGN.md  # V0.5 重设计反思
-│   ├── design/V0.6-ROADMAP.md              # 未来设计构想
-│   ├── competitive/V3-COMPETITIVE-LANDSCAPE.md     # 竞品全景
-│   └── research/V3/                        # 11 份调研档案
-└── README.md                                # 你正在读
+│   ├── design/PRODUCT-DESIGN.md       # ★ 项目宪法（产品 / IFS / V0.6 路线）
+│   ├── design/TECH-ARCHITECTURE.md    # 技术架构（本地优先 + harness + token）
+│   ├── design/VISUAL-SYSTEM.md        # 视觉系统（色彩 / 字体 / Liquid Glass）
+│   ├── design/INTERACTION-PATTERNS.md # 交互模式（IA / 4 道门 / Timeline）
+│   └── research/                       # 7 份分类调研档案 + V1/V2 archive
+└── README.md                            # 你正在读
 ```
 
 ---
@@ -528,7 +527,7 @@ ParallelMe **不是心理治疗替代品**，但因为它触及人内心最脆�
 - ✅ 显式 AI 身份
 - ✅ 记忆可见 / 可改 / 可删 / 可导出
 
-详见 [`docs/research/V3/05-mental-health-ai-safety.md`](./docs/research/V3/05-mental-health-ai-safety.md)。
+详见 [`docs/research/04-mental-safety.md`](./docs/research/04-mental-safety.md)。
 
 ---
 
@@ -547,50 +546,36 @@ V0.5 是一个完整可用的版本。但内阁会议这件事还有许多深度
 | **跨设备同步** | 端到端加密的可选同步层（不破坏本地优先） |
 | **导出资产** | 「我的阁」导出为个人 prompt / PDF / 可携带的人格地图 |
 
-完整设想见 [`docs/design/V0.6-ROADMAP.md`](./docs/design/V0.6-ROADMAP.md)。
+完整设想见 [`docs/design/PRODUCT-DESIGN.md`](./docs/design/PRODUCT-DESIGN.md) § 5（V0.6 优化方向与细则）。
 
 ---
 
 ## 📚 文档地图
 
-V0.5 的产品 / 设计 / 技术 / 调研档案分四层：
+V0.5 之后，所有早期设计冗余都已凝练进项目级文档。整个 `docs/` 现在只有两层：
 
 ```
 docs/
-├── design/
-│   ├── V3-IVY-FINAL-DIRECTION.md       ★ 上层宪法（最高优先级）
-│   ├── V3-TECH-DIRECTION.md            技术 ADR
-│   ├── V3-WEEK5-CONVERSATIONAL-REDESIGN.md   V0.5 对话感重设计反思
-│   ├── V0.6-ROADMAP.md                 未来设计构想
-│   ├── DESIGN-V3-CABINET.md            产品宪法（IFS / 心理学规范）
-│   ├── DESIGN-V3-UI-INTERACTION.md     UI 详细设计
-│   ├── V3-COLOR-DESIGN-GUIDE.md        色彩规范
-│   ├── V3-IA-DESIGN-GUIDE.md           信息架构
-│   ├── V3-INTERACTION-DESIGN-GUIDE.md  交互流
-│   ├── V3-LOCAL-FIRST-TECH-ARCH.md     本地优先架构
-│   ├── V3-PRE-DEVELOPMENT-EXPERT-REVIEW.md  开发前专家审查
-│   ├── DESIGN-V3-RESEARCH-REFINEMENT.md     色彩与交互修订案
-│   └── V3-*.svg                        视觉示意图
+├── design/                                  ★ 4 份核心设计文档
+│   ├── PRODUCT-DESIGN.md                    项目宪法 · IFS / 5+1 席 / 4 道门 / V0.6 路线
+│   ├── TECH-ARCHITECTURE.md                 技术架构 · 本地优先 / harness / SSE / token
+│   ├── VISUAL-SYSTEM.md                     视觉系统 · 色彩 / 字体 / Liquid Glass 取舍
+│   ├── INTERACTION-PATTERNS.md              交互模式 · IA / Timeline / Dock / Console
+│   └── *.svg                                视觉示意图
 │
-├── competitive/
-│   └── V3-COMPETITIVE-LANDSCAPE.md     竞品全景（IFS / AI 陪伴 / 心理健康 / 设计参考）
-│
-└── research/
-    ├── 00-INDEX.md
-    └── V3/                             ★ 11 份分类调研档案
-        ├── README.md
-        ├── 01-apple-liquid-glass-2025.md
-        ├── 02-material-3-expressive.md
-        ├── 03-multi-agent-ux-patterns.md
-        ├── 04-ai-companion-retention.md
-        ├── 05-mental-health-ai-safety.md
-        ├── 06-color-trends-2026.md
-        ├── 07-typography-trends-2026.md
-        ├── 08-linear-things-design-philosophy.md
-        ├── 09-post-chat-ai-ux.md
-        ├── 10-ifs-digital-apps-competitive.md
-        └── 11-tech-stack-references.md
+└── research/                                ★ 7 份分类调研 + V1/V2 archive
+    ├── README.md                            调研索引
+    ├── 01-foundations-psychology.md         IFS / Voice Dialogue / Schema / Chairwork / ACT
+    ├── 02-multi-agent-conversation.md       多智能体对话 + 后聊天范式 + Week 5 反思
+    ├── 03-design-references.md              Apple / M3 / Linear / 色彩 / 字体合并卷
+    ├── 04-mental-safety.md                  Headspace Ebb / Mirror Journal / JMIR
+    ├── 05-retention-and-dark-patterns.md    Replika / Character.ai 数据 + HBS 2025
+    ├── 06-competitive-landscape.md          IFS / AI 陪伴 / 心理健康 / 设计参考竞品
+    ├── 07-tech-stack.md                     Vercel AI SDK / Anthropic / Dexie / Tokens
+    └── archive/                             V1/V2 时期调研（不再权威，保留作引用链）
 ```
+
+**优先级**：`PRODUCT-DESIGN.md` 是唯一的产品宪法，其余三份设计文档与七份调研都在它的框架下展开。
 
 ---
 

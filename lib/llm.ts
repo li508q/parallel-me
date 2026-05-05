@@ -8,8 +8,8 @@
 
 import { SELVES, NOWME, type SelfId, SELVES_META } from "./selves";
 
-// Env defaults for self-host / dev. V3 supports a per-request override via
-// LlmRuntime — see V3-LOCAL-FIRST-TECH-ARCH § 4.5 / V3-TECH-DIRECTION § 4.
+// Env defaults for self-host / dev. Per-request override supported via
+// LlmRuntime — see TECH-ARCHITECTURE § 4.5 / TECH-ARCHITECTURE § 4.
 const ENV_API_BASE = process.env.OPENAI_BASE_URL || "https://api.openai.com/v1";
 const ENV_API_KEY = process.env.OPENAI_API_KEY || "";
 const ENV_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
@@ -21,7 +21,7 @@ const API_BASE = ENV_API_BASE;
 const API_KEY = ENV_API_KEY;
 const MODEL = ENV_MODEL;
 
-/** V3 per-request runtime override. Any field omitted falls back to env. */
+/** Per-request runtime override. Any field omitted falls back to env. */
 export interface LlmRuntime {
   baseUrl?: string;
   model?: string;

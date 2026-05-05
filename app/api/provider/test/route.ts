@@ -2,7 +2,7 @@
 // Stateless: the server forwards a single 1-token chat-completion request and
 // returns { ok, model, latencyMs, error? }. Nothing is persisted.
 //
-// See docs/design/V3-LOCAL-FIRST-TECH-ARCH.md § 4.2 / V3-TECH-DIRECTION.md § 4.
+// See docs/design/TECH-ARCHITECTURE.md § 4.2 / TECH-ARCHITECTURE.md § 4.
 
 import { NextRequest } from "next/server";
 

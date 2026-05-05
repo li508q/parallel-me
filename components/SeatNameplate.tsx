@@ -1,4 +1,4 @@
-// V3 P0 component · 席位名牌 (SeatNameplate)
+// P0 component · 席位名牌 (SeatNameplate)
 // Identifies a seat at the table — never large color blocks, only a dot,
 // a left border accent, and the seat name. State drives visual emphasis.
 

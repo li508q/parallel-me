@@ -1,4 +1,4 @@
-// V3 Spacing — 4px base grid.
+// Spacing — 4px base grid.
 // Mirror in app/globals.css @theme as --spacing-*.
 
 export const spacing = {

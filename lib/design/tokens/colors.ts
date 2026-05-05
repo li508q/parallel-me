@@ -1,6 +1,6 @@
-// V3 Color Tokens — single source of truth.
+// Color Tokens — single source of truth.
 // Values mirror app/globals.css @theme. Update both when changing.
-// See docs/design/V3-IVY-FINAL-DIRECTION.md § 2.1 for rationale.
+// See docs/design/PRODUCT-DESIGN.md § 2.1 for rationale.
 
 export const colors = {
   // 纸面 — 78% 占比

@@ -1,6 +1,6 @@
-// V3 P0 component · 议案纸 (DocketPaper)
+// P0 component · 议案纸 (DocketPaper)
 // The paper-lift surface that holds case-files, agendas, verdicts, and
-// archives. See V3-IVY-FINAL-DIRECTION.md § 2.4 for the P0 component list.
+// archives. See PRODUCT-DESIGN.md § 2.4 for the P0 component list.
 
 import * as React from "react";
 

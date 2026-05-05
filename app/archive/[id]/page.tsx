@@ -1,13 +1,13 @@
 "use client";
 
-// V3 Meeting Archive — three-tab post-meeting record.
+// Meeting Archive — three-tab post-meeting record.
 //   摘要 (summary): topic, assembly, loudest, verdict, commitment
 //   原声 (raw):     all turns, cross-exams, followups verbatim
 //   余波 (aftermath): signature, memory consent, "the cabinet's response"
 //
 // Reads via dexie-react-hooks useLiveQuery so changes (e.g. follow-up edits)
-// propagate without manual refresh. See V3-IA-DESIGN-GUIDE.md and
-// docs/research/V3/03-multi-agent-ux-patterns.md for the rationale (Notion AI
+// propagate without manual refresh. See INTERACTION-PATTERNS.md and
+// docs/research/02-multi-agent-conversation.md for the rationale (Notion AI
 // Meeting Notes / Granola: summary / notes / transcript separation).
 
 import Link from "next/link";

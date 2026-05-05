@@ -1,4 +1,4 @@
-// V3 Week 5 · HostConsole — persistent bottom bar where the user is the host.
+// Week 5 · HostConsole — persistent bottom bar where the user is the host.
 // Stage-specific actions live on the right; an always-on free-text input lives
 // on the left so the user can speak even when no button fits the moment.
 //

@@ -1,4 +1,4 @@
-// V3 Week 5 · TurnEntry — single line on the meeting timeline.
+// Week 5 · TurnEntry — single line on the meeting timeline.
 // Kinds:
 //   case          · 立案 paper inside timeline
 //   seat          · 席位发言（带左色边 + 时间戳 + 名字 + 正文）

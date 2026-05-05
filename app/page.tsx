@@ -1,6 +1,6 @@
 "use client";
 
-// V3 cabinet workbench home.
+// Cabinet workbench home.
 // Submits route to /meeting (Quick Meeting state machine).
 // V2's SSE rendering, callback opener, follow-up sidecar, and share-card
 // helpers have been retired here — the surfaces still live in /me/*.
@@ -77,7 +77,7 @@ export default function Home() {
     startMeeting(input);
   }
 
-  // Cabinet snapshot resolution: prefer V3 Dexie; gracefully fall back to
+  // Cabinet snapshot resolution: prefer current Dexie; gracefully fall back to
   // pre-existing V2 episodes so users with V2 data still see a populated home.
   const recentMeetingCard: CardData | null = meetings[0]
     ? {
@@ -336,11 +336,11 @@ function PendingCommitmentCard({
 }) {
   const [submitting, setSubmitting] = useState(false);
 
-  // Empty case — no V3 pending and no V2 legacy
-  const hasV3 = !!meeting?.signature?.action24h;
-  const hasLegacy = !hasV3 && legacy?.followup == null && !!legacy?.decision;
+  // Empty case — no pending commitments and no V2 legacy
+  const hasMeeting = !!meeting?.signature?.action24h;
+  const hasLegacy = !hasMeeting && legacy?.followup == null && !!legacy?.decision;
 
-  if (!hasV3 && !hasLegacy) {
+  if (!hasMeeting && !hasLegacy) {
     return (
       <CabinetCard
         label="待复盘承诺"
@@ -350,7 +350,7 @@ function PendingCommitmentCard({
     );
   }
 
-  if (hasV3 && meeting) {
+  if (hasMeeting && meeting) {
     const action = meeting.signature!.action24h!;
     const ts = meeting.closedAt ?? meeting.createdAt;
 

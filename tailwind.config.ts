@@ -1,11 +1,11 @@
-// V3 Tailwind config — token-driven via CSS variables defined in app/globals.css.
+// Tailwind config — token-driven via CSS variables defined in app/globals.css.
 // Source of truth lives in lib/design/tokens/*.ts; this file maps token names
 // onto Tailwind utility classes through var(--...) references so a single
 // :root override (mobile media-query, dark mode if added later) propagates
 // without rebuilding.
 //
 // We are pinned to Tailwind v3.4 because Next.js 14's dev-mode CSS error
-// plugin still expects v3 syntax. See V3-TECH-DIRECTION.md § 8.3.
+// plugin still expects v3 syntax. See TECH-ARCHITECTURE.md § 8.3.
 
 import type { Config } from "tailwindcss";
 
@@ -18,7 +18,7 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // V3 semantic tokens
+        // Semantic tokens
         "paper-base":  "var(--color-paper-base)",
         "paper-lift":  "var(--color-paper-lift)",
         "paper-sunk":  "var(--color-paper-sunk)",
@@ -45,7 +45,7 @@ const config: Config = {
         "safe-green":       "var(--color-safe-green)",
         "trace-blue":       "var(--color-trace-blue)",
 
-        // V2 backward-compat alias (auto-migrated to V3 values via :root)
+        // V2 backward-compat alias (auto-migrated via :root)
         paper:   "var(--color-paper)",
         ink:     "var(--color-ink)",
         ink2:    "var(--color-ink2)",

@@ -40,7 +40,7 @@
   <rect width="1900" height="1360" class="bg"/>
   <rect width="1900" height="1360" fill="url(#grain)" opacity="0.55"/>
 
-  <text x="80" y="80" class="title ink display">ParallelMe V3 · Refined</text>
+  <text x="80" y="80" class="title ink display">ParallelMe · Refined</text>
   <text x="80" y="118" class="sans mute bodyText">墨色定秩序，矿物色定席位 · 会议时是仪式，会议后是档案</text>
   <line x1="80" y1="154" x2="1820" y2="154" class="rule"/>
 

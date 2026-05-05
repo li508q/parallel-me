@@ -1,6 +1,6 @@
 "use client";
 
-// V3 Week 5 · /meeting — conversational timeline mode.
+// Week 5 · /meeting — conversational timeline mode.
 //
 // Replaces Week 3's stage-paper-swap UX with a continuous meeting timeline:
 //   • SeatDock at the top — 3 or 5 seats are always *in the room*
@@ -10,11 +10,11 @@
 // Stage logic (case → assembly? → statements → interrogation → cross_exam? →
 // revision_check? → verdict → signature → memory_consent → archived) is
 // preserved from Week 3, including all four mandatory user gates per
-// V3-IVY-FINAL § 3.3. What changed is *how* it's expressed: aside from the
+// PRODUCT-DESIGN § 3.3. What changed is *how* it's expressed: aside from the
 // signature ritual and the memory consent gate, no stage replaces the page.
 //
 // Cross-exam now shows real exchanges (Q + A) thanks to the cross_response
-// SSE event added in Week 5. See V3-WEEK5-CONVERSATIONAL-REDESIGN.md.
+// SSE event added in Week 5. See PRODUCT-DESIGN.md § 4.
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";

@@ -1,7 +1,7 @@
-// V3 trust moat · Memory Consent Gate
+// Trust moat · Memory Consent Gate
 // Every meeting ends here: 3 candidate memories the cabinet wants to keep,
 // shown to the user with three honest paths — keep all, pick by hand, drop.
-// See V3-IVY-FINAL-DIRECTION.md § 3.3.
+// See PRODUCT-DESIGN.md § 3.3.
 
 "use client";
 
