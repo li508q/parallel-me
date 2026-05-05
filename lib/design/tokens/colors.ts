@@ -1,6 +1,6 @@
 // Color Tokens — single source of truth.
 // Values mirror app/globals.css @theme. Update both when changing.
-// See docs/design/VISUAL-SYSTEM.md for rationale.
+// Product direction lives in docs/design/V0.7-UPGRADE-PLAN.md.
 
 export const colors = {
   // 纸面 — 78% 占比

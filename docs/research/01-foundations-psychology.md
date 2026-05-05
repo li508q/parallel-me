@@ -1,18 +1,17 @@
 # 01 · Psychology Grounding
 
-> ParallelMe 借鉴心理学，但不是治疗工具。研究只用于产品转译：让用户更清楚地听见内在声音，并从单一声音的劫持中退后一步。
+> ParallelMe 借鉴心理学，但不是治疗工具。研究只用于产品转译：帮助用户把混乱议题外化，听见固定五声背后的保护意图，并从单一声音的接管中退后一步。
 
 ## Key Translation
 
-| 框架 | 产品转译 |
+| 框架 | v0.7 产品转译 |
 | --- | --- |
-| IFS | 每声必须有“它在保护什么 / 它最怕什么”；NowMe 是 Self 位置，不是第六声。 |
-| Voice Dialogue | 目标不是某声胜利，而是发展 aware ego：能听见多个声音但不被某一个绑架。 |
-| Schema Therapy Modes | 用“激活模式”解释固定五声为何在本次被触发，不新增声音。 |
-| Chairwork | UI 必须像可切换的位置，支持点名追问和换位回答。 |
-| ACT | 结尾必须落到价值对齐的 24h committed action。 |
-| MI | 追问用开放问题和低阻抗语言，不审判用户。 |
-| Narrative Therapy | 将困惑外化为工作焦点，降低“我就是问题”的粘连。 |
+| IFS | 每个声音都有保护意图；五声不是好坏之分，而是五种保护逻辑。 |
+| Voice Dialogue | 目标不是某声胜出，而是让用户能在多个声音之间形成 aware ego 式的位置。 |
+| Chairwork | 圆桌布局把内在冲突外化成可见位置，允许续轮、对峙和用户发问。 |
+| MI | 书记员用反映、总结和自主支持，避免审判、逼迫和替用户决定。 |
+| ACT | 清明落定不是消灭焦虑，而是澄清价值并落到 24h committed action。 |
+| Narrative Therapy | “本次议题”把困惑外化成可讨论对象，降低“我就是问题”的粘连。 |
 | CFT | 高羞耻、高自责内容里优先使用保护性语言。 |
 
 ## IFS
@@ -21,18 +20,18 @@
 
 - 人的内心不是单一意识，而是一组有保护意图的 parts。
 - 每个 part 都在保护用户，即使方式笨拙或极端。
-- Self 不是另一个 part，而是用户退后一步后的领导位置。
+- 关键不是消灭某个 part，而是让用户不被单一 part 接管。
 
 ParallelMe 落地：
 
-- `lib/selves.ts` 中五声各自有 core value、fear、voice、taboo words。
-- 会谈中每声都要说明保护和恐惧。
-- NowMe 不参与抢答，只在听完后收束。
+- 固定五声都必须表达自己在保护什么。
+- 圆桌不把任何声音设计成反派。
+- 书记员不宣布哪个声音最大、最好或最正确。
 
 参考：
 
 - https://ifs-institute.com/
-- https://ifs-institute.com/outline-of-the-Internal-family-systems-model.html
+- https://ifs-institute.com/resources/articles/internal-family-systems-model-outline
 
 ## Voice Dialogue
 
@@ -43,48 +42,48 @@ ParallelMe 落地：
 
 ParallelMe 落地：
 
-- 不让“搞钱的我”或“怕妈担心的我”单独成为结论。
-- NowMe 必须写出“不再被哪一声单独带走”。
-- 用户必须点名追问或换位，不能只看 AI 输出。
+- 五声圆桌帮助用户在不同位置之间移动视角。
+- 用户可以让某一声继续说，也可以让两声对峙。
+- 清明落定来自用户在圆桌中的偏好轨迹，而不是某个声音胜利。
 
 参考：
 
-- https://sidrastone.com/
-- https://www.delos-inc.com/
-
-## Schema Therapy Modes
-
-核心启发：
-
-- 具体困惑会激活不同 mode，例如逃避者、顺从者、惩罚性父母、受伤小孩、健康成人。
-- v0.6 不把 mode 扩展成新声音，而是用它解释固定五声的激活理由。
-
-ParallelMe 落地：
-
-- `/api/voices` 只返回固定五声。
-- 激活理由应体现本次模式：关系依恋、资源焦虑、逃离冲动、身体透支、长期视角。
-
-参考：
-
-- https://schematherapysociety.org/
-- https://www.schematherapysociety.org/Schema-Therapy/Schema-Questionnaires
+- https://halstone.com/
+- https://www.voicedialogue.com/
 
 ## Chairwork
 
 核心启发：
 
-- 把冲突分放到不同椅子上，用户可以换位说话。
-- 这要求 UI 像“位置”，不是普通聊天流。
+- 把冲突放到不同椅子上，用户更容易看见“这是一个部分在说话”，而不是“我整个人就是这样”。
+- 对峙和换位的价值在于暴露代价、盲点和未被承认的保护意图。
 
 ParallelMe 落地：
 
-- 五声牌可点击。
-- 用户可追问某一声。
-- 用户可坐到某一声的位置换位回答。
+- 五声圆桌采用可见位置，而不是纯聊天流。
+- 第一轮立论用于建立五个位置的差异。
+- 后续自由圆桌允许续轮、问某声、问全桌和两声对峙。
 
 参考：
 
 - https://pmc.ncbi.nlm.nih.gov/articles/PMC12876151/
+
+## Motivational Interviewing
+
+核心启发：
+
+- 改变不是被说服出来的，而是从用户自己的语言中浮现。
+- 反映、总结、开放问题和自主支持能降低抵抗。
+
+ParallelMe 落地：
+
+- 书记员不是劝导者，而是记录员和澄清者。
+- 书记员问询用于验证偏好假设，不用于压迫用户表态。
+- 用户可以说“不准”“我自己说”，系统必须把这视为高价值信号。
+
+参考：
+
+- https://www.ncbi.nlm.nih.gov/books/n/tip35v2/ch3/
 
 ## ACT
 
@@ -95,8 +94,8 @@ ParallelMe 落地：
 
 ParallelMe 落地：
 
-- 清明句后必须有 24h 承诺。
-- 承诺不是人生答案，而是今天或明天能做的一步。
+- 清明落定包含清明句、偏好读数、代价承认、此刻落点和 24h 承诺。
+- 24h 承诺不是人生答案，而是今天或明天能做的一步。
 
 参考：
 

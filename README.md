@@ -1,176 +1,119 @@
-# ParallelMe / 平行的我
+<p align="center">
+  <strong>ParallelMe / 平行的我</strong>
+</p>
 
-> 你内心的多个声音，第一次被允许同时讲话。
+<p align="center">
+  A local-first, five-voice self-clarification workspace.
+</p>
 
-ParallelMe 是一个结构化多声部自我澄清工具。它不是让某个声音赢，也不是让 AI 给出建议，而是帮助你在重要困惑里听见五种内在保护逻辑，最后由 NowMe 收束成一句「清明句」和一个 24h 可执行承诺。
+<p align="center">
+  <a href="./LICENSE">MIT License</a>
+  ·
+  <a href="./docs/design/V0.7-UPGRADE-PLAN.md">v0.7 Design Plan</a>
+  ·
+  <a href="./docs/research/README.md">Research Notes</a>
+</p>
 
-当前 v0.5 的核心体验叫「五声会谈」，长期空间叫「我的声音」，核心机制叫「五声」。
+---
 
-v0.6 的产品规划见 [docs/design/PRODUCT-DESIGN.md](./docs/design/PRODUCT-DESIGN.md)，调研证据链见 [docs/research/README.md](./docs/research/README.md)。后续方向只保留两条主线：用户真实介入流程、固定五声长期演化。
+ParallelMe 是一个结构化多声部自我澄清工具。
 
-## 当前阶段基线
+它不是让某个声音赢，也不是让 AI 替用户做决定，而是帮助用户把一团混乱议题摊开，在固定五声的圆桌里看见自己的价值倾向，最后落成一句清明句和一个 24h 可执行承诺。
 
-这一轮阶段性收口后的产品边界：
+## Product North Star
 
-- 主体验只有「五声会谈」，不再提供旧的模式选择或本地预设生成。
-- 首次使用必须经 `/setup` 接入真实模型；默认推荐 DeepSeek，同时支持百炼、Kimi、MiniMax、豆包和自定义兼容接口。
-- 旧档案自然切断：会谈记录使用 `ParallelMeV4`，API 配置使用 `parallelme:v4:*`。
-- 项目文档只保留两组：`docs/design` 放产品、交互、视觉和技术设计；`docs/research` 放能继续指导产品判断的研究依据。
-- v0.6 只推进两条骨架：用户能真正介入流程，固定五声能长期演化。
+v0.7 的方向是从“流程化五声会谈”转向“书记员牵引的五声圆桌”。
 
-## 产品方向
+```text
+原始输入
+→ 书记员整理本次议题
+→ 用户确认本次议题
+→ 五声圆桌
+→ 书记员问询并刻画偏好
+→ 清明落定
+```
 
-- 品牌：`ParallelMe / 平行的我`
-- 长期空间：`我的声音`
-- 单次体验：`五声会谈`
-- 常任五声：躺平的我、搞钱的我、出走的我、怕妈担心的我、5 年后的我
-- 收束位置：NowMe，它是 Self 领导位置，不是第六个声音
-- 产物：工作焦点、五声表达、互问澄清、清明句、24h 承诺、用户同意后的本地纸页
+完整设计计划见 [docs/design/V0.7-UPGRADE-PLAN.md](./docs/design/V0.7-UPGRADE-PLAN.md)。
 
-## 心理学基础与产品转译
+## Core Objects
 
-| 框架 | 核心产品转译 |
+| Object | Role |
 | --- | --- |
-| IFS | 每个声音必须说明「它在保护什么 / 它最怕什么」；NowMe 是 Self 领导位置，不参与抢答。参考 [IFS Institute](https://ifs-institute.com/outline-of-the-Internal-family-systems-model.html)。 |
-| Voice Dialogue | 目标不是让某个声音胜出，而是让用户发展能听见 primary selves 与被压住声音的 aware ego。参考 [Voice Dialogue International](https://sidrastone.com/)。 |
-| Schema Therapy Modes | 五声入席前识别当前激活模式；v0.6 前不新增声音，只用它解释固定五声为何被触发。参考 [ISST](https://www.schematherapysociety.org/Schema-Therapy/Schema-Questionnaires)。 |
-| Chairwork | UI 以声音牌和换位回答为中心，让用户能「坐到某一声的位置」纠正或补充。参考 [Chairwork review](https://pmc.ncbi.nlm.nih.gov/articles/PMC12876151/)。 |
-| ACT | 结尾不是建议清单，而是价值对齐、24h 内可执行的 committed action。参考 [ACBS ACT](https://contextualscience.org/act)。 |
-| MI | 追问尽量采用开放问题、反映式倾听和低阻抗语言。 |
-| Narrative Therapy | 将困惑外化为可以被观看和重述的「工作焦点」，降低自我等同。 |
-| CFT | 在高羞耻、高自责内容里优先使用温和、保护性语言，避免审判和攻击。 |
+| 本次议题 | 书记员把原始输入整理成可确认、可讨论的问题框架。 |
+| 固定五声 | 五种稳定价值位置：躺平的我、搞钱的我、出走的我、被牵挂的我、5 年后的我。 |
+| 五声圆桌 | 五声先立论，再由用户推动续轮、提问、对峙和补充。 |
+| 书记员 | 半显性的结构层，负责整理、记录、比较、问询和落定。 |
+| 清明落定 | 清明句、偏好读数、代价承认、此刻落点和 24h 承诺。 |
 
-ParallelMe 不提供治疗、诊断、危机干预或疗效承诺。它是自我澄清与反思工具。
+## Design Commitments
 
-## Experience Flow
+- 固定五声，不新增声音、不引入角色市场、不做声音升格。
+- 不使用“入席”“声浪最大/最小”等旧流程概念。
+- 用户只必须写一次原始输入，后续尽量通过选择、提问、对峙、补一句和原地改写推进。
+- 五声第一轮是结构化立论，后续进入自由圆桌。
+- 书记员不是第六声，不站队、不诊断、不替用户决定。
+- 清明句从用户在圆桌中的选择和问询回答里长出来。
 
-### 1. 困惑成形
+## Psychological Grounding
 
-用户先写下「陈情」：那件让自己睡不着、卡住、反复想的事。
+ParallelMe 借鉴心理学，但不是治疗、诊断或危机干预工具。
 
-系统进行 2-4 轮轻量追问，重点包括事实边界、关系位置、最怕失去什么、哪个声音最响。之后生成「工作焦点」：本次先聊清楚什么。用户必须确认或改写，才能进入五声。
+| Source | Product Translation |
+| --- | --- |
+| IFS | 每个声音都有保护意图，没有“坏声音”。 |
+| Voice Dialogue | 用户不被单一声音接管，而是在多个位置之间形成觉察。 |
+| Chairwork | 把内在冲突外化到可见位置，允许对话与对峙。 |
+| Motivational Interviewing | 书记员使用反映、总结和自主支持。 |
+| ACT | 最后落到价值澄清和 committed action。 |
 
-### 2. 五声入席
+研究索引见 [docs/research/README.md](./docs/research/README.md)。
 
-系统基于陈情、追问回答和工作焦点识别当前激活模式。
+## Repository Map
 
-固定五声都会出现。每个声音展示：
+```text
+app/
+  page.tsx                 # 我的声音工作台
+  meeting/page.tsx         # 当前会谈体验
+  voices/                  # 我的声音概览与详情
+  archive/[id]/page.tsx    # 本地纸页详情
+  setup/page.tsx           # 本地 provider 配置
+  api/                     # LLM 编排与工具端点
 
-- 本次为什么被激活
-- 它在保护什么
-- 它最怕什么
+components/
+  DocketPaper.tsx          # 纸面容器
+  HostConsole.tsx          # 底部操作台
+  MeetingTimeline.tsx      # 会谈记录
+  SeatDock.tsx             # 五声轨
 
-v0.6 前不新增声音，所有会谈先围绕固定五声做深。
+lib/
+  db.ts                    # IndexedDB 本地记录
+  llm.ts                   # provider-aware LLM 编排
+  provider.ts              # local-first API key 配置
+  selves.ts                # 固定五声定义
+  voices.ts                # 我的声音派生统计
 
-### 3. 五声对话
+docs/
+  design/V0.7-UPGRADE-PLAN.md
+  research/
+```
 
-五声依次表态，每声回答：
-
-- 我想保护什么
-- 我怕什么
-- 我希望你别忽略什么
-
-随后用户必须点名追问一声，也可以换位回答：坐到某一声的位置，替它说得更准。之后进入五声互问，重点是暴露代价、盲点和被忽略的保护意图，而不是制造对抗。
-
-### 4. 清明落定
-
-系统生成「清明句」：
-
-> 我现在看清楚的是……
-
-用户可以改写。NowMe 随后说明：我听见了哪些声音、我不再被哪一声单独带走、我选择朝哪个价值行动。
-
-最后写下一个具体、低门槛、今天或明天能做的 24h 承诺。纸页只有在用户同意后写入本地。
-
-## 数据策略
-
-v0.5 使用新的 IndexedDB 库名 `ParallelMeV4`，不读取旧记录，不迁移旧结构。
-
-新记录字段包括：
-
-- `petition`
-- `clarifyingAnswers`
-- `workingFocus`
-- `activatedVoices`
-- `voiceTurns`
-- `calledVoice`
-- `followups`
-- `roleReversalTurns`
-- `crossClarifications`
-- `claritySentence`
-- `nowMe`
-- `commitment24h`
-- `memoryConsent`
-
-## API
-
-新体验拆成四个主端点：
-
-- `POST /api/focus`：追问与工作焦点生成
-- `POST /api/voices`：激活模式识别与五声表态
-- `POST /api/clarify`：点名追问、换位回应、五声互问
-- `POST /api/nowme`：清明句、NowMe、24h 承诺草案
-
-连接测试、品味画像和分享卡仍保留：
-
-- `POST /api/provider/test`
-- `POST /api/taste`
-- `POST /api/share`
-- `GET /api/agent`
-
-## 本地运行
+## Local Development
 
 ```bash
 npm install
 npm run dev
 ```
 
-首次使用需要在 `/setup` 配置真实模型。默认推荐 DeepSeek `deepseek-chat`，并内置百炼、Kimi、MiniMax、豆包和自定义兼容接口；长期部署可把 DeepSeek model 手动改为 `deepseek-v4-flash`。密钥只保存在当前浏览器或当前会话中，服务端不持久化。
+首次使用需要在 `/setup` 配置真实模型。API Key 只保存在当前浏览器或当前会话中，服务端不持久化。
 
-## 安全边界
+## Safety Boundary
 
-- 本地优先：纸页、画像、品味和记忆同意保存在浏览器本地。
-- 用户可清空：`我的声音` 和 `底片` 页面提供本地清理入口。
-- 危机 off-ramp：当输入包含明确自伤、自杀或伤害他人的表达时，应用提示寻求即时真人帮助，不继续普通会谈。
-- 非替代专业帮助：README、产品文案与接口元数据均声明它不是治疗、诊断或危机干预。
-- 数字心理健康评估参考：NICE Evidence Standards Framework 与 APA App Evaluation Model 相关研究。参考 [NICE ESF](https://www.nice.org.uk/corporate/ecd7)、[APA App Evaluation Model study](https://www.frontiersin.org/journals/digital-health/articles/10.3389/fdgth.2022.1003181/full)。
+- 不诊断，不治疗承诺，不医学化命名用户。
+- 不替用户做重大决定。
+- 不鼓励自伤、断联、冲动辞职或重大财务行为。
+- 危机表达触发安全提示和真人资源，不继续普通会谈。
+- 用户内容默认本地优先。
 
-## Test Plan
+## License
 
-- 首页没有旧会谈模式选择，主按钮为「开始五声会谈 →」。
-- 用户必须先完成陈情、追问和工作焦点确认，不能直接进入五声。
-- 五声都有激活理由、保护对象、恐惧。
-- 用户能点名追问，也能换位回答。
-- 五声互问能暴露代价和盲点，语气不审判、不攻击。
-- 清明句可生成、可改写，并成为纸页主标题。
-- 24h 承诺必须具体可执行。
-- 危机表达触发安全提示和专业资源，不继续普通会谈。
-- `npm run build` 通过。
-
-## 当前技术结构
-
-```text
-app/
-  page.tsx                 # 我的声音工作台
-  meeting/page.tsx         # 五声会谈主体验
-  voices/page.tsx          # 我的声音概览
-  archive/[id]/page.tsx    # 单次纸页详情
-  me/                      # 画像、品味、记录、自照
-  api/
-    focus/
-    voices/
-    clarify/
-    nowme/
-components/
-  DocketPaper.tsx
-  StageRail.tsx
-  SeatDock.tsx
-  SeatNameplate.tsx
-  MemoryConsentGate.tsx
-  SignatureSlip.tsx
-lib/
-  db.ts                    # ParallelMeV4 schema
-  llm.ts                   # provider-aware LLM orchestration
-  voices.ts                # 我的声音派生统计
-  selves.ts                # 常任五声定义
-```
+[MIT](./LICENSE)

@@ -1,6 +1,6 @@
 // lib/provider.ts — Provider Setup
 // Local-first: ProviderConfig + apiKey are stored on the user's device only.
-// Server never persists them. See docs/design/TECH-ARCHITECTURE.md.
+// Server never persists them.
 
 export type ProviderType =
   | "deepseek"

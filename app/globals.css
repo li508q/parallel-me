@@ -4,7 +4,8 @@
 
 /* =============================================================================
    ParallelMe Design Tokens · CSS variables consumed by tailwind.config.ts.
-   Mirror of lib/design/tokens/*.ts. See docs/design/VISUAL-SYSTEM.md.
+   Mirror of lib/design/tokens/*.ts. Active product direction lives in
+   docs/design/V0.7-UPGRADE-PLAN.md.
    ============================================================================= */
 
 :root {
@@ -116,7 +117,7 @@ html, body {
 }
 
 body {
-  /* Subtle paper warmth for the v0.5 five-voice workspace. */
+  /* Subtle paper warmth for the five-voice workspace. */
   background:
     radial-gradient(circle at 20% 0%, rgba(138, 111, 61, 0.04), transparent 50%),
     radial-gradient(circle at 80% 100%, rgba(94, 83, 105, 0.04), transparent 50%),
@@ -140,7 +141,7 @@ main, header, footer { position: relative; z-index: 1; }
 /* =============================================================================
    Compatibility Layer
    These aliases keep the older personal pages visually intact while the main
-   five-voice flow uses semantic v0.5 tokens directly.
+   five-voice flow uses semantic tokens directly.
    ============================================================================= */
 
 .scribble {

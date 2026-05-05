@@ -5,18 +5,17 @@ import { getAgentMeta } from "@/lib/llm";
 export async function GET() {
   return NextResponse.json({
     ...getAgentMeta(),
-    version: "0.5.0",
+    version: "0.7.0",
     psychology_grounding:
-      "IFS, Voice Dialogue, Schema Therapy Modes, Chairwork, ACT, MI, Narrative Therapy, and CFT as product inspirations. Not therapy, diagnosis, or crisis intervention.",
+      "IFS, Voice Dialogue, Chairwork, ACT, MI, Narrative Therapy, and CFT as product inspirations. Not therapy, diagnosis, or crisis intervention.",
     harness: {
-      pattern: "structured five-voice self-clarification with NowMe synthesis",
+      pattern: "scribe-guided five-voice roundtable with clarity settlement",
       rounds: [
-        "1. focus — turn petition and clarifying answers into a working focus",
-        "2. voices — identify why the fixed five voices are activated",
-        "3. dialogue — five voices state what they protect, fear, and ask not to ignore",
-        "4. clarify — named follow-up, role reversal, and nonjudgmental cross-clarification",
-        "5. nowme — clarity sentence plus values-aligned 24h commitment",
-        "6. memory — consent-gated local-only record write",
+        "1. task frame — scribe turns raw input into a reviewable issue",
+        "2. roundtable — fixed five voices present structured opening arguments",
+        "3. free discussion — user asks, continues voices, or selects two voices to confront",
+        "4. scribe inquiry — scribe validates user preference patterns",
+        "5. clarity settlement — clarity sentence, preference readout, tradeoff, posture, and 24h commitment",
       ],
     },
     endpoints: {
@@ -36,7 +35,6 @@ export async function GET() {
     inspired_by: [
       "Internal Family Systems · Richard Schwartz 1995",
       "Voice Dialogue · aware ego",
-      "Schema Therapy Modes · activated modes",
       "Chairwork · role reversal",
       "Acceptance and Commitment Therapy · committed action",
       "Motivational Interviewing · open questions and reflective listening",

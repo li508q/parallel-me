@@ -1,6 +1,5 @@
 // Motion — spring physics + restrained durations.
-// See docs/design/PRODUCT-DESIGN.md § 2.4 — 默认 damping 高于 Material 推荐，
-// 保留"纸墨"质感而非"果冻"。
+// 默认 damping 高于 Material 推荐，保留"纸墨"质感而非"果冻"。
 
 // Spring presets — for Framer Motion / motion / spring()-based libraries.
 // Used sparingly. Default to CSS transitions when possible.

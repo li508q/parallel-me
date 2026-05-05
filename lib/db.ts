@@ -1,5 +1,5 @@
 // lib/db.ts — Local Workspace · IndexedDB via Dexie
-// V0.5 refined schema: one clean denormalized record for a structured
+// Current local schema: one clean denormalized record for a structured
 // five-voice self-clarification session. This intentionally uses a new DB
 // name so pre-refactor records are left untouched and unread.
 

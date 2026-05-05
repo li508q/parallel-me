@@ -2,7 +2,7 @@
 // Stateless: the server forwards a single 1-token chat-completion request and
 // returns { ok, model, latencyMs, error? }. Nothing is persisted.
 //
-// See docs/design/TECH-ARCHITECTURE.md for the local-first provider boundary.
+// Local-first provider boundary: API keys are forwarded per request and are not persisted server-side.
 
 import { NextRequest } from "next/server";
 

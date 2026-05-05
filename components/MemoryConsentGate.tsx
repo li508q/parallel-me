@@ -1,7 +1,6 @@
 // Trust moat · Memory Consent Gate
 // Every session ends here: 3 candidate memories the user's voices may keep,
 // shown to the user with three honest paths — keep all, pick by hand, drop.
-// See PRODUCT-DESIGN.md § 3.3.
 
 "use client";
 

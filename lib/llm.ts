@@ -419,7 +419,7 @@ export async function extractTasteProfile(
 }
 
 // ────────────────────────────────────────────────────────────
-// V0.5 refined · 五声会谈 structured helpers
+// Structured helpers for the current five-voice flow.
 // ────────────────────────────────────────────────────────────
 export interface FocusResult {
   questions: string[];

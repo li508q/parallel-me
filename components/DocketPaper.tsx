@@ -1,6 +1,6 @@
 // P0 component · 纸面 (DocketPaper)
 // The paper-lift surface that holds petitions, focus notes, verdicts, and
-// archives. See PRODUCT-DESIGN.md § 2.4 for the P0 component list.
+// archives.
 
 import * as React from "react";
 

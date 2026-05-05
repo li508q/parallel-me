@@ -1,5 +1,5 @@
 // Elevation — restrained shadows, no glass-on-glass.
-// See docs/design/PRODUCT-DESIGN.md § 2.3 — Liquid Glass refraction 拒绝。
+// Liquid Glass refraction is intentionally avoided.
 
 export const elevation = {
   // 无阴影 — 大多数情况
