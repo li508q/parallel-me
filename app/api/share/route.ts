@@ -1,5 +1,5 @@
-// /api/share — 生成「内心地图」分享卡片 (SVG)
-// 输入：5 个分身的答案文本 → 输出：雷达图 + 大标题 + 关键句的 SVG，可右键存图
+// /api/share — 生成「五声地图」分享卡片 (SVG)
+// 输入：五声答案文本 → 输出：雷达图 + 大标题 + 关键句的 SVG，可右键存图
 
 import { NextRequest } from "next/server";
 
@@ -92,7 +92,7 @@ export async function POST(req: NextRequest) {
 
   <!-- Footer -->
   <line x1="60" y1="900" x2="740" y2="900" stroke="#D8CBB8" stroke-width="1"/>
-  <text x="60" y="940" font-family="Songti SC, serif" font-size="18" fill="#191713" font-weight="600">让 5 个平行宇宙的你吵一架</text>
+  <text x="60" y="940" font-family="Songti SC, serif" font-size="18" fill="#191713" font-weight="600">让五个声音坐下来，把困惑听清楚</text>
   <text x="60" y="965" font-family="PingFang SC, sans-serif" font-size="14" fill="#7C7568">parallelme.app</text>
 </svg>`;
 

@@ -1,20 +1,18 @@
 "use client";
 
-// 席位详情 · /seat/[id] — single-seat activity feed across all meetings.
-// All data is derived from the meetings table via lib/cabinet.ts.
+// 声音详情 · /voices/[id] — one voice's activity feed across all records.
+// All data is derived from the ParallelMeV4 meetings table via lib/voices.ts.
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useLiveQuery } from "dexie-react-hooks";
 import { SELVES, type SelfId } from "@/lib/selves";
 import {
-  aggregateSeatActivity,
-  aggregateSeatStats,
-  type SeatActivityEntry,
-  type SeatStats,
-} from "@/lib/cabinet";
+  aggregateVoiceActivity,
+  aggregateVoiceStats,
+  type VoiceActivityEntry,
+} from "@/lib/voices";
 import { DocketPaper } from "@/components/DocketPaper";
-import { SeatNameplate } from "@/components/SeatNameplate";
 
 const SEAT_COLOR_VAR: Record<SelfId, string> = {
   lay:    "color-seat-rest",
@@ -24,22 +22,22 @@ const SEAT_COLOR_VAR: Record<SelfId, string> = {
   future: "color-seat-future",
 };
 
-export default function SeatDetailPage() {
+export default function VoiceDetailPage() {
   const params = useParams<{ id: string }>();
   const id = (params?.id ?? "") as SelfId;
   const seat = SELVES[id];
 
   const stats = useLiveQuery(
     () =>
-      aggregateSeatStats().then(
-        (all) => all.find((s) => s.seatId === id) ?? undefined
+      aggregateVoiceStats().then(
+        (all) => all.find((s) => s.voiceId === id) ?? undefined
       ),
     [id]
   );
 
   const activity =
     useLiveQuery(
-      () => (seat ? aggregateSeatActivity(id) : Promise.resolve([])),
+      () => (seat ? aggregateVoiceActivity(id) : Promise.resolve([])),
       [id]
     ) ?? [];
 
@@ -47,15 +45,15 @@ export default function SeatDetailPage() {
     return (
       <main className="min-h-screen px-5 sm:px-10 py-14 max-w-3xl mx-auto font-sans text-ink-body">
         <Link
-          href="/cabinet"
+          href="/voices"
           className="text-xs tracking-[0.18em] text-ink-mute uppercase hover:text-ink-core"
         >
-          ← 我的阁
+          ← 我的声音
         </Link>
-        <DocketPaper stage="席位" className="mt-10">
-          <p className="font-serif text-title text-ink-core mb-3">没有这个席位。</p>
+        <DocketPaper stage="声音" className="mt-10">
+          <p className="font-serif text-title text-ink-core mb-3">没有这个声音。</p>
           <p className="text-body text-ink-mute">
-            id：<span className="font-mono">{id}</span> 不在常任名册里。
+            id：<span className="font-mono">{id}</span> 不在五声名册里。
           </p>
         </DocketPaper>
       </main>
@@ -68,13 +66,13 @@ export default function SeatDetailPage() {
     <main className="min-h-screen px-5 sm:px-10 py-12 sm:py-16 max-w-3xl mx-auto font-sans text-ink-body">
       <header className="mb-10 flex items-center justify-between gap-3 flex-wrap">
         <Link
-          href="/cabinet"
+          href="/voices"
           className="text-xs tracking-[0.18em] text-ink-mute uppercase hover:text-ink-core transition-colors"
         >
-          ← 我的阁
+          ← 我的声音
         </Link>
         <span className="text-xs tracking-[0.18em] text-ink-mute uppercase">
-          席位详情
+          声音详情
         </span>
       </header>
 
@@ -106,30 +104,30 @@ export default function SeatDetailPage() {
 
       {/* Stats */}
       {stats && stats.appearances > 0 && (
-        <DocketPaper stage="它在你的阁里" dense className="mb-8">
+        <DocketPaper stage="它在你的纸页里" dense className="mb-8">
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-center">
-            <Stat label="出席" value={stats.appearances} />
+            <Stat label="出现" value={stats.appearances} />
             <Stat label="最响" value={stats.loudestCount} accent="warn" />
-            <Stat label="被点名" value={stats.followedUpCount} />
-            <Stat label="质询命中" value={stats.hitCount} accent="safe" />
+            <Stat label="被追问" value={stats.followedUpCount} />
+            <Stat label="被换位" value={stats.roleReversalCount} accent="safe" />
           </div>
         </DocketPaper>
       )}
 
       {/* Activity feed */}
       {activity.length === 0 ? (
-        <DocketPaper stage="活动史">
+        <DocketPaper stage="纸页">
           <p className="text-body-sm text-ink-mute italic font-serif">
-            它还没在会议中出现过。
+            它还没有在会谈中出现过。
           </p>
         </DocketPaper>
       ) : (
         <section className="space-y-4">
           <h2 className="text-[10px] tracking-[0.18em] text-ink-mute uppercase mb-2">
-            活动史 · {activity.length} 次
+            出现记录 · {activity.length} 次
           </h2>
           {activity.map((a) => (
-            <ActivityCard key={a.meetingId} entry={a} colorVar={colorVar} />
+            <ActivityCard key={a.recordId} entry={a} colorVar={colorVar} />
           ))}
         </section>
       )}
@@ -178,18 +176,18 @@ function ActivityCard({
   entry,
   colorVar,
 }: {
-  entry: SeatActivityEntry;
+  entry: VoiceActivityEntry;
   colorVar: string;
 }) {
   return (
     <Link
-      href={`/archive/${entry.meetingId}`}
+      href={`/archive/${entry.recordId}`}
       className="block bg-paper-lift border border-paper-edge rounded-md p-4 sm:p-5 hover:border-ink-mute transition-colors"
       style={{ borderLeft: `3px solid var(--${colorVar})` }}
     >
       <div className="flex items-baseline justify-between gap-3 mb-2 flex-wrap">
         <h3 className="font-serif text-title-sm text-ink-core leading-snug min-w-0 flex-1">
-          {entry.topic}
+          {entry.title}
         </h3>
         <span className="text-xs text-ink-mute flex-shrink-0">
           {timeAgo(entry.at)}
@@ -201,8 +199,8 @@ function ActivityCard({
           <Pill kind="warn">最响</Pill>
         )}
         {entry.followup && <Pill kind="default">被点名追问</Pill>}
-        {entry.hits > 0 && <Pill kind="safe">质询问中 {entry.hits}</Pill>}
-        <Pill kind="muted">{entry.mode === "full" ? "完整内阁" : "快速"}</Pill>
+        {entry.roleReversal && <Pill kind="safe">被换位回答</Pill>}
+        <Pill kind="muted">{entry.status === "signed" ? "已承诺" : "未完成"}</Pill>
       </div>
 
       <p className="text-body-sm text-ink-body leading-relaxed line-clamp-3 italic font-serif">
@@ -215,6 +213,17 @@ function ActivityCard({
             你问它
           </div>
           <p className="text-body-sm text-ink-body italic">「{entry.followup.question}」</p>
+          <p className="mt-2 text-body-sm text-ink-mute leading-relaxed">
+            它答：「{entry.followup.answer}」
+          </p>
+        </div>
+      )}
+      {entry.roleReversal && (
+        <div className="mt-3 pt-3 border-t border-paper-edge">
+          <div className="text-[10px] tracking-[0.18em] text-ink-mute uppercase mb-1">
+            你坐到它的位置说
+          </div>
+          <p className="text-body-sm text-ink-body italic">「{entry.roleReversal}」</p>
         </div>
       )}
     </Link>

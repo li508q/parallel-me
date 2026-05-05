@@ -1,48 +1,66 @@
 // lib/db.ts — Local Workspace · IndexedDB via Dexie
-// MVP scope: a single denormalized Meeting record covers the entire
-// Quick Meeting trace (case → statements → followup → verdict → signature →
-// memory consent). Cross-cutting Cabinet/Seat/Issue tables are intentionally
-// deferred to Week 3+; see TECH-ARCHITECTURE.md § 5.3 for the full
-// shape.
+// V0.5 refined schema: one clean denormalized record for a structured
+// five-voice self-clarification session. This intentionally uses a new DB
+// name so pre-refactor records are left untouched and unread.
 
 import Dexie, { type Table } from "dexie";
 import type { SelfId } from "./selves";
 
-export interface MeetingTurn {
-  seatId: SelfId;
-  text: string;
-  at: number;
-}
+export type VoiceId = SelfId;
 
-export interface MeetingFollowup {
-  seatId: SelfId;
+export interface ClarifyingAnswer {
   question: string;
   answer: string;
   at: number;
 }
 
-/** Cross-examine event: one seat reframes/challenges another (full mode only). */
-export interface CrossExam {
-  fromSeatId: SelfId;
-  toSeatId: SelfId;
-  text: string;          // the challenging question
-  at: number;
+export interface ActivatedVoice {
+  voiceId: VoiceId;
+  name: string;
+  source: "standing";
+  protect: string;
+  fear: string;
+  activatedReason: string;
+  ifsLabel?: string;
 }
 
-/** User judgement on a cross-exam or seat statement. */
-export interface UserMark {
-  /** What the mark targets — references CrossExam by index or SeatTurn by id. */
-  targetKind: "cross" | "turn";
-  targetIndex: number;
-  judgement: "hit" | "miss" | "i-want-to-answer";
-  reply?: string;        // when judgement is "i-want-to-answer"
-  at: number;
-}
-
-export interface MeetingVerdict {
+export interface VoiceTurn {
+  voiceId: VoiceId;
+  name: string;
   text: string;
-  loudestSeatId?: SelfId;
+  at: number;
+}
+
+export interface VoiceFollowup {
+  voiceId: VoiceId;
+  voiceName: string;
+  question: string;
+  answer: string;
+  at: number;
+}
+
+export interface RoleReversalTurn {
+  voiceId: VoiceId;
+  voiceName: string;
+  text: string;
+  at: number;
+}
+
+export interface CrossClarification {
+  fromVoiceId: VoiceId;
+  fromName: string;
+  toVoiceId: VoiceId;
+  toName: string;
+  question: string;
+  response?: string;
+  at: number;
+}
+
+export interface NowMeRecord {
+  text: string;
   insight?: string;
+  loudestVoiceId?: VoiceId;
+  loudestVoiceName?: string;
   at: number;
 }
 
@@ -50,30 +68,27 @@ export type SignatureDecision = "signed" | "paused" | "escaped";
 
 export interface MeetingSignature {
   decision: SignatureDecision;
-  action24h?: string;     // empty when paused/escaped
   at: number;
 }
 
 export interface MemoryCandidate {
   id: string;
   statement: string;
-  category: "pattern" | "seat-power" | "decision" | "avoided";
+  category: "pattern" | "voice-power" | "decision" | "avoided";
 }
 
 export interface MemoryConsentRecord {
   candidates: MemoryCandidate[];
-  savedIds: string[];     // candidate ids user opted to keep
+  savedIds: string[];
   decidedAt: number;
 }
 
-/** Loop A · 24h commitment follow-up record (set when user reviews a signed
- *  action24h from the home page or archive). */
 export type CommitmentFollowupResult = "done" | "not-done" | "forgot";
 
 export interface CommitmentFollowup {
   result: CommitmentFollowupResult;
   at: number;
-  note?: string;          // optional one-line note from user
+  note?: string;
 }
 
 export type MeetingStatus =
@@ -88,61 +103,40 @@ export interface Meeting {
   createdAt: number;
   closedAt?: number;
   status: MeetingStatus;
-  mode: "quick" | "full";
 
-  topicRaw: string;
-  topicRefined?: string;
-  /** Set if user revised the issue mid-meeting (full mode only). */
-  topicRevised?: string;
-  /** Whether the verdict was made on the revised vs original topic. */
-  verdictBasedOn?: "original" | "revised" | "both";
-
-  seatIds: SelfId[];
-  turns: MeetingTurn[];
-  followups: MeetingFollowup[];
-  /** Full-mode only: cross-examine exchanges. */
-  crossExams?: CrossExam[];
-  /** Full-mode only: user judgement of cross-exams or turns. */
-  userMarks?: UserMark[];
-
-  verdict?: MeetingVerdict;
+  petition: string;
+  clarifyingAnswers: ClarifyingAnswer[];
+  workingFocus: string;
+  activatedVoices: ActivatedVoice[];
+  voiceTurns: VoiceTurn[];
+  calledVoice?: VoiceId;
+  followups: VoiceFollowup[];
+  roleReversalTurns: RoleReversalTurn[];
+  crossClarifications: CrossClarification[];
+  claritySentence?: string;
+  nowMe?: NowMeRecord;
+  commitment24h?: string;
   signature?: MeetingSignature;
   memoryConsent?: MemoryConsentRecord;
 
-  /** Loop A · written when the user reviews their 24h commitment. */
   commitmentFollowup?: CommitmentFollowup;
 }
 
-class CabinetDB extends Dexie {
+class VoiceDB extends Dexie {
   meetings!: Table<Meeting, string>;
 
   constructor() {
-    super("ParallelMeV3");
-    // v1: initial Quick Meeting schema (Week 2)
+    super("ParallelMeV4");
     this.version(1).stores({
-      meetings: "id, createdAt, closedAt, status, mode",
-    });
-    // v2: same indexes, extended fields (crossExams, userMarks, topicRevised)
-    // Index set unchanged → no migration callback needed; new fields are
-    // optional and read as undefined on old rows.
-    this.version(2).stores({
-      meetings: "id, createdAt, closedAt, status, mode",
-    });
-    // v3: added commitmentFollowup. Same story — optional field on existing rows.
-    this.version(3).stores({
-      meetings: "id, createdAt, closedAt, status, mode",
+      meetings: "id, createdAt, closedAt, status",
     });
   }
 }
 
-export const db = new CabinetDB();
-
-// ───────────────────────────────────────────────────────────
-// Helpers
-// ───────────────────────────────────────────────────────────
+export const db = new VoiceDB();
 
 export function newMeetingId(): string {
-  return `meeting_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+  return `voice_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
 }
 
 export async function getMeeting(id: string): Promise<Meeting | undefined> {
@@ -160,8 +154,8 @@ export async function pendingCommitments(maxDays = 14): Promise<Meeting[]> {
     .equals("signed")
     .filter(
       (m) =>
-        !!m.signature?.action24h &&
-        !m.commitmentFollowup &&     // not yet reviewed
+        !!m.commitment24h &&
+        !m.commitmentFollowup &&
         (m.closedAt ?? 0) > cutoff
     )
     .reverse()
@@ -169,7 +163,6 @@ export async function pendingCommitments(maxDays = 14): Promise<Meeting[]> {
     .toArray();
 }
 
-/** Loop A · record the user's review of a signed 24h commitment. */
 export async function recordCommitmentFollowup(
   meetingId: string,
   result: CommitmentFollowupResult,

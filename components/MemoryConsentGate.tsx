@@ -1,5 +1,5 @@
 // Trust moat · Memory Consent Gate
-// Every meeting ends here: 3 candidate memories the cabinet wants to keep,
+// Every session ends here: 3 candidate memories the user's voices may keep,
 // shown to the user with three honest paths — keep all, pick by hand, drop.
 // See PRODUCT-DESIGN.md § 3.3.
 
@@ -16,7 +16,7 @@ interface MemoryConsentGateProps {
 
 const CATEGORY_LABEL: Record<MemoryCandidate["category"], string> = {
   pattern:      "反复出现的模式",
-  "seat-power": "席位的权力变化",
+  "voice-power": "声音的强弱变化",
   decision:     "你做出的决定",
   avoided:      "你回避的声音",
 };
@@ -51,13 +51,13 @@ export function MemoryConsentGate({
     >
       <header className="mb-5">
         <div className="text-[10px] tracking-[0.18em] text-ink-mute uppercase mb-2">
-          这次你的阁想记住
+          这次想记住
         </div>
         <h2 className="font-serif text-title text-ink-core leading-tight">
           {candidates.length === 1 ? "一件事" : `${candidates.length} 件事`}
         </h2>
         <p className="mt-2 text-body-sm text-ink-mute">
-          只有你说可以的，才会被写进档案。它从这台设备走不出去。
+          只有你说可以的，才会写进纸页。它从这台设备走不出去。
         </p>
       </header>
 

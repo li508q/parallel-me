@@ -1,174 +1,125 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="1420" viewBox="0 0 1500 1420">
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1020" viewBox="0 0 1440 1020" role="img" aria-labelledby="title desc">
+  <title id="title">ParallelMe v0.6 Interaction Wireflow</title>
+  <desc id="desc">Four-stage flow for a five-voice conversation with API setup and user intervention points.</desc>
   <defs>
-    <filter id="grain">
-      <feTurbulence type="fractalNoise" baseFrequency="0.72" numOctaves="2" stitchTiles="stitch"/>
-      <feColorMatrix values="0 0 0 0 0.055  0 0 0 0 0.043  0 0 0 0 0.025  0 0 0 0.035 0"/>
-    </filter>
-    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
-      <path d="M2,2 L10,6 L2,10" fill="none" stroke="#7C7568" stroke-width="1.5"/>
-    </marker>
     <style>
-      .bg{fill:#F7F0E3}.paper{fill:#FFFCF5;stroke:#D8CBB8;stroke-width:1.4}.sunk{fill:#EDE2D0;stroke:#D8CBB8;stroke-width:1.2}
-      .ink{fill:#191713}.body{fill:#3C3932}.mute{fill:#7C7568}.faint{fill:#B7AC9B}
-      .line{stroke:#7C7568;stroke-width:1.5;fill:none;marker-end:url(#arrow)}.softLine{stroke:#D8CBB8;stroke-width:1.3;fill:none}
-      .title{font-family:"Songti SC","Source Han Serif SC",serif;font-weight:700}.sans{font-family:"PingFang SC",-apple-system,BlinkMacSystemFont,sans-serif}
-      .label{font-size:12px;letter-spacing:1.6px}.bodyText{font-size:17px}.h1{font-size:44px}.h2{font-size:25px}.h3{font-size:20px}
-      .seal{fill:#8E3F32}.gold{fill:#A8844D}.safe{fill:#536E5A}.trace{fill:#455F70}.temp{fill:#76684D}.attach{fill:#8C5042}
+      .sans { font-family: Geist, "PingFang SC", "Noto Sans SC", sans-serif; }
+      .serif { font-family: "Source Han Serif SC", "Noto Serif SC", "Songti SC", serif; }
+      .mono { font-family: "Geist Mono", "SF Mono", monospace; }
+      .title { fill: #191713; font-size: 46px; font-weight: 650; }
+      .h2 { fill: #191713; font-size: 24px; font-weight: 620; }
+      .body { fill: #3C3932; font-size: 18px; }
+      .muted { fill: #7C7568; font-size: 15px; }
+      .tiny { fill: #B7AC9B; font-size: 13px; letter-spacing: 0.12em; }
+      .card { fill: #FBF9F4; stroke: #D8CBB8; stroke-width: 1.5; }
+      .pill { fill: #F4F1EC; stroke: #D8CBB8; stroke-width: 1.5; }
+      .line { stroke: #D8CBB8; stroke-width: 2; fill: none; }
+      .arrow { stroke: #7C7568; stroke-width: 2; fill: none; marker-end: url(#arrow); }
     </style>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#7C7568"/>
+    </marker>
   </defs>
 
-  <rect width="1500" height="1420" class="bg"/>
-  <rect width="1500" height="1420" fill="url(#grain)" opacity=".55"/>
+  <rect width="1440" height="1020" fill="#F4F1EC"/>
+  <text x="80" y="86" class="tiny sans">PARALLELME · INTERACTION WIREFLOW · V0.6</text>
+  <text x="80" y="145" class="title serif">从一句困惑，到一句清明。</text>
+  <text x="80" y="186" class="body sans">主路径是点击和确认，文本意图只做辅助。用户始终是主持者。</text>
 
-  <text x="72" y="78" class="title ink h1">交互指导 · Interaction Wireflow</text>
-  <text x="72" y="116" class="sans mute bodyText">会议时是仪式：每一步轻；会议后是档案：每个结论可追溯。</text>
-  <line x1="72" y1="150" x2="1428" y2="150" class="softLine"/>
+  <g transform="translate(80 250)">
+    <rect class="card" width="260" height="470" rx="8"/>
+    <circle cx="36" cy="36" r="10" fill="#455F70"/>
+    <text x="60" y="44" class="h2 sans">困惑成形</text>
+    <text x="28" y="88" class="body serif">陈情</text>
+    <rect x="28" y="110" width="204" height="76" rx="6" fill="#F4F1EC" stroke="#D8CBB8"/>
+    <text x="46" y="154" class="muted sans">写下原始困惑</text>
+    <text x="28" y="225" class="body serif">轻量追问</text>
+    <rect x="28" y="247" width="204" height="76" rx="6" fill="#F4F1EC" stroke="#D8CBB8"/>
+    <text x="46" y="278" class="muted sans">事实 · 关系</text>
+    <text x="46" y="304" class="muted sans">恐惧 · 最响声音</text>
+    <text x="28" y="362" class="body serif">工作焦点</text>
+    <rect x="28" y="384" width="204" height="56" rx="6" fill="#EDE2D0" stroke="#D8CBB8"/>
+    <text x="46" y="419" class="muted sans">用户确认或改写</text>
+  </g>
 
-  <!-- Entry -->
-  <text x="72" y="210" class="sans mute label">01 · ENTRY</text>
-  <g transform="translate(72 236)">
-    <rect width="360" height="178" rx="18" class="paper"/>
-    <text x="24" y="42" class="sans mute label">HOME</text>
-    <text x="24" y="78" class="title ink h3">首页不是空白聊天框</text>
-    <text x="24" y="112" class="sans body" font-size="15">今日开会</text>
-    <text x="24" y="138" class="sans body" font-size="15">待复盘</text>
-    <text x="24" y="164" class="sans body" font-size="15">反复议题</text>
-  </g>
-  <g transform="translate(520 236)">
-    <rect width="250" height="78" rx="14" class="paper"/>
-    <circle cx="24" cy="39" r="7" class="gold"/><text x="44" y="45" class="sans body" font-size="16">提出新议题</text>
-    <rect y="100" width="250" height="78" rx="14" class="paper"/>
-    <circle cx="24" cy="139" r="7" class="attach"/><text x="44" y="145" class="sans body" font-size="16">进入既有议题</text>
-  </g>
-  <g transform="translate(850 286)">
-    <rect width="250" height="78" rx="14" class="paper"/>
-    <circle cx="24" cy="39" r="7" class="seal"/><text x="44" y="45" class="sans body" font-size="16">承诺复盘</text>
-  </g>
-  <path d="M432 325 C470 325 486 275 520 275" class="line"/>
-  <path d="M432 325 C470 325 486 375 520 375" class="line"/>
-  <path d="M432 325 C590 325 704 325 850 325" class="line"/>
+  <path class="arrow" d="M 360 485 C 395 485, 410 485, 445 485"/>
 
-  <!-- Ritual -->
-  <text x="72" y="500" class="sans mute label">02 · MEETING RITUAL</text>
-  <g transform="translate(72 530)">
-    <rect width="292" height="126" rx="16" class="paper"/>
-    <text x="22" y="36" class="sans mute label">STEP 1</text>
-    <text x="22" y="70" class="title ink h3">立案</text>
-    <text x="22" y="101" class="sans body" font-size="15">重写议题 / 显示核心冲突</text>
+  <g transform="translate(460 250)">
+    <rect class="card" width="260" height="470" rx="8"/>
+    <circle cx="36" cy="36" r="10" fill="#536E5A"/>
+    <text x="60" y="44" class="h2 sans">五声入席</text>
+    <text x="28" y="90" class="muted sans">固定五声，不新增角色。</text>
+    <g transform="translate(28 128)">
+      <rect class="pill" width="204" height="46" rx="23"/>
+      <circle cx="26" cy="23" r="7" fill="#556F7A"/>
+      <text x="48" y="29" class="body sans">躺平的我</text>
+    </g>
+    <g transform="translate(28 184)">
+      <rect class="pill" width="204" height="46" rx="23"/>
+      <circle cx="26" cy="23" r="7" fill="#8A6F3D"/>
+      <text x="48" y="29" class="body sans">搞钱的我</text>
+    </g>
+    <g transform="translate(28 240)">
+      <rect class="pill" width="204" height="46" rx="23"/>
+      <circle cx="26" cy="23" r="7" fill="#3F6B5A"/>
+      <text x="48" y="29" class="body sans">出走的我</text>
+    </g>
+    <g transform="translate(28 296)">
+      <rect class="pill" width="204" height="46" rx="23"/>
+      <circle cx="26" cy="23" r="7" fill="#8C5042"/>
+      <text x="48" y="29" class="body sans">怕妈担心的我</text>
+    </g>
+    <g transform="translate(28 352)">
+      <rect class="pill" width="204" height="46" rx="23"/>
+      <circle cx="26" cy="23" r="7" fill="#5E5369"/>
+      <text x="48" y="29" class="body sans">5 年后的我</text>
+    </g>
+    <text x="28" y="438" class="muted sans">每声展示：激活理由 / 保护 / 恐惧</text>
   </g>
-  <g transform="translate(400 530)">
-    <rect width="292" height="126" rx="16" class="paper"/>
-    <text x="22" y="36" class="sans mute label">USER GATE</text>
-    <text x="22" y="70" class="title ink h3">确认议题</text>
-    <text x="22" y="101" class="sans body" font-size="15">就按这个 / 改一下 / 不是这个</text>
-  </g>
-  <g transform="translate(728 530)">
-    <rect width="292" height="126" rx="16" class="paper"/>
-    <text x="22" y="36" class="sans mute label">STEP 2</text>
-    <text x="22" y="70" class="title ink h3">组阁</text>
-    <text x="22" y="101" class="sans body" font-size="15">5 个发言席 / 0-3 个旁听席</text>
-  </g>
-  <g transform="translate(1056 530)">
-    <rect width="292" height="126" rx="16" class="paper"/>
-    <text x="22" y="36" class="sans mute label">USER GATE</text>
-    <text x="22" y="70" class="title ink h3">管理席位</text>
-    <text x="22" y="101" class="sans body" font-size="15">确认 / 替换 / 新增 / 旁听</text>
-  </g>
-  <path d="M364 593 C378 593 386 593 400 593" class="line"/>
-  <path d="M692 593 C706 593 714 593 728 593" class="line"/>
-  <path d="M1020 593 C1034 593 1042 593 1056 593" class="line"/>
-  <path d="M770 314 C640 408 306 432 218 530" class="line"/>
 
-  <g transform="translate(72 704)">
-    <rect width="292" height="126" rx="16" class="paper"/>
-    <text x="22" y="36" class="sans mute label">STEP 3</text>
-    <text x="22" y="70" class="title ink h3">初表态</text>
-    <text x="22" y="101" class="sans body" font-size="15">投票 / 理由 / 恐惧 / 要求</text>
-  </g>
-  <g transform="translate(400 704)">
-    <rect width="292" height="126" rx="16" class="paper"/>
-    <text x="22" y="36" class="sans mute label">USER GATE</text>
-    <text x="22" y="70" class="title ink h3">点名追问</text>
-    <text x="22" y="101" class="sans body" font-size="15">至少追问一次 / 请旁听席发言</text>
-  </g>
-  <g transform="translate(728 704)">
-    <rect width="292" height="126" rx="16" class="paper"/>
-    <text x="22" y="36" class="sans mute label">STEP 4</text>
-    <text x="22" y="70" class="title ink h3">交叉质询</text>
-    <text x="22" y="101" class="sans body" font-size="15">最冲突两组 / 发问与回应</text>
-  </g>
-  <g transform="translate(1056 704)">
-    <rect width="292" height="126" rx="16" class="paper"/>
-    <text x="22" y="36" class="sans mute label">USER GATE</text>
-    <text x="22" y="70" class="title ink h3">质询判定</text>
-    <text x="22" y="101" class="sans body" font-size="15">问中了 / 没问中 / 我想回答</text>
-  </g>
-  <path d="M1202 656 C1202 680 220 680 218 704" class="line"/>
-  <path d="M364 767 C378 767 386 767 400 767" class="line"/>
-  <path d="M692 767 C706 767 714 767 728 767" class="line"/>
-  <path d="M1020 767 C1034 767 1042 767 1056 767" class="line"/>
+  <path class="arrow" d="M 740 485 C 775 485, 790 485, 825 485"/>
 
-  <g transform="translate(236 878)">
-    <rect width="292" height="126" rx="16" class="paper"/>
-    <text x="22" y="36" class="sans mute label">STEP 5</text>
-    <text x="22" y="70" class="title ink h3">议案修订</text>
-    <text x="22" y="101" class="sans body" font-size="15">真正的问题是否变化</text>
+  <g transform="translate(840 250)">
+    <rect class="card" width="260" height="470" rx="8"/>
+    <circle cx="36" cy="36" r="10" fill="#A8844D"/>
+    <text x="60" y="44" class="h2 sans">五声对话</text>
+    <text x="28" y="90" class="muted sans">表达之后，用户必须介入。</text>
+    <rect x="28" y="122" width="204" height="70" rx="6" fill="#F4F1EC" stroke="#D8CBB8"/>
+    <text x="46" y="153" class="body sans">五声表态</text>
+    <text x="46" y="177" class="muted sans">保护 / 恐惧 / 别忽略</text>
+    <rect x="28" y="218" width="204" height="70" rx="6" fill="#F4F1EC" stroke="#D8CBB8"/>
+    <text x="46" y="249" class="body sans">点名追问</text>
+    <text x="46" y="273" class="muted sans">点击某一声后提问</text>
+    <rect x="28" y="314" width="204" height="70" rx="6" fill="#F4F1EC" stroke="#D8CBB8"/>
+    <text x="46" y="345" class="body sans">换位回答</text>
+    <text x="46" y="369" class="muted sans">坐到它的位置说准</text>
+    <rect x="28" y="410" width="204" height="34" rx="17" fill="#EDE2D0"/>
+    <text x="46" y="433" class="muted sans">互问：代价与盲点</text>
   </g>
-  <g transform="translate(564 878)">
-    <rect width="292" height="126" rx="16" class="paper"/>
-    <text x="22" y="36" class="sans mute label">STEP 6</text>
-    <text x="22" y="70" class="title ink h3">裁决</text>
-    <text x="22" y="101" class="sans body" font-size="15">听谁 / 不听谁 / 代价 / 24 小时</text>
-  </g>
-  <g transform="translate(892 878)">
-    <rect width="292" height="126" rx="16" class="paper"/>
-    <text x="22" y="36" class="sans mute label">USER GATE</text>
-    <text x="22" y="70" class="title ink h3">签字 / 暂缓</text>
-    <text x="22" y="101" class="sans body" font-size="15">签字 / 暂缓 / 我在逃避</text>
-  </g>
-  <path d="M1202 830 C1202 858 382 858 382 878" class="line"/>
-  <path d="M528 941 C542 941 550 941 564 941" class="line"/>
-  <path d="M856 941 C870 941 878 941 892 941" class="line"/>
 
-  <!-- Post meeting -->
-  <text x="72" y="1096" class="sans mute label">03 · POST-MEETING OBJECTS</text>
-  <g transform="translate(72 1126)">
-    <rect width="292" height="126" rx="16" class="paper"/>
-    <text x="22" y="36" class="sans mute label">ARCHIVE</text>
-    <text x="22" y="70" class="title ink h3">会议档案</text>
-    <text x="22" y="101" class="sans body" font-size="15">摘要 / 原声 / 余波</text>
-  </g>
-  <g transform="translate(400 1126)">
-    <rect width="292" height="126" rx="16" class="paper"/>
-    <text x="22" y="36" class="sans mute label">EVIDENCE</text>
-    <text x="22" y="70" class="title ink h3">证据链</text>
-    <text x="22" y="101" class="sans body" font-size="15">发言原文 / 判定 / 质询</text>
-  </g>
-  <g transform="translate(728 1126)">
-    <rect width="292" height="126" rx="16" class="paper"/>
-    <text x="22" y="36" class="sans mute label">IMPACT</text>
-    <text x="22" y="70" class="title ink h3">对阁的影响</text>
-    <text x="22" y="101" class="sans body" font-size="15">谁变强 / 谁被压住</text>
-  </g>
-  <g transform="translate(1056 1126)">
-    <rect width="292" height="126" rx="16" class="paper"/>
-    <text x="22" y="36" class="sans mute label">CABINET</text>
-    <text x="22" y="70" class="title ink h3">我的阁更新</text>
-    <text x="22" y="101" class="sans body" font-size="15">席位 / 议题 / 承诺</text>
-  </g>
-  <path d="M1038 1004 C1038 1068 218 1068 218 1126" class="line"/>
-  <path d="M364 1189 C378 1189 386 1189 400 1189" class="line"/>
-  <path d="M692 1189 C706 1189 714 1189 728 1189" class="line"/>
-  <path d="M1020 1189 C1034 1189 1042 1189 1056 1189" class="line"/>
+  <path class="arrow" d="M 1120 485 C 1155 485, 1170 485, 1205 485"/>
 
-  <!-- Rules -->
-  <g transform="translate(72 1300)">
-    <rect width="1276" height="66" rx="16" class="paper"/>
-    <circle cx="28" cy="33" r="7" class="gold"/>
-    <text x="48" y="38" class="sans body" font-size="15">至少 3 个用户参与门：确认议题、点名追问、签字/暂缓。</text>
-    <circle cx="514" cy="33" r="7" class="trace"/>
-    <text x="534" y="38" class="sans body" font-size="15">所有总结和席位变化必须能追溯到证据链。</text>
-    <circle cx="966" cy="33" r="7" class="seal"/>
-    <text x="986" y="38" class="sans body" font-size="15">签字是情绪峰值，不是普通按钮。</text>
+  <g transform="translate(1220 250)">
+    <rect class="card" width="140" height="470" rx="8"/>
+    <circle cx="34" cy="36" r="10" fill="#8E3F32"/>
+    <text x="56" y="44" class="h2 sans">清明</text>
+    <text x="28" y="92" class="body serif">清明句</text>
+    <line x1="28" y1="116" x2="112" y2="116" class="line"/>
+    <text x="28" y="158" class="body serif">NowMe</text>
+    <line x1="28" y1="182" x2="112" y2="182" class="line"/>
+    <text x="28" y="224" class="body serif">24h</text>
+    <text x="28" y="250" class="body serif">承诺</text>
+    <line x1="28" y1="280" x2="112" y2="280" class="line"/>
+    <text x="28" y="324" class="body serif">记忆</text>
+    <text x="28" y="350" class="body serif">同意</text>
+  </g>
+
+  <g transform="translate(80 800)">
+    <rect class="card" width="1280" height="120" rx="8"/>
+    <text x="34" y="46" class="h2 sans">显性介入点</text>
+    <text x="34" y="82" class="body sans">暂停 · 追问 · 换位回答 · 这句不准 · 改写工作焦点 · 改写清明句</text>
+    <text x="820" y="46" class="h2 sans">真实模型入口</text>
+    <text x="820" y="82" class="body sans">未配置 API 时，首页与会谈页都先进入 Setup。</text>
   </g>
 </svg>

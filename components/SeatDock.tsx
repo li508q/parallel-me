@@ -1,5 +1,5 @@
-// Week 5 · SeatDock — persistent ribbon of seats at the top of /meeting.
-// Seats are *in the room* the entire meeting, even when they aren't speaking.
+// SeatDock — persistent ribbon of voices at the top of /meeting.
+// Voices stay visible during the session, even when they aren't speaking.
 
 "use client";
 
@@ -40,7 +40,7 @@ export function SeatDock({
 }: SeatDockProps) {
   return (
     <nav
-      aria-label="本次组阁"
+      aria-label="本次五声"
       className="flex items-center gap-1.5 overflow-x-auto sm:flex-wrap sm:overflow-x-visible py-2 -mx-1 px-1"
     >
       {seatIds.map((id) => {

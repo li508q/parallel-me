@@ -1,28 +1,28 @@
 {
   "name": "ParallelMe",
   "name_zh": "平行的我",
-  "description": "Multi-agent inner-cabinet meetings: convene five inner voices, let them argue under a self-aware arbiter, and produce a 24-hour commitment instead of an averaged answer.",
+  "description": "Structured five-voice self-clarification: turn a raw concern into a working focus, let five fixed inner voices clarify protections and fears, and end with a clarity sentence plus a 24-hour commitment.",
   "version": "0.5.0",
   "protocols": ["a2a", "openapi"],
   "architecture": {
     "type": "multi-agent",
-    "pattern": "parallel-then-cross-examine-then-converge",
-    "psychology_grounding": "Internal Family Systems (Richard Schwartz, 1995)",
+    "pattern": "focus-formation-then-five-voice-dialogue-then-nowme-commitment",
+    "psychology_grounding": "IFS, Voice Dialogue, Schema Therapy Modes, Chairwork, ACT, MI, Narrative Therapy, and CFT as product inspirations. Not therapy, diagnosis, or crisis intervention.",
     "agents": [
       {"id": "lay",    "role": "the-self-that-tells-you-to-rest",   "name_zh": "躺平的我",       "ifs": "manager-prevent"},
       {"id": "money",  "role": "the-self-that-counts-cashflow",     "name_zh": "搞钱的我",       "ifs": "manager-realist"},
       {"id": "roam",   "role": "the-self-that-urges-you-to-leave",  "name_zh": "出走的我",       "ifs": "firefighter"},
       {"id": "filial", "role": "the-self-that-stands-with-mom",     "name_zh": "讨妈欢心的我",   "ifs": "exile"},
       {"id": "future", "role": "the-self-from-five-years-later",    "name_zh": "5年后的我",      "ifs": "self-perspective"},
-      {"id": "now",    "role": "the-final-arbiter",                 "name_zh": "此刻的我",       "ifs": "self-decider"}
+      {"id": "now",    "role": "self-aware-nowme-synthesis",        "name_zh": "此刻的我",       "ifs": "self-decider"}
     ]
   },
   "endpoints": {
     "spec":     { "method": "GET",  "path": "/api/agent" },
-    "run":      { "method": "POST", "path": "/api/parallel",
-                  "body": { "input": "string (1-800 chars)", "mode": "quick|full", "provider": "optional override" },
-                  "response": "text/event-stream" },
-    "followup": { "method": "POST", "path": "/api/followup" },
+    "focus":    { "method": "POST", "path": "/api/focus" },
+    "voices":   { "method": "POST", "path": "/api/voices" },
+    "clarify":  { "method": "POST", "path": "/api/clarify" },
+    "nowme":    { "method": "POST", "path": "/api/nowme" },
     "test":     { "method": "POST", "path": "/api/provider/test" }
   },
   "skill_md": "/skill.md",

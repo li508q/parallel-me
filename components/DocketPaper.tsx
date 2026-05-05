@@ -1,11 +1,11 @@
-// P0 component · 议案纸 (DocketPaper)
-// The paper-lift surface that holds case-files, agendas, verdicts, and
+// P0 component · 纸面 (DocketPaper)
+// The paper-lift surface that holds petitions, focus notes, verdicts, and
 // archives. See PRODUCT-DESIGN.md § 2.4 for the P0 component list.
 
 import * as React from "react";
 
 interface DocketPaperProps {
-  /** Uppercase tracker label that floats top-left, e.g. "立案" or "决议". */
+  /** Uppercase tracker label that floats top-left, e.g. "陈情" or "清明句". */
   stage?: string;
   /** Optional small node rendered top-right (e.g. issue number, timestamp). */
   meta?: React.ReactNode;

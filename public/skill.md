@@ -1,49 +1,45 @@
-# ParallelMe — Skill description
+# ParallelMe — Skill Description
 
-> Multi-agent inner-cabinet meetings for people facing hard life decisions.
+> Structured five-voice self-clarification for people facing hard life decisions.
 
-## When to invoke
+## When To Invoke
 
-Invoke ParallelMe when a user expresses a stuck-in-the-middle dilemma:
-"should I…", "I'm torn between…", "my mom wants me to…", "I'm 26 and
-everyone around me…". The product is built for moments when a single
-"balanced" answer would be useless.
+Invoke ParallelMe when a user expresses a stuck dilemma: “should I…”, “I'm torn between…”, “my mom wants me to…”, “I want to leave but I feel guilty…”. The product is built for moments when a single averaged answer would feel false.
 
-## Quick start
+ParallelMe is not therapy, diagnosis, or crisis intervention. Crisis language should trigger immediate human support, not a normal session.
 
-```bash
-curl -N -X POST https://parallelme.app/api/parallel \
-  -H "Content-Type: application/json" \
-  -d '{"input":"我妈让我考公，我月薪 2.5w","mode":"quick"}'
+## Session Shape
+
+1. `陈情`: the user writes the raw concern.
+2. `困惑成形`: the system asks a few clarifying questions and proposes a working focus.
+3. `五声入席`: the fixed five voices appear with activation reason, protection, and fear.
+4. `五声对话`: each voice speaks; the user can ask a named follow-up or sit in a voice's position.
+5. `清明落定`: NowMe produces a clarity sentence and one concrete 24-hour commitment.
+
+## Fixed Five Voices
+
+| ID | Voice | Protects |
+|---|---|---|
+| `lay` | 躺平的我 | body / rest / low-cost survival |
+| `money` | 搞钱的我 | cashflow / resources / optionality |
+| `roam` | 出走的我 | freedom / breathing room / exits |
+| `filial` | 怕妈担心的我 | attachment / belonging / family connection |
+| `future` | 5 年后的我 | long view / continuity / compounding choices |
+
+`now` is the user's Self / aware ego position, not a sixth voice.
+
+## Provider
+
+Generation requires a user-supplied provider payload:
+
+```ts
+{ baseUrl: string, model: string, apiKey: string }
 ```
 
-You will see five SSE events from the seats, then the arbiter, then `done`.
-Each event is a JSON line prefixed with `data: `.
-
-## What returns
-
-Quick mode (3 seats):
-- 3 × `self` (parallel statements from 3 seats curated by topic)
-- `loudest`, `now`, `insight`, `episode`, `done`
-
-Full mode (5 seats + cross-exam):
-- 5 × `self`
-- 4 × (`cross` then `cross_response`) — each pair is a real Q+A
-- `loudest`, `now`, `insight`, `episode`, `done`
-
-## Personas
-
-| ID | Persona | IFS part | Protects |
-|---|---|---|---|
-| `lay` | 躺平的我 | Manager · 预防型保护者 | 身体 / 睡眠 / 低消耗生存 |
-| `money` | 搞钱的我 | Manager · 现实型保护者 | 现金流 / 选择权 |
-| `roam` | 出走的我 | Firefighter · 应急保护者 | 自由感 / 喘息 |
-| `filial` | 讨妈欢心的我 | Exile · 被流放的内在小孩 | 归属 / 家庭连接 |
-| `future` | 5 年后的我 | Self · 远观视角 | 长期视角 / 人生连续性 |
-| `now` | 此刻的我 | Self · 决断者 | 主权 / 24h 行动 |
+The setup UI includes DeepSeek, 阿里云百炼, Kimi, MiniMax, 豆包 / 火山方舟, and custom compatible endpoints. The default recommendation is DeepSeek `deepseek-chat`.
 
 ## Source
 
 - Repo: https://github.com/li508q/parallel-me
-- Personas: `/lib/selves.ts` (every prompt open-source)
+- Prompts: `/lib/selves.ts`
 - License: MIT

@@ -1,127 +1,226 @@
 import Link from "next/link";
 
+const PSYCHOLOGY = [
+  {
+    name: "IFS",
+    text: "每一声都必须说清：它在保护什么、它最怕什么。NowMe 是退后一步后的 Self 位置，不是第六个声音。",
+  },
+  {
+    name: "Voice Dialogue",
+    text: "目标不是让某一声胜出，而是让你不被任何单一声音劫持。最后的签字，是从被动听见走向主动承担。",
+  },
+  {
+    name: "Schema Therapy Modes",
+    text: "一个困惑会激活不同的应对模式：逃开、顺从、计算、麻木、远观。它帮助我们理解五声为什么在此刻被叫醒；未来若出现临时声，也必须从被激活的模式里长出来。",
+  },
+  {
+    name: "Chairwork",
+    text: "不同立场需要有不同位置。界面不能只是聊天流，而要让你能点名一声，也能坐到某一声的位置上，把它说得更准。",
+  },
+  {
+    name: "ACT",
+    text: "结尾不是建议清单，而是回到价值：在 24 小时内做一个低门槛、可承担的承诺动作。",
+  },
+];
+
+const VOICES = [
+  {
+    name: "躺平的我",
+    line: "它不是懒。它先听见了疲惫、透支和身体的求救。",
+  },
+  {
+    name: "搞钱的我",
+    line: "它不是冷。它在确认资源、底线和你还能承受多少风险。",
+  },
+  {
+    name: "出走的我",
+    line: "它不是任性。它记得你还需要空间、生命力和另一条路。",
+  },
+  {
+    name: "怕妈担心的我",
+    line: "它不是软弱。它怕重要的人难过，也怕你像是把她丢下。",
+  },
+  {
+    name: "5 年后的我",
+    line: "它不是旁观。它只是把眼前这一刻放回更长的时间里。",
+  },
+];
+
+const FOOTNOTES = [
+  "Internal Family Systems：parts / Self / protective intention；Richard C. Schwartz, 1995；IFS Institute.",
+  "Voice Dialogue：primary selves 与 aware ego；Sidra Stone & Hal Stone.",
+  "Schema Therapy Modes：Young、Klosko、Weishaar 等关于模式与健康成人位置的工作。",
+  "Chairwork：two-chair / empty-chair / dialogical self 等实践传统。",
+  "ACT：values、defusion、committed action；Association for Contextual Behavioral Science.",
+  "Motivational Interviewing、Narrative Therapy、CFT：用于开放追问、问题外化和降低羞耻感。",
+];
+
 export default function About() {
   return (
-    <main className="min-h-screen px-5 sm:px-10 py-16 max-w-3xl mx-auto font-body">
+    <main className="min-h-screen px-5 sm:px-10 py-16 max-w-3xl mx-auto font-sans text-ink-body">
       <Link
         href="/"
-        className="font-display text-xs tracking-widest text-ink3 hover:text-ink uppercase mb-12 inline-block"
+        className="text-xs tracking-[0.18em] text-ink-mute hover:text-ink-core uppercase mb-14 inline-block underline-offset-4 hover:underline"
       >
-        ← 回到我的阁
+        ← 回到我的声音
       </Link>
 
-      <h1 className="font-display text-display text-ink mb-8 mt-6">
-        为什么是<span className="scribble">5 个我</span>。
-      </h1>
-
-      <p className="font-display text-lg sm:text-xl leading-relaxed text-ink2 mb-10">
-        我们不缺建议。我们缺的是听见自己。
-      </p>
-
-      <section className="mb-14">
-        <h2 className="font-display text-headline text-ink mb-5">
-          ⓵ 单个 AI 的回答 = 中庸的中位数
-        </h2>
-        <p className="leading-[1.95] text-ink2 mb-3">
-          你问 ChatGPT「我该不该辞职」，它会给你一份对照表，左边写好处、右边写坏处，
-          然后说「祝你好运」。
+      <header className="mb-16">
+        <p className="font-serif italic text-body text-ink-mute mb-5">
+          — 我们不缺建议，我们缺的是听见自己。
         </p>
-        <p className="leading-[1.95] text-ink2">
-          但你不是缺好处坏处，你是缺
-          <span className="scribble-thin">
-            一种能让你在凌晨 3 点醒来时也站得住的语言
-          </span>
-          。 单个 AI 给不了你这个，因为它在试图对所有人都正确——一种最安全也最无用的姿态。
+        <h1 className="font-serif font-semibold text-display text-ink-core leading-[1.05] mb-7">
+          为什么是
+          <span className="scribble">五声</span>
+        </h1>
+        <p className="font-serif text-title-sm sm:text-title text-ink-body leading-relaxed max-w-2xl">
+          人在重要选择前，很少只有一个念头。
+          有的声音想停下来，有的声音要算清楚，有的声音想逃，
+          有的声音牵挂家人，也有一个声音从更远处看你。
+        </p>
+      </header>
+
+      <section className="mb-16">
+        <h2 className="font-serif text-headline text-ink-core mb-5">
+          矛盾不是失败
+        </h2>
+        <div className="space-y-4 text-body-long leading-relaxed text-ink-body">
+          <p>
+            很多困惑之所以反复回来，不是因为你不够理性，
+            而是因为每一种拉扯都在保护某个真实的东西。
+          </p>
+          <p>
+            利弊分析能给你一张表，却未必能给你一句在凌晨醒来时也站得住的话。
+            ParallelMe 做的事，是先把脑子里纠缠成团的念头分开，
+            让它们各自有位置、有语气、有保护意图。
+          </p>
+        </div>
+      </section>
+
+      <section className="mb-16">
+        <h2 className="font-serif text-headline text-ink-core mb-5">
+          心理学给过我们一组语言
+        </h2>
+        <div className="space-y-4 text-body-long leading-relaxed text-ink-body mb-7">
+          <p>
+            五声不是凭空捏出来的角色。它借鉴的是一组彼此相通的心理学传统：
+            人的内在经验并不总是单一、整齐、立刻一致的。
+            许多时候，我们是由不同部分、不同模式、不同位置共同保护着自己。
+          </p>
+          <p>
+            所以这里不会急着问“哪个声音是对的”。更重要的问题是：
+            它为什么这么说？它在保护什么？它最怕什么？它有没有把你整个人带走？
+          </p>
+        </div>
+
+        <div className="space-y-4 border-l border-paper-edge pl-5">
+          {PSYCHOLOGY.map((item) => (
+            <section key={item.name}>
+              <h3 className="font-serif text-title-sm text-ink-core mb-1">
+                {item.name}
+              </h3>
+              <p className="text-body-sm leading-relaxed text-ink-body">
+                {item.text}
+              </p>
+            </section>
+          ))}
+        </div>
+      </section>
+
+      <section className="mb-16">
+        <div className="flex items-center gap-3 mb-7">
+          <span className="h-px flex-1 bg-paper-edge" />
+          <h2 className="font-serif italic text-body text-ink-mute text-center">
+            五个熟悉的自己
+          </h2>
+          <span className="h-px flex-1 bg-paper-edge" />
+        </div>
+
+        <div className="space-y-5">
+          {VOICES.map((voice, index) => (
+            <section
+              key={voice.name}
+              className="grid grid-cols-[2.25rem_1fr] gap-4 items-start"
+            >
+              <div className="font-serif text-title-sm text-ink-faint tabular-nums">
+                {index + 1}
+              </div>
+              <div>
+                <h3 className="font-serif text-title-sm text-ink-core mb-1">
+                  {voice.name}
+                </h3>
+                <p className="text-body-long leading-relaxed text-ink-body">
+                  {voice.line}
+                </p>
+              </div>
+            </section>
+          ))}
+        </div>
+
+        <p className="mt-7 text-body-long leading-relaxed text-ink-body">
+          它们也不是一次性的角色。每一次纸页、每一次点名追问、
+          每一次换位回答，都会让「我的声音」更有轮廓。
+          五声会慢慢显影：不是变多，而是越来越像你。
         </p>
       </section>
 
-      <section className="mb-14">
-        <h2 className="font-display text-headline text-ink mb-5">
-          ⓶ 心理学早就发现了这件事
+      <section className="mb-16">
+        <h2 className="font-serif text-headline text-ink-core mb-5">
+          你始终坐在中间
         </h2>
-        <p className="leading-[1.95] text-ink2 mb-4">
-          Internal Family Systems（内部家庭系统疗法，Richard Schwartz, 1995）的核心发现：
-          每个人内心都不是一个声音，而是
-          <strong className="text-ink">
-            一组各自有立场、有恐惧、有保护意图的子人格
-          </strong>
-          。
-        </p>
-        <p className="leading-[1.95] text-ink2 mb-4">
-          那些彼此矛盾、互相打架的「声音」，从来都不是病。
-          是<strong className="text-ink">心智的常态</strong>。
-        </p>
-        <p className="leading-[1.95] text-ink2">
-          ParallelMe 做的事是：把那些通常只存在于你脑子里的声音
-          ——「躺平的我」「搞钱的我」「出走的我」「想让妈高兴的我」「5 年后的我」
-          ——具象化、给它们各自的人格、各自的语言，让它们坐在一张桌子上吵一架。
-        </p>
+        <div className="space-y-4 text-body-long leading-relaxed text-ink-body">
+          <p>
+            五声会谈不是让某一声赢。它更像一次慢下来的自我澄清：
+            先把困惑放到桌面上，再整理本次真正要谈的焦点。
+          </p>
+          <p>
+            五声说完以后，你可以点名追问，也可以坐到某一声的位置上，
+            替它说得更准。最后留下的不是评判，也不是平均值，
+            而是一句清明句：我现在看清楚的是……
+          </p>
+          <p>
+            清楚不是为了消灭焦虑。清楚是为了让你能在今天或明天，
+            做出一个低门槛、可承担、和自己价值更一致的小动作。
+          </p>
+        </div>
       </section>
 
-      <section className="mb-14">
-        <h2 className="font-display text-headline text-ink mb-5">
-          ⓷ 这不是劝你哪个对，是让你听清自己
+      <section className="mb-16">
+        <h2 className="font-serif text-headline text-ink-core mb-5">
+          它应当足够私密
         </h2>
-        <p className="leading-[1.95] text-ink2 mb-4">
-          5 个分身吵完后，「此刻的我」<strong className="text-ink">不是平均值</strong>。
-        </p>
-        <p className="leading-[1.95] text-ink2">
-          它是你看完所有声音之后那一刻的清明。一个真实的下一步——24
-          小时内可执行的最小动作。 不是计划。是动作。
-        </p>
-      </section>
-
-      <section className="mb-14">
-        <h2 className="font-display text-headline text-ink mb-5">
-          ⓸ 为什么是 multi-agent，不是单 chat
-        </h2>
-        <ul className="space-y-3 text-ink2 leading-[1.85]">
-          <li>
-            • <strong className="text-ink">独立人格</strong>
-            ：每个分身有独立 system prompt、独立价值观、独立禁忌词。互相不看对方上下文。
-          </li>
-          <li>
-            • <strong className="text-ink">cross-examine 层</strong>
-            ：5 个分身回答完后，最对立的两对（搞钱⇄躺平、出走⇄陪妈）互相用 40 字戳穿对方没说出口的那部分。
-            被戳穿的席位会真的回应一句——这是单 agent 物理上做不到的事。
-          </li>
-          <li>
-            • <strong className="text-ink">收束层</strong>
-            ：「此刻的我」读完所有声音后，给出
-            <strong className="text-ink">真实下一步动作</strong>
-            ，不是中位数。
-          </li>
-          <li>
-            • <strong className="text-ink">你是主持人</strong>
-            ：4 道用户参与门——立案确认 / 点名追问 / 签字 / 记忆同意——
-            每一道都不能跳过。会议是你主持的，不是 AI 演给你看的。
-          </li>
-        </ul>
-      </section>
-
-      <section className="mb-14">
-        <h2 className="font-display text-headline text-ink mb-5">
-          ⓹ 你的阁是你的
-        </h2>
-        <p className="leading-[1.95] text-ink2 mb-3">
-          所有数据存在你的浏览器本地。每次会议、签字、复盘、记忆同意都写在 IndexedDB 里。
-          ParallelMe 的服务器永远不保存你的内容、你的钥匙、你的纠结。
-        </p>
-        <p className="leading-[1.95] text-ink2">
-          关掉浏览器，你的阁就消失。它本来就该是这样——
-          <span className="scribble-thin">内心独白，不该住在云上</span>。
-        </p>
+        <div className="space-y-4 text-body-long leading-relaxed text-ink-body">
+          <p>
+            这里不是治疗、诊断或危机干预。它只是一个自我反思的房间，
+            帮你把难以启齿的念头放轻一点、看清一点。
+          </p>
+          <p>
+            你的纸页、画像和记忆同意只留在这台设备上。你可以清空它们。
+            也应该能清空它们。内心独白，不该被迫永久保存。
+          </p>
+          <p>
+            如果你正处在伤害自己或他人的危险里，或者已经无法保证安全，
+            请立刻联系当地紧急服务、身边可信任的人或专业心理援助。
+          </p>
+        </div>
       </section>
 
       <Link
         href="/"
-        className="font-display inline-block px-6 py-3 bg-ink text-paper rounded-full text-sm font-semibold hover:bg-ink/85"
+        className="inline-block px-6 py-3 rounded-md bg-ink-core text-paper-base text-body-sm font-medium hover:bg-ink-body transition-colors"
       >
-        回去开会 →
+        开始五声会谈 →
       </Link>
 
-      <footer className="mt-24 pt-10 border-t rule text-xs text-ink3">
-        <p>🪞 平行的我 · ParallelMe — 你内心的多个声音，第一次被允许同时讲话。</p>
+      <footer className="mt-24 pt-10 border-t border-paper-edge text-xs text-ink-mute leading-relaxed">
+        <p className="font-medium text-ink-body mb-4">
+          参考文献
+        </p>
+        <ol className="space-y-2 list-decimal list-inside">
+          {FOOTNOTES.map((note) => (
+            <li key={note}>{note}</li>
+          ))}
+        </ol>
       </footer>
     </main>
   );

@@ -1,6 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { loadActiveProvider, toRuntimePayload } from "@/lib/provider";
 import { loadTaste, saveTaste, type Taste, type TasteItem } from "@/lib/profile";
 
 type Kind = "books" | "films" | "music";
@@ -35,10 +36,37 @@ const PLACEHOLDER_BY_KIND: Record<Kind, { title: string; author: string; why: st
   music: { title: "歌名", author: "歌手 / 乐队", why: "为什么这首（可选）" },
 };
 
-const COLORS: Record<Kind, string> = {
-  books: "lay",
-  films: "future",
-  music: "filial",
+const KIND_STYLE: Record<
+  Kind,
+  {
+    text: string;
+    soft: string;
+    border: string;
+    focus: string;
+    add: string;
+  }
+> = {
+  books: {
+    text: "text-lay",
+    soft: "bg-lay-soft",
+    border: "border-lay/30",
+    focus: "focus:border-lay",
+    add: "text-lay border-lay/40 hover:border-lay",
+  },
+  films: {
+    text: "text-future",
+    soft: "bg-future-soft",
+    border: "border-future/30",
+    focus: "focus:border-future",
+    add: "text-future border-future/40 hover:border-future",
+  },
+  music: {
+    text: "text-filial",
+    soft: "bg-filial-soft",
+    border: "border-filial/30",
+    focus: "focus:border-filial",
+    add: "text-filial border-filial/40 hover:border-filial",
+  },
 };
 
 const HEADING_BY_KIND: Record<Kind, string> = {
@@ -97,7 +125,12 @@ export default function TastePage() {
       music: (taste.music || []).filter(m => m.title.trim()),
     };
     if (cleaned.books.length + cleaned.films.length + cleaned.music.length < 3) {
-      alert("再多写几个吧——至少 3 个东西，分身才能尝到味道。");
+      alert("再多写几个吧——至少 3 个东西，五声才能尝到味道。");
+      return;
+    }
+    const provider = toRuntimePayload(loadActiveProvider());
+    if (!provider) {
+      alert("先去设置 API Key，再让 AI 生成品味判词。");
       return;
     }
     setGenerating(true);
@@ -105,7 +138,7 @@ export default function TastePage() {
       const r = await fetch("/api/taste", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(cleaned),
+        body: JSON.stringify({ ...cleaned, provider }),
       });
       const j = await r.json();
       if (j.profile) {
@@ -146,14 +179,14 @@ export default function TastePage() {
         </h1>
         <p className="font-display text-lg text-ink2 leading-relaxed">
           写下你最喜欢的书、电影、歌。<br />
-          5 个分身会从这里学你的语气、你的颜色、你不愿讲的渴望。
+          五声会从这里学你的语气、你的颜色、你不愿讲的渴望。
         </p>
       </section>
 
       {(["books", "films", "music"] as const).map(kind => (
         <section key={kind} className="mb-14">
           <div className="flex items-baseline justify-between mb-4">
-            <h2 className={`font-display text-headline text-${COLORS[kind]} font-semibold`}>
+            <h2 className={`font-display text-headline ${KIND_STYLE[kind].text} font-semibold`}>
               {HEADING_BY_KIND[kind]}
             </h2>
             <div className="flex gap-3 text-xs">
@@ -167,24 +200,24 @@ export default function TastePage() {
           <div className="text-xs text-ink3 mb-3">{HINT_BY_KIND[kind]}</div>
           <div className="space-y-3">
             {(taste[kind] || []).map((item, idx) => (
-              <div key={idx} className={`grid grid-cols-[1fr_1fr_2fr_auto] gap-2 items-center bg-${COLORS[kind]}-soft rounded-xl p-2`}>
+              <div key={idx} className={`grid grid-cols-[1fr_1fr_2fr_auto] gap-2 items-center ${KIND_STYLE[kind].soft} rounded-xl p-2`}>
                 <input
                   value={item.title}
                   onChange={e => update(kind, idx, { title: e.target.value })}
                   placeholder={PLACEHOLDER_BY_KIND[kind].title}
-                  className={`bg-transparent px-3 py-2 outline-none text-sm border-b border-${COLORS[kind]}/30 focus:border-${COLORS[kind]}`}
+                  className={`bg-transparent px-3 py-2 outline-none text-sm border-b ${KIND_STYLE[kind].border} ${KIND_STYLE[kind].focus}`}
                 />
                 <input
                   value={item.author || ""}
                   onChange={e => update(kind, idx, { author: e.target.value })}
                   placeholder={PLACEHOLDER_BY_KIND[kind].author}
-                  className={`bg-transparent px-3 py-2 outline-none text-sm border-b border-${COLORS[kind]}/30 focus:border-${COLORS[kind]}`}
+                  className={`bg-transparent px-3 py-2 outline-none text-sm border-b ${KIND_STYLE[kind].border} ${KIND_STYLE[kind].focus}`}
                 />
                 <input
                   value={item.why || ""}
                   onChange={e => update(kind, idx, { why: e.target.value })}
                   placeholder={PLACEHOLDER_BY_KIND[kind].why}
-                  className={`bg-transparent px-3 py-2 outline-none text-sm border-b border-${COLORS[kind]}/30 focus:border-${COLORS[kind]} italic placeholder-ink3/60`}
+                  className={`bg-transparent px-3 py-2 outline-none text-sm border-b ${KIND_STYLE[kind].border} ${KIND_STYLE[kind].focus} italic placeholder-ink3/60`}
                 />
                 <button
                   onClick={() => remove(kind, idx)}
@@ -195,7 +228,7 @@ export default function TastePage() {
             ))}
             <button
               onClick={() => add(kind)}
-              className={`w-full text-sm text-${COLORS[kind]} border-2 border-dashed border-${COLORS[kind]}/40 hover:border-${COLORS[kind]} rounded-xl py-2 transition-colors`}
+              className={`w-full text-sm border-2 border-dashed ${KIND_STYLE[kind].add} rounded-xl py-2 transition-colors`}
             >+ 再加一个</button>
           </div>
         </section>
@@ -210,7 +243,7 @@ export default function TastePage() {
             主题：{taste.profile.themes.join(" · ")}<br />
             氛围：{taste.profile.moods.join(" · ")}
           </div>
-          <div className="mt-6 text-xs text-paper/50">这一句会被注入到 5 个分身的每次回应里。</div>
+          <div className="mt-6 text-xs text-paper/50">这一句会被注入到五声的每次回应里。</div>
         </section>
       )}
 

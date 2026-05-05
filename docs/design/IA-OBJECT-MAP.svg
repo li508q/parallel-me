@@ -1,108 +1,113 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="1220" viewBox="0 0 1500 1220">
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1040" viewBox="0 0 1440 1040" role="img" aria-labelledby="title desc">
+  <title id="title">ParallelMe v0.6 IA Object Map</title>
+  <desc id="desc">Information architecture and object map for API setup, five-voice meetings, local records, and long-term voice evolution.</desc>
   <defs>
-    <filter id="grain">
-      <feTurbulence type="fractalNoise" baseFrequency="0.72" numOctaves="2" stitchTiles="stitch"/>
-      <feColorMatrix values="0 0 0 0 0.055  0 0 0 0 0.043  0 0 0 0 0.025  0 0 0 0.035 0"/>
-    </filter>
-    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
-      <path d="M2,2 L10,6 L2,10" fill="none" stroke="#7C7568" stroke-width="1.5"/>
-    </marker>
     <style>
-      .bg{fill:#F7F0E3}.paper{fill:#FFFCF5;stroke:#D8CBB8;stroke-width:1.4}.sunk{fill:#EDE2D0;stroke:#D8CBB8;stroke-width:1.2}
-      .ink{fill:#191713}.body{fill:#3C3932}.mute{fill:#7C7568}.faint{fill:#B7AC9B}
-      .line{stroke:#7C7568;stroke-width:1.5;fill:none;marker-end:url(#arrow)}.softLine{stroke:#D8CBB8;stroke-width:1.3;fill:none}
-      .title{font-family:"Songti SC","Source Han Serif SC",serif;font-weight:700}.sans{font-family:"PingFang SC",-apple-system,BlinkMacSystemFont,sans-serif}
-      .label{font-size:13px;letter-spacing:1.8px}.bodyText{font-size:18px}.h1{font-size:44px}.h2{font-size:28px}.h3{font-size:22px}
-      .money{fill:#8A6F3D}.attach{fill:#8C5042}.time{fill:#5E5369}.temp{fill:#76684D}.silent{fill:#899199}.exile{fill:#6F3F35}.seal{fill:#8E3F32}.gold{fill:#A8844D}.trace{fill:#455F70}
+      .sans { font-family: Geist, "PingFang SC", "Noto Sans SC", sans-serif; }
+      .serif { font-family: "Source Han Serif SC", "Noto Serif SC", "Songti SC", serif; }
+      .mono { font-family: "Geist Mono", "SF Mono", monospace; }
+      .title { fill: #191713; font-size: 46px; font-weight: 650; }
+      .h2 { fill: #191713; font-size: 24px; font-weight: 620; }
+      .body { fill: #3C3932; font-size: 17px; }
+      .muted { fill: #7C7568; font-size: 15px; }
+      .tiny { fill: #B7AC9B; font-size: 13px; letter-spacing: 0.12em; }
+      .card { fill: #FBF9F4; stroke: #D8CBB8; stroke-width: 1.5; }
+      .data { fill: #F4F1EC; stroke: #D8CBB8; stroke-width: 1.5; }
+      .line { stroke: #D8CBB8; stroke-width: 2; fill: none; }
+      .arrow { stroke: #7C7568; stroke-width: 2; fill: none; marker-end: url(#arrow); }
     </style>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#7C7568"/>
+    </marker>
   </defs>
 
-  <rect width="1500" height="1220" class="bg"/>
-  <rect width="1500" height="1220" fill="url(#grain)" opacity=".55"/>
+  <rect width="1440" height="1040" fill="#F4F1EC"/>
+  <text x="80" y="86" class="tiny sans">PARALLELME · IA OBJECT MAP · V0.6</text>
+  <text x="80" y="145" class="title serif">长期空间是“我的声音”，不是一次性的页面。</text>
+  <text x="80" y="186" class="body sans">两条骨架：用户能介入流程，固定五声能长期演化。</text>
 
-  <text x="72" y="78" class="title ink h1">信息架构 · Object Map</text>
-  <text x="72" y="116" class="sans mute bodyText">产品不是一次聊天流，而是「阁 → 议题 → 会议 → 档案 → 阁更新」的对象系统。</text>
-  <line x1="72" y1="150" x2="1428" y2="150" class="softLine"/>
-
-  <!-- Core object chain -->
-  <g transform="translate(72 198)">
-    <text x="0" y="0" class="sans mute label">01 · CORE OBJECT CHAIN</text>
-    <g transform="translate(0 32)">
-      <rect width="250" height="146" rx="18" class="paper"/>
-      <text x="24" y="42" class="sans mute label">ROOT</text>
-      <text x="24" y="82" class="title ink h2">阁 Cabinet</text>
-      <text x="24" y="116" class="sans body" font-size="16">用户长期拥有的内在组织</text>
-    </g>
-    <g transform="translate(330 32)">
-      <rect width="250" height="146" rx="18" class="paper"/>
-      <text x="24" y="42" class="sans mute label">RECURRING</text>
-      <text x="24" y="82" class="title ink h2">议题 Issue</text>
-      <text x="24" y="116" class="sans body" font-size="16">反复出现的人生问题</text>
-    </g>
-    <g transform="translate(660 32)">
-      <rect width="250" height="146" rx="18" class="paper"/>
-      <text x="24" y="42" class="sans mute label">EVENT</text>
-      <text x="24" y="82" class="title ink h2">会议 Meeting</text>
-      <text x="24" y="116" class="sans body" font-size="16">某一天处理某个议题</text>
-    </g>
-    <g transform="translate(990 32)">
-      <rect width="250" height="146" rx="18" class="paper"/>
-      <text x="24" y="42" class="sans mute label">OUTPUT</text>
-      <text x="24" y="82" class="title ink h2">档案 Archive</text>
-      <text x="24" y="116" class="sans body" font-size="16">可检索、可追溯、可复盘</text>
-    </g>
-    <path d="M250 105 C278 105 302 105 330 105" class="line"/>
-    <path d="M580 105 C608 105 632 105 660 105" class="line"/>
-    <path d="M910 105 C938 105 962 105 990 105" class="line"/>
-    <path d="M1115 178 C1115 238 94 238 94 178" class="line"/>
-    <text x="430" y="260" class="sans mute" font-size="15">档案反哺阁：席位权力、关系、承诺和反复议题被更新。</text>
+  <g transform="translate(80 250)">
+    <rect class="card" width="270" height="220" rx="8"/>
+    <text x="30" y="48" class="h2 sans">首页</text>
+    <text x="30" y="84" class="body sans">今天，想听见哪件事？</text>
+    <line x1="30" y1="112" x2="240" y2="112" class="line"/>
+    <text x="30" y="148" class="muted sans">陈情输入</text>
+    <text x="30" y="178" class="muted sans">API 状态提示</text>
   </g>
 
-  <!-- Internal structures -->
-  <g transform="translate(72 520)">
-    <text x="0" y="0" class="sans mute label">02 · INTERNAL STRUCTURE</text>
-    <rect x="0" y="32" width="620" height="350" rx="18" class="paper"/>
-    <text x="28" y="78" class="title ink h2">阁的内部结构</text>
-    <g transform="translate(28 116)">
-      <rect width="132" height="62" rx="10" class="sunk"/><text x="22" y="28" class="sans mute" font-size="13">Standing</text><text x="22" y="52" class="sans body" font-size="17">常任席</text>
-      <rect x="154" width="132" height="62" rx="10" class="sunk"/><text x="176" y="28" class="sans mute" font-size="13">Temporary</text><text x="176" y="52" class="sans body" font-size="17">临时席</text>
-      <rect x="308" width="132" height="62" rx="10" class="sunk"/><text x="330" y="28" class="sans mute" font-size="13">Silent</text><text x="330" y="52" class="sans body" font-size="17">沉默席</text>
-      <rect x="462" width="132" height="62" rx="10" class="sunk"/><text x="484" y="28" class="sans mute" font-size="13">Exiled</text><text x="484" y="52" class="sans body" font-size="17">被流放席</text>
+  <g transform="translate(80 560)">
+    <rect class="card" width="270" height="250" rx="8"/>
+    <text x="30" y="48" class="h2 sans">Setup</text>
+    <text x="30" y="84" class="body sans">真实模型配置</text>
+    <line x1="30" y1="112" x2="240" y2="112" class="line"/>
+    <text x="30" y="148" class="muted sans">DeepSeek · 百炼 · Kimi</text>
+    <text x="30" y="178" class="muted sans">MiniMax · 豆包 · 自定义</text>
+    <text x="30" y="208" class="muted sans">测试通过后保存钥匙</text>
+  </g>
+
+  <path class="arrow" d="M 360 360 C 405 360, 425 360, 470 360"/>
+  <path class="arrow" d="M 215 520 C 215 500, 215 500, 215 480"/>
+
+  <g transform="translate(490 220)">
+    <rect class="card" width="410" height="520" rx="8"/>
+    <text x="34" y="50" class="h2 sans">五声会谈</text>
+    <text x="34" y="84" class="body sans">四阶段主体验</text>
+
+    <g transform="translate(34 126)">
+      <rect class="data" width="342" height="56" rx="6"/>
+      <text x="22" y="36" class="body sans">petition · 用户陈情</text>
     </g>
-    <g transform="translate(32 224)">
-      <circle cx="14" cy="14" r="12" class="money"/><text x="42" y="20" class="sans body" font-size="16">权力：谁掌权、谁在野、谁等待转正</text>
-      <circle cx="14" cy="62" r="12" class="trace"/><text x="42" y="68" class="sans body" font-size="16">关系：冲突、压制、联盟、调停、误解</text>
-      <circle cx="14" cy="110" r="12" class="seal"/><text x="42" y="116" class="sans body" font-size="16">承诺：上次签字动作和完成状态</text>
+    <g transform="translate(34 196)">
+      <rect class="data" width="342" height="56" rx="6"/>
+      <text x="22" y="36" class="body sans">clarifyingAnswers · 追问回答</text>
+    </g>
+    <g transform="translate(34 266)">
+      <rect class="data" width="342" height="56" rx="6"/>
+      <text x="22" y="36" class="body sans">workingFocus · 工作焦点</text>
+    </g>
+    <g transform="translate(34 336)">
+      <rect class="data" width="342" height="56" rx="6"/>
+      <text x="22" y="36" class="body sans">voiceTurns · 五声表达</text>
+    </g>
+    <g transform="translate(34 406)">
+      <rect class="data" width="342" height="56" rx="6"/>
+      <text x="22" y="36" class="body sans">followups / roleReversalTurns</text>
     </g>
   </g>
 
-  <g transform="translate(732 520)">
-    <rect x="0" y="32" width="620" height="350" rx="18" class="paper"/>
-    <text x="28" y="78" class="title ink h2">会议内部对象</text>
-    <g transform="translate(28 116)">
-      <rect width="166" height="48" rx="9" fill="#FFFCF5" stroke="#D8CBB8"/><circle cx="20" cy="24" r="6" class="money"/><text x="38" y="30" class="sans body" font-size="14">Turns · 发言</text>
-      <rect x="188" width="166" height="48" rx="9" fill="#FFFCF5" stroke="#D8CBB8"/><circle cx="208" cy="24" r="6" class="attach"/><text x="226" y="30" class="sans body" font-size="14">Cross · 质询</text>
-      <rect x="376" width="166" height="48" rx="9" fill="#FFFCF5" stroke="#D8CBB8"/><circle cx="396" cy="24" r="6" class="gold"/><text x="414" y="30" class="sans body" font-size="14">Marks · 判定</text>
-      <rect y="72" width="166" height="48" rx="9" fill="#FFFCF5" stroke="#D8CBB8"/><circle cx="20" cy="96" r="6" class="time"/><text x="38" y="102" class="sans body" font-size="14">Verdict · 裁决</text>
-      <rect x="188" y="72" width="166" height="48" rx="9" fill="#FFFCF5" stroke="#D8CBB8"/><circle cx="208" cy="96" r="6" class="seal"/><text x="226" y="102" class="sans body" font-size="14">Sign · 承诺</text>
-      <rect x="376" y="72" width="166" height="48" rx="9" fill="#FFFCF5" stroke="#455F70"/><circle cx="396" cy="96" r="6" class="trace"/><text x="414" y="102" class="sans body" font-size="14">Evidence · 证据</text>
-    </g>
-    <line x1="28" y1="274" x2="592" y2="274" class="softLine"/>
-    <text x="28" y="306" class="sans mute" font-size="15">会议进行时只显示当前阶段；归档后展开摘要、原声、余波和证据链。</text>
+  <path class="arrow" d="M 920 480 C 965 480, 985 480, 1030 480"/>
+
+  <g transform="translate(1050 220)">
+    <rect class="card" width="310" height="250" rx="8"/>
+    <text x="30" y="48" class="h2 sans">纸页</text>
+    <text x="30" y="84" class="body sans">本地 IndexedDB</text>
+    <line x1="30" y1="112" x2="280" y2="112" class="line"/>
+    <text x="30" y="148" class="muted sans">claritySentence 做标题</text>
+    <text x="30" y="178" class="muted sans">NowMe 与 24h 承诺</text>
+    <text x="30" y="208" class="muted sans">记忆同意后写入</text>
   </g>
 
-  <!-- Views -->
-  <g transform="translate(72 946)">
-    <text x="0" y="0" class="sans mute label">03 · VIEW MAP</text>
-    <rect x="0" y="32" width="1280" height="210" rx="18" class="paper"/>
-    <g transform="translate(28 74)">
-      <rect width="176" height="70" rx="10" class="sunk"/><text x="18" y="28" class="sans mute" font-size="13">Home</text><text x="18" y="54" class="sans body" font-size="15">开会 / 复盘 / 议题</text>
-      <rect x="206" width="176" height="70" rx="10" class="sunk"/><text x="224" y="28" class="sans mute" font-size="13">Case</text><text x="224" y="54" class="sans body" font-size="15">立案 / 组阁</text>
-      <rect x="412" width="176" height="70" rx="10" class="sunk"/><text x="430" y="28" class="sans mute" font-size="13">Meeting</text><text x="430" y="54" class="sans body" font-size="15">表态 / 点名 / 裁决</text>
-      <rect x="618" width="176" height="70" rx="10" class="sunk"/><text x="636" y="28" class="sans mute" font-size="13">Archive</text><text x="636" y="54" class="sans body" font-size="15">摘要 / 原声 / 余波</text>
-      <rect x="824" width="176" height="70" rx="10" class="sunk"/><text x="842" y="28" class="sans mute" font-size="13">Cabinet</text><text x="842" y="54" class="sans body" font-size="15">总览 / 席位 / 议题</text>
-      <rect x="1030" width="176" height="70" rx="10" class="sunk"/><text x="1048" y="28" class="sans mute" font-size="13">Seat</text><text x="1048" y="54" class="sans body" font-size="15">保护 / 证据 / 关系</text>
-    </g>
-    <text x="28" y="178" class="sans mute" font-size="15">设计目标：会议时低复杂度，会议后高可追溯；用户管理的是阁，不是聊天记录。</text>
+  <g transform="translate(1050 560)">
+    <rect class="card" width="310" height="250" rx="8"/>
+    <text x="30" y="48" class="h2 sans">我的声音</text>
+    <text x="30" y="84" class="body sans">固定五声长期演化</text>
+    <line x1="30" y1="112" x2="280" y2="112" class="line"/>
+    <text x="30" y="148" class="muted sans">出现次数 / 最响次数</text>
+    <text x="30" y="178" class="muted sans">被追问 / 被换位</text>
+    <text x="30" y="208" class="muted sans">关键表达 / 承诺复盘</text>
+  </g>
+
+  <path class="arrow" d="M 1205 505 C 1205 525, 1205 525, 1205 550"/>
+
+  <g transform="translate(490 805)">
+    <rect class="card" width="870" height="130" rx="8"/>
+    <text x="34" y="48" class="h2 sans">本地边界</text>
+    <text x="34" y="84" class="body sans">API Key 保存于 localStorage / sessionStorage。纸页保存于 ParallelMeV4。服务端不持久化钥匙或会谈内容。</text>
+  </g>
+
+  <g transform="translate(490 775)">
+    <path class="arrow" d="M 0 0 C -100 0, -140 -30, -140 -95"/>
+    <path class="arrow" d="M 690 0 C 690 -35, 690 -35, 690 -55"/>
   </g>
 </svg>

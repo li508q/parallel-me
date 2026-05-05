@@ -1,7 +1,7 @@
 "use client";
 import type { SelfId } from "@/lib/selves";
 
-// 每个分身有独特的表情：眉毛、眼睛、嘴的姿态都不一样
+// 每个声音有独特的表情：眉毛、眼睛、嘴的姿态都不一样
 export function SelfAvatar({ id, size = 48 }: { id: SelfId | "now"; size?: number }) {
   const s = size;
   const stroke = ({

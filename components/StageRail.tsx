@@ -1,5 +1,5 @@
 // P0 component · 阶段轨 (StageRail)
-// The spine of every meeting. Desktop: horizontal at top of stage column.
+// The spine of every session. Desktop: horizontal at top of stage column.
 // Mobile: pinned to bottom. Always shows where the user is, never blinks.
 
 "use client";
@@ -34,7 +34,7 @@ export function StageRail({
         className,
       ].join(" ")}
       role="navigation"
-      aria-label="会议阶段"
+      aria-label="会谈阶段"
     >
       {stages.map((s, i) => {
         const dotState = isCurrent(s.id) || isDone(s.id) ? "active" : "future";

@@ -1,7 +1,7 @@
 "use client";
 
 // Provider Status Pill — small badge that shows current provider state and
-// links to /setup. Used in the cabinet workbench header and could be reused on
+// links to /setup. Used in the main workbench header and could be reused on
 // any page later.
 
 import Link from "next/link";
@@ -15,18 +15,16 @@ import {
 
 const DOT_COLOR: Record<ProviderStatusInfo["variant"], string> = {
   ok:       "bg-safe-green",
-  actor:    "bg-attention-copper",
   untested: "bg-ink-faint",
   warn:     "bg-seal-action",
   missing:  "bg-ink-faint",
 };
 
-const RING_COLOR: Record<ProviderStatusInfo["variant"], string> = {
-  ok:       "ring-safe-green/30",
-  actor:    "ring-attention-copper/30",
-  untested: "ring-ink-faint/30",
-  warn:     "ring-seal-action/30",
-  missing:  "ring-ink-faint/30",
+const HOVER_RING_COLOR: Record<ProviderStatusInfo["variant"], string> = {
+  ok:       "hover:ring-safe-green/30",
+  untested: "hover:ring-ink-faint/30",
+  warn:     "hover:ring-seal-action/30",
+  missing:  "hover:ring-ink-faint/30",
 };
 
 export function ProviderStatusPill() {
@@ -44,7 +42,7 @@ export function ProviderStatusPill() {
     <Link
       href="/setup"
       title={status.detail}
-      className={`group inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-paper-lift border border-paper-edge text-xs text-ink-body hover:border-ink-mute transition-colors ring-2 ring-transparent hover:${RING_COLOR[status.variant]}`}
+      className={`group inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-paper-lift border border-paper-edge text-xs text-ink-body hover:border-ink-mute transition-colors ring-2 ring-transparent ${HOVER_RING_COLOR[status.variant]}`}
     >
       <span
         className={`w-1.5 h-1.5 rounded-full ${DOT_COLOR[status.variant]} ${

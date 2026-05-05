@@ -2,7 +2,7 @@
 // Stateless: the server forwards a single 1-token chat-completion request and
 // returns { ok, model, latencyMs, error? }. Nothing is persisted.
 //
-// See docs/design/TECH-ARCHITECTURE.md § 4.2 / TECH-ARCHITECTURE.md § 4.
+// See docs/design/TECH-ARCHITECTURE.md for the local-first provider boundary.
 
 import { NextRequest } from "next/server";
 
@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
         model,
         messages: [{ role: "user", content: "ping" }],
         max_tokens: 5,
-        temperature: 0,
+        temperature: 0.2,
       }),
       // Reasonable timeout — providers vary, but we don't want to hang the UI.
       signal: AbortSignal.timeout(15_000),

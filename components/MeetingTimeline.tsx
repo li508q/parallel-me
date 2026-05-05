@@ -1,4 +1,4 @@
-// Week 5 · MeetingTimeline — the long scroll where every turn lives.
+// MeetingTimeline — the long scroll where every turn lives.
 // Auto-scrolls to bottom on new entries unless the user has scrolled up.
 
 "use client";

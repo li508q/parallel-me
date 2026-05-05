@@ -40,7 +40,7 @@ export default function MeEditPage() {
         </h1>
         <p className="font-display text-base text-ink2 leading-relaxed">
           这页从来不上传服务器，只在你浏览器里。<br/>
-          越具体，5 个分身越像你——他们会从这里读你的语境。
+          越具体，五声越像你——它们会从这里读你的语境。
         </p>
       </section>
 
@@ -94,7 +94,7 @@ export default function MeEditPage() {
 
       <section className="mb-14 space-y-4">
         <h2 className="font-display text-headline text-ink mb-1">红线</h2>
-        <p className="text-xs text-ink3 mb-2">分身永远不会踩你的这些话题。</p>
+        <p className="text-xs text-ink3 mb-2">五声永远不会踩你的这些话题。</p>
         <textarea
           defaultValue={(p.redLines||[]).join("\n")}
           onBlur={e=>setList("redLines", e.target.value)}

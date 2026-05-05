@@ -3,8 +3,8 @@
 @tailwind utilities;
 
 /* =============================================================================
-   ParallelMe V3 Design Tokens · CSS variables (consumed by tailwind.config.ts)
-   Mirror of lib/design/tokens/*.ts. See V3-IVY-FINAL-DIRECTION.md § 1-2.
+   ParallelMe Design Tokens · CSS variables consumed by tailwind.config.ts.
+   Mirror of lib/design/tokens/*.ts. See docs/design/VISUAL-SYSTEM.md.
    ============================================================================= */
 
 :root {
@@ -25,13 +25,12 @@
   --color-ink-mute: #7C7568;
   --color-ink-faint: #B7AC9B;
 
-  /* ===== Color · Seat (席位身份点 / 边框 / 关系线) ===== */
+  /* ===== Color · Voice (身份点 / 边框 / 关系线) ===== */
   --color-seat-rest:      #556F7A;
   --color-seat-money:     #8A6F3D;
   --color-seat-roam:      #3F6B5A;
   --color-seat-filial:    #8C5042;
   --color-seat-future:    #5E5369;
-  --color-seat-temporary: #76684D;
   --color-seat-silent:    #899199;
   --color-seat-exiled:    #6F3F35;
 
@@ -41,7 +40,7 @@
   --color-safe-green:       #536E5A;
   --color-trace-blue:       #455F70;
 
-  /* ===== V2 backward-compat alias ===== */
+  /* ===== Compatibility aliases for still-live personal pages ===== */
   --color-paper:  var(--color-paper-base);
   --color-ink:    var(--color-ink-core);
   --color-ink2:   var(--color-ink-body);
@@ -109,7 +108,7 @@ html, body {
   color: var(--color-ink-core);
   font-family: var(--font-sans);
   font-weight: 450;
-  /* V3 hard rule: CJK letter-spacing = 0 globally; only Latin uppercase labels override. */
+  /* CJK letter-spacing stays 0 globally; only Latin uppercase labels override. */
   letter-spacing: 0;
   font-feature-settings: "kern" 1, "liga" 1, "ss01" 1;
   -webkit-font-smoothing: antialiased;
@@ -117,7 +116,7 @@ html, body {
 }
 
 body {
-  /* Subtle paper warmth — kept until pages refactored in Week 2+ */
+  /* Subtle paper warmth for the v0.5 five-voice workspace. */
   background:
     radial-gradient(circle at 20% 0%, rgba(138, 111, 61, 0.04), transparent 50%),
     radial-gradient(circle at 80% 100%, rgba(94, 83, 105, 0.04), transparent 50%),
@@ -126,7 +125,7 @@ body {
   min-height: 100vh;
 }
 
-/* paper grain texture — DEPRECATED V2, kept until pages refactored */
+/* Paper grain texture shared by current screens. */
 body::before {
   content: "";
   position: fixed; inset: 0;
@@ -139,10 +138,9 @@ body::before {
 main, header, footer { position: relative; z-index: 1; }
 
 /* =============================================================================
-   V2 Compat Layer
-   These classes drive the entire current V2 codebase. Their VALUES are now
-   driven by V3 tokens (auto-migration). Will be deleted in Week 2+ as pages
-   are rewritten.
+   Compatibility Layer
+   These aliases keep the older personal pages visually intact while the main
+   five-voice flow uses semantic v0.5 tokens directly.
    ============================================================================= */
 
 .scribble {
@@ -162,7 +160,7 @@ main, header, footer { position: relative; z-index: 1; }
 
 .rule { border-color: var(--color-paper-edge); }
 
-/* Font utility — V3 letter-spacing -0.01em DELETED */
+/* Font utility */
 .font-display { font-family: var(--font-serif); font-weight: 600; }
 .font-body    { font-family: var(--font-sans); }
 
@@ -197,7 +195,7 @@ main, header, footer { position: relative; z-index: 1; }
   font-weight: 700;
 }
 
-/* 5-selves color tokens (V2 alias → V3 seat values) */
+/* Five-voice color aliases */
 .text-lay    { color: var(--color-seat-rest); }
 .text-money  { color: var(--color-seat-money); }
 .text-roam   { color: var(--color-seat-roam); }

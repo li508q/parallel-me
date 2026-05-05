@@ -1,33 +1,20 @@
 "use client";
 
-// Week 5 · /meeting — conversational timeline mode.
-//
-// Replaces Week 3's stage-paper-swap UX with a continuous meeting timeline:
-//   • SeatDock at the top — 3 or 5 seats are always *in the room*
-//   • MeetingTimeline in the middle — every turn flows down a single scroll
-//   • HostConsole at the bottom — stage-specific actions + free-text input
-//
-// Stage logic (case → assembly? → statements → interrogation → cross_exam? →
-// revision_check? → verdict → signature → memory_consent → archived) is
-// preserved from Week 3, including all four mandatory user gates per
-// PRODUCT-DESIGN § 3.3. What changed is *how* it's expressed: aside from the
-// signature ritual and the memory consent gate, no stage replaces the page.
-//
-// Cross-exam now shows real exchanges (Q + A) thanks to the cross_response
-// SSE event added in Week 5. See PRODUCT-DESIGN.md § 4.
+// /meeting — 五声会谈
+// A structured self-clarification flow: petition → working focus → five voices
+// → follow-up / role reversal / mutual clarification → clarity sentence → 24h
+// commitment. Clean V4 records with a single five-voice path.
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { SELVES, type SelfId } from "@/lib/selves";
-import { TurnEntry } from "@/components/TurnEntry";
 import { MeetingTimeline, type TimelineEntry } from "@/components/MeetingTimeline";
-import { SeatDock } from "@/components/SeatDock";
 import { HostConsole, type ConsoleAction } from "@/components/HostConsole";
 import { StageRail } from "@/components/StageRail";
+import { DocketPaper } from "@/components/DocketPaper";
 import { SignatureSlip } from "@/components/SignatureSlip";
 import { MemoryConsentGate } from "@/components/MemoryConsentGate";
-import { DocketPaper } from "@/components/DocketPaper";
 import {
   loadActiveProvider,
   toRuntimePayload,
@@ -36,11 +23,16 @@ import {
 import {
   newMeetingId,
   saveMeeting,
+  type ActivatedVoice,
+  type ClarifyingAnswer,
+  type CrossClarification,
   type Meeting,
   type MemoryCandidate,
+  type RoleReversalTurn,
   type SignatureDecision,
-  type CrossExam,
-  type UserMark,
+  type VoiceFollowup,
+  type VoiceId,
+  type VoiceTurn,
 } from "@/lib/db";
 import {
   loadProfile,
@@ -48,553 +40,452 @@ import {
   profileToMarkdown,
   tasteToProfileHint,
 } from "@/lib/profile";
-import { getRecentContextForPrompt } from "@/lib/memory";
-
-type MeetingMode = "quick" | "full";
 
 type Stage =
-  | "loading"
-  | "case"
-  | "assembly"
-  | "statements"
-  | "interrogation"
-  | "cross_exam"
-  | "revision_check"
-  | "verdict"
-  | "signature"
-  | "memory_consent"
+  | "forming"
+  | "focus"
+  | "voices"
+  | "dialogue"
+  | "clarifying"
+  | "clarity"
+  | "commitment"
+  | "memory"
   | "archived";
 
-const STAGE_RAIL_QUICK = [
-  { id: "case", label: "立案" },
-  { id: "statements", label: "三席表态" },
-  { id: "interrogation", label: "点名追问" },
-  { id: "verdict", label: "裁决" },
-  { id: "signature", label: "签字" },
-];
-const STAGE_RAIL_FULL = [
-  { id: "case", label: "立案" },
-  { id: "assembly", label: "组阁" },
-  { id: "statements", label: "五席表态" },
-  { id: "interrogation", label: "点名追问" },
-  { id: "cross_exam", label: "交叉质询" },
-  { id: "revision_check", label: "议案修订" },
-  { id: "verdict", label: "裁决" },
-  { id: "signature", label: "签字" },
+const BIG_STAGES = [
+  { id: "forming", label: "困惑成形" },
+  { id: "voices", label: "五声入席" },
+  { id: "dialogue", label: "五声对话" },
+  { id: "clarity", label: "清明落定" },
 ];
 
-const SEAT_COLOR_VAR_KEY: Record<SelfId, string> = {
-  lay:    "rest",
-  money:  "money",
-  roam:   "roam",
-  filial: "filial",
-  future: "future",
+const STANDING_IDS: SelfId[] = ["lay", "money", "roam", "filial", "future"];
+
+const SEAT_COLOR_VAR: Record<SelfId, string> = {
+  lay: "color-seat-rest",
+  money: "color-seat-money",
+  roam: "color-seat-roam",
+  filial: "color-seat-filial",
+  future: "color-seat-future",
 };
-
-interface SeatTurn {
-  id: SelfId;
-  name: string;
-  text: string;
-}
-
-interface FollowupRecord {
-  seatId: SelfId;
-  question: string;
-  answer: string;
-}
-
-interface CrossPair {
-  q: { fromId: SelfId; from: string; toId: SelfId; to: string; text: string };
-  r?: { fromId: SelfId; from: string; text: string };
-}
 
 function MeetingInner() {
   const router = useRouter();
   const params = useSearchParams();
-  const topicParam = (params.get("topic") ?? "").trim();
-  const modeParam: MeetingMode =
-    params.get("mode") === "full" ? "full" : "quick";
+  const petitionParam = (params.get("petition") ?? "").trim();
 
   const meetingIdRef = useRef<string>(newMeetingId());
   const startedAtRef = useRef<number>(Date.now());
   const entryKeyRef = useRef(0);
-  const sseStartedRef = useRef(false);
+  const initializedPetitionRef = useRef<string | null>(null);
 
-  const [stage, setStage] = useState<Stage>("loading");
-
-  const [topic, setTopic] = useState("");
-  const [editingTopic, setEditingTopic] = useState(false);
-  const [topicDraft, setTopicDraft] = useState("");
+  const [stage, setStage] = useState<Stage>("forming");
   const [provider, setProvider] = useState<ProviderConfig | null>(null);
+  const [petition, setPetition] = useState("");
+  const [questions, setQuestions] = useState<string[]>([]);
+  const [answers, setAnswers] = useState<string[]>([]);
+  const [workingFocus, setWorkingFocus] = useState("");
+  const [focusDraft, setFocusDraft] = useState("");
 
-  const [entries, setEntries] = useState<TimelineEntry[]>([]);
-
-  const [seats, setSeats] = useState<SeatTurn[]>([]);
-  const [speakingId, setSpeakingId] = useState<SelfId | null>(null);
-  const [loudestId, setLoudestId] = useState<SelfId | null>(null);
-  const [running, setRunning] = useState(false);
-  const [error, setError] = useState("");
-
-  // Buffered: shown only at the right stage
-  const [verdictBuffered, setVerdictBuffered] = useState("");
-  const [insightBuffered, setInsightBuffered] = useState("");
-  const [episodeBuffered, setEpisodeBuffered] = useState<any | null>(null);
-  const [crossPairs, setCrossPairs] = useState<CrossPair[]>([]);
-
-  // Interrogation
-  const [calledSeatId, setCalledSeatId] = useState<SelfId | null>(null);
+  const [activatedVoices, setActivatedVoices] = useState<ActivatedVoice[]>([]);
+  const [voiceTurns, setVoiceTurns] = useState<VoiceTurn[]>([]);
+  const [calledVoiceId, setCalledVoiceId] = useState<VoiceId | null>(null);
   const [followupQuestion, setFollowupQuestion] = useState("");
-  const [followupAsking, setFollowupAsking] = useState(false);
-  const [followup, setFollowup] = useState<FollowupRecord | null>(null);
+  const [followups, setFollowups] = useState<VoiceFollowup[]>([]);
+  const [roleReversalMode, setRoleReversalMode] = useState(false);
+  const [roleReversalText, setRoleReversalText] = useState("");
+  const [roleReversalTurns, setRoleReversalTurns] = useState<RoleReversalTurn[]>([]);
+  const [crossClarifications, setCrossClarifications] = useState<CrossClarification[]>([]);
 
-  // Cross-exam
-  const [crossIndex, setCrossIndex] = useState(0);
-  const [userMarks, setUserMarks] = useState<UserMark[]>([]);
-  const [iWantReply, setIWantReply] = useState("");
-  const [iWantReplyMode, setIWantReplyMode] = useState(false);
+  const [claritySentence, setClaritySentence] = useState("");
+  const [clarityDraft, setClarityDraft] = useState("");
+  const [nowMe, setNowMe] = useState("");
+  const [insight, setInsight] = useState("");
+  const [commitment24h, setCommitment24h] = useState("");
+  const [loudestVoiceId, setLoudestVoiceId] = useState<VoiceId | undefined>();
+  const [loudestVoiceName, setLoudestVoiceName] = useState<string | undefined>();
 
-  // Revision
-  const [topicRevised, setTopicRevised] = useState("");
-  const [verdictBasedOn, setVerdictBasedOn] =
-    useState<"original" | "revised" | "both">("original");
-
-  // Signature
   const [signature, setSignature] = useState<{
     decision: SignatureDecision;
     action: string;
   } | null>(null);
-
-  // Memory
   const [memoryCandidates, setMemoryCandidates] = useState<MemoryCandidate[]>([]);
 
-  // ─── Helpers ───
+  const [entries, setEntries] = useState<TimelineEntry[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [crisis, setCrisis] = useState("");
+
   const pushEntry = useCallback((entry: Omit<TimelineEntry, "key">) => {
     entryKeyRef.current += 1;
-    const key = `e${entryKeyRef.current}`;
-    setEntries((prev) => [...prev, { key, ...entry }]);
+    setEntries((prev) => [...prev, { key: `e${entryKeyRef.current}`, ...entry }]);
   }, []);
 
   const pushScribe = useCallback(
     (text: string) => pushEntry({ kind: "scribe", text }),
-    [pushEntry]
+    [pushEntry],
   );
 
-  // ─── Init ───
-  useEffect(() => {
-    if (!topicParam) {
-      router.replace("/");
-      return;
-    }
-    setTopic(topicParam);
-    setProvider(loadActiveProvider());
-    setStage("case");
-    pushEntry({ kind: "case", text: topicParam });
-    pushScribe(
-      modeParam === "full"
-        ? "完整内阁会议 · 五席 + 交叉质询 + 议案修订"
-        : "快速会议 · 三席表态"
-    );
-  }, [topicParam, router, modeParam, pushEntry, pushScribe]);
-
-  // ─── Stage 1 · case ───
-  function confirmCase() {
-    pushScribe("议题已立。");
-    if (modeParam === "full") {
-      setStage("assembly");
-      pushScribe("先组阁——决定这次让谁入席。");
-    } else {
-      setStage("statements");
-      void runSse();
-    }
-  }
-  function startEditTopic() {
-    setTopicDraft(topic);
-    setEditingTopic(true);
-  }
-  function commitTopicEdit() {
-    if (topicDraft.trim() && topicDraft.trim() !== topic) {
-      setTopic(topicDraft.trim());
-      pushScribe(`议题改写为：${topicDraft.trim()}`);
-    }
-    setEditingTopic(false);
-  }
-  function cancelEditTopic() {
-    setEditingTopic(false);
-  }
-
-  // ─── Stage 2 · assembly (full only) ───
-  function confirmAssembly() {
-    pushScribe("五席就位。");
-    setStage("statements");
-    void runSse();
-  }
-
-  // ─── SSE ───
-  async function runSse() {
-    if (sseStartedRef.current) return;
-    sseStartedRef.current = true;
-    setRunning(true);
-    setError("");
-    pushScribe("表态开始。");
-
+  const context = useCallback(() => {
     const profile = loadProfile();
     const taste = loadTaste();
     const meCard = profileToMarkdown(profile, taste);
     const tasteProfile = tasteToProfileHint(taste);
-    const recent = getRecentContextForPrompt();
-    const context =
-      meCard || tasteProfile || recent
-        ? {
-            meCard: meCard || undefined,
-            tasteProfile: tasteProfile || undefined,
-            recentEpisode: recent || undefined,
-          }
-        : undefined;
-
-    try {
-      const r = await fetch("/api/parallel", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          input: topic,
-          context,
-          mode: modeParam,
-          provider: toRuntimePayload(provider),
-        }),
-      });
-      if (!r.ok || !r.body) throw new Error("请求失败");
-
-      const reader = r.body.getReader();
-      const dec = new TextDecoder();
-      let buf = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buf += dec.decode(value, { stream: true });
-        const events = buf.split("\n\n");
-        buf = events.pop() || "";
-        for (const ev of events) {
-          if (!ev.startsWith("data: ")) continue;
-          const f = JSON.parse(ev.slice(6));
-          if (f.type === "self") {
-            const seatId = f.id as SelfId;
-            setSpeakingId(seatId);
-            setSeats((prev) => [
-              ...prev,
-              { id: seatId, name: f.name, text: f.text },
-            ]);
-            pushEntry({
-              kind: "seat",
-              seatId,
-              speakerName: f.name,
-              text: f.text,
-              meta: formatTime(Date.now()),
-            });
-          } else if (f.type === "loudest") {
-            setLoudestId(f.id);
-          } else if (f.type === "now") {
-            setVerdictBuffered(f.text);
-          } else if (f.type === "insight") {
-            setInsightBuffered(f.text);
-          } else if (f.type === "episode") {
-            setEpisodeBuffered(f.ep);
-          } else if (f.type === "cross") {
-            setCrossPairs((prev) => [
-              ...prev,
-              {
-                q: {
-                  fromId: f.fromId,
-                  from: f.from,
-                  toId: f.toId,
-                  to: f.to,
-                  text: f.text,
-                },
-              },
-            ]);
-          } else if (f.type === "cross_response") {
-            setCrossPairs((prev) => {
-              const last = prev[prev.length - 1];
-              if (!last) return prev;
-              return [
-                ...prev.slice(0, -1),
-                {
-                  ...last,
-                  r: { fromId: f.fromId, from: f.from, text: f.text },
-                },
-              ];
-            });
-          } else if (f.type === "error") {
-            setError(f.message || "出错");
-          } else if (f.type === "done") {
-            setRunning(false);
-            setSpeakingId(null);
-            pushScribe(
-              modeParam === "full"
-                ? "五席表态完毕。轮到主持人点名。"
-                : "三席表态完毕。轮到主持人点名。"
-            );
-            setStage("interrogation");
-          }
+    return meCard || tasteProfile
+      ? {
+          meCard: meCard || undefined,
+          tasteProfile: tasteProfile || undefined,
         }
-      }
+      : undefined;
+  }, []);
+
+  useEffect(() => {
+    if (!petitionParam) {
+      router.replace("/");
+      return;
+    }
+    if (initializedPetitionRef.current === petitionParam) return;
+    const activeProvider = loadActiveProvider();
+    if (!toRuntimePayload(activeProvider)) {
+      router.replace("/setup");
+      return;
+    }
+    initializedPetitionRef.current = petitionParam;
+    setPetition(petitionParam);
+    setProvider(activeProvider);
+    pushEntry({ kind: "case", text: petitionParam });
+    pushScribe("先把困惑放在桌面上，不急着回答。");
+    void loadInitialFocus(petitionParam, activeProvider);
+  }, [petitionParam, router, pushEntry, pushScribe]);
+
+  async function postJson(
+    path: string,
+    body: any,
+    runtimeProvider: ProviderConfig | null = provider,
+  ) {
+    const runtimePayload = toRuntimePayload(runtimeProvider);
+    if (!runtimePayload) throw new Error("请先配置可用的 API Key");
+    const r = await fetch(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ...body,
+        context: context(),
+        provider: runtimePayload,
+      }),
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || "请求失败");
+    if (j.crisis) {
+      setCrisis(j.message || "这件事需要真人支持。");
+      throw new Error("safety-offramp");
+    }
+    return j;
+  }
+
+  async function loadInitialFocus(
+    p: string,
+    runtimeProvider: ProviderConfig | null = provider,
+  ) {
+    setBusy(true);
+    setError("");
+    try {
+      const j = await postJson("/api/focus", { petition: p, answers: [] }, runtimeProvider);
+      setQuestions(j.questions ?? []);
+      setAnswers((j.questions ?? []).map(() => ""));
+      setWorkingFocus(j.workingFocus || "");
+      setFocusDraft(j.workingFocus || "");
     } catch (e: any) {
-      setError(e?.message || "出错了");
-      setRunning(false);
-      setSpeakingId(null);
+      if (e?.message !== "safety-offramp") setError(e?.message || "整理失败");
+    } finally {
+      setBusy(false);
     }
   }
 
-  // ─── Stage 3 · interrogation ───
-  function callOnSeat(seatId: SelfId) {
-    if (stage !== "interrogation") return;
-    if (calledSeatId === seatId) return;
-    setCalledSeatId(seatId);
+  async function refineFocus() {
+    if (busy) return;
+    setBusy(true);
+    setError("");
+    const payloadAnswers = questions.map((question, i) => ({
+      question,
+      answer: answers[i]?.trim() || "（未回答）",
+    }));
+    try {
+      const j = await postJson("/api/focus", {
+        petition,
+        answers: payloadAnswers,
+      });
+      const clarifyingAnswers: ClarifyingAnswer[] = payloadAnswers.map((a) => ({
+        ...a,
+        at: Date.now(),
+      }));
+      clarifyingAnswers.forEach((a) => {
+        if (a.answer !== "（未回答）") {
+          pushEntry({ kind: "user", speakerName: "你", text: `${a.question}\n${a.answer}` });
+        }
+      });
+      setWorkingFocus(j.workingFocus);
+      setFocusDraft(j.workingFocus);
+      setStage("focus");
+      pushScribe("工作焦点已经浮出来了。你可以改到更像自己的话。");
+    } catch (e: any) {
+      if (e?.message !== "safety-offramp") setError(e?.message || "整理失败");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function confirmFocus() {
+    const nextFocus = focusDraft.trim();
+    if (!nextFocus || busy) return;
+    setWorkingFocus(nextFocus);
+    pushEntry({ kind: "user-mark", text: `工作焦点：${nextFocus}` });
+    setStage("voices");
+    setBusy(true);
+    setError("");
+    try {
+      const payloadAnswers = questions.map((question, i) => ({
+        question,
+        answer: answers[i]?.trim() || "（未回答）",
+      }));
+      const j = await postJson("/api/voices", {
+        petition,
+        workingFocus: nextFocus,
+        answers: payloadAnswers,
+      });
+      setActivatedVoices(j.activatedVoices ?? []);
+      setVoiceTurns(
+        (j.voiceTurns ?? []).map((t: any) => ({ ...t, at: Date.now() })),
+      );
+      pushScribe("五声已经入席。先看见它们为什么被唤起。");
+    } catch (e: any) {
+      if (e?.message !== "safety-offramp") setError(e?.message || "五声入席失败");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function revealVoiceTurns() {
+    if (!voiceTurns.length) return;
+    for (const turn of voiceTurns) {
+      pushEntry({
+        kind: "seat",
+        seatId: isStanding(turn.voiceId) ? (turn.voiceId as SelfId) : undefined,
+        speakerName: turn.name,
+        text: turn.text,
+        meta: formatTime(Date.now()),
+      });
+    }
+    pushScribe("五声都说完了。现在轮到你点名追问。");
+    setStage("dialogue");
+  }
+
+  function selectVoice(id: VoiceId) {
+    setCalledVoiceId(id);
     setFollowupQuestion("");
-    setFollowup(null);
-    pushScribe(`主持人点名 ${SELVES[seatId].name}。`);
+    setRoleReversalMode(false);
+    setRoleReversalText("");
+    pushScribe(`你点名了「${voiceName(id)}」。`);
   }
 
   async function submitFollowup() {
-    if (!calledSeatId || !followupQuestion.trim() || followupAsking) return;
-    const seat = seats.find((s) => s.id === calledSeatId);
+    if (!calledVoiceId || !followupQuestion.trim() || busy) return;
+    const voice = activatedVoices.find((v) => v.voiceId === calledVoiceId);
+    const turn = voiceTurns.find((t) => t.voiceId === calledVoiceId);
+    if (!voice) return;
     const question = followupQuestion.trim();
     pushEntry({ kind: "user", speakerName: "你问", text: question });
-    setFollowupAsking(true);
+    setBusy(true);
+    setError("");
     try {
-      const profile = loadProfile();
-      const taste = loadTaste();
-      const context = {
-        meCard: profileToMarkdown(profile, taste) || undefined,
-        tasteProfile: tasteToProfileHint(taste) || undefined,
-      };
-      const r = await fetch("/api/followup", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          selfId: calledSeatId,
-          userInput: topic,
-          prevAnswer: seat?.text || "",
-          question,
-          context,
-          provider: toRuntimePayload(provider),
-        }),
+      const j = await postJson("/api/clarify", {
+        action: "followup",
+        petition,
+        workingFocus,
+        voice,
+        prevAnswer: turn?.text || "",
+        question,
       });
-      const j = await r.json();
-      const answer = j.text || j.error || "（没回应）";
+      const record: VoiceFollowup = {
+        voiceId: calledVoiceId,
+        voiceName: voice.name,
+        question,
+        answer: j.answer,
+        at: Date.now(),
+      };
+      setFollowups((prev) => [...prev, record]);
+      setFollowupQuestion("");
       pushEntry({
         kind: "followup",
-        seatId: calledSeatId,
-        speakerName: SELVES[calledSeatId].name,
-        text: answer,
+        seatId: isStanding(calledVoiceId) ? (calledVoiceId as SelfId) : undefined,
+        speakerName: voice.name,
+        text: j.answer,
       });
-      setFollowup({ seatId: calledSeatId, question, answer });
-      setFollowupQuestion("");
     } catch (e: any) {
-      setError(e?.message || "追问失败");
+      if (e?.message !== "safety-offramp") setError(e?.message || "追问失败");
     } finally {
-      setFollowupAsking(false);
+      setBusy(false);
     }
   }
 
-  function changeCalledSeat() {
-    setCalledSeatId(null);
-    setFollowupQuestion("");
-    setFollowup(null);
-  }
-
-  function advanceFromInterrogation() {
-    if (modeParam === "full" && crossPairs.length > 0) {
-      pushScribe(`进入交叉质询。本场共 ${crossPairs.length} 对。`);
-      revealCrossPair(0);
-      setStage("cross_exam");
-    } else {
-      pushScribe("裁决送出。");
-      pushEntry({
-        kind: "verdict",
-        text: verdictBuffered,
-        marginalia: insightBuffered,
-      });
-      setStage("verdict");
-    }
-  }
-
-  // ─── Stage 4 · cross-exam (full only) ───
-  function revealCrossPair(idx: number) {
-    const pair = crossPairs[idx];
-    if (!pair) return;
-    pushScribe(`第 ${idx + 1} 对 · ${pair.q.from} 质询 ${pair.q.to}`);
-    pushEntry({
-      kind: "cross-question",
-      seatId: pair.q.fromId,
-      speakerName: pair.q.from,
-      toSpeakerName: pair.q.to,
-      text: pair.q.text,
-    });
-    if (pair.r) {
-      pushEntry({
-        kind: "cross-response",
-        seatId: pair.r.fromId,
-        speakerName: pair.r.from,
-        text: pair.r.text,
-      });
-    }
-  }
-
-  function judgeCross(judgement: UserMark["judgement"]) {
-    const replyText = judgement === "i-want-to-answer" ? iWantReply.trim() : undefined;
-    const mark: UserMark = {
-      targetKind: "cross",
-      targetIndex: crossIndex,
-      judgement,
-      reply: replyText,
+  function saveRoleReversal() {
+    if (!calledVoiceId || !roleReversalText.trim()) return;
+    const voice = activatedVoices.find((v) => v.voiceId === calledVoiceId);
+    if (!voice) return;
+    const record: RoleReversalTurn = {
+      voiceId: calledVoiceId,
+      voiceName: voice.name,
+      text: roleReversalText.trim(),
       at: Date.now(),
     };
-    setUserMarks((prev) => [...prev, mark]);
+    setRoleReversalTurns((prev) => [...prev, record]);
     pushEntry({
-      kind: "user-mark",
-      text:
-        judgement === "hit"
-          ? "主持人判定：问中了"
-          : judgement === "miss"
-            ? "主持人判定：没问中"
-            : "主持人替自己回答",
+      kind: "user",
+      speakerName: `你坐到「${voice.name}」的位置`,
+      text: record.text,
     });
-    if (judgement === "i-want-to-answer" && replyText) {
-      pushEntry({ kind: "user", speakerName: "你", text: replyText });
+    setRoleReversalText("");
+    setRoleReversalMode(false);
+  }
+
+  async function enterClarifying() {
+    if (busy) return;
+    setStage("clarifying");
+    setBusy(true);
+    setError("");
+    try {
+      const j = await postJson("/api/clarify", {
+        action: "cross",
+        petition,
+        workingFocus,
+        voiceTurns: voiceTurns.map(({ voiceId, name, text }) => ({ voiceId, name, text })),
+      });
+      const records: CrossClarification[] = (j.crossClarifications ?? []).map((c: any) => ({
+        ...c,
+        at: Date.now(),
+      }));
+      setCrossClarifications(records);
+      for (const c of records) {
+        pushEntry({
+          kind: "cross-question",
+          seatId: isStanding(c.fromVoiceId) ? (c.fromVoiceId as SelfId) : undefined,
+          speakerName: c.fromName,
+          toSpeakerName: c.toName,
+          text: c.question,
+        });
+        if (c.response) {
+          pushEntry({
+            kind: "cross-response",
+            seatId: isStanding(c.toVoiceId) ? (c.toVoiceId as SelfId) : undefined,
+            speakerName: c.toName,
+            text: c.response,
+          });
+        }
+      }
+      pushScribe("互问结束。现在把整场会谈落成一句清明的话。");
+      setStage("clarity");
+    } catch (e: any) {
+      if (e?.message !== "safety-offramp") setError(e?.message || "五声互问失败");
+    } finally {
+      setBusy(false);
     }
-    setIWantReply("");
-    setIWantReplyMode(false);
+  }
 
-    const next = crossIndex + 1;
-    setCrossIndex(next);
-
-    if (next < crossPairs.length) {
-      revealCrossPair(next);
-    } else {
-      pushScribe("质询完毕。议案修订环节。");
-      setStage("revision_check");
+  async function generateClarity() {
+    if (busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      const j = await postJson("/api/nowme", {
+        petition,
+        workingFocus,
+        voiceTurns: voiceTurns.map(({ voiceId, name, text }) => ({ voiceId, name, text })),
+        followups: followups.map(({ voiceName, question, answer }) => ({ voiceName, question, answer })),
+        roleReversals: roleReversalTurns.map(({ voiceName, text }) => ({ voiceName, text })),
+        crossClarifications,
+      });
+      setClaritySentence(j.claritySentence);
+      setClarityDraft(j.claritySentence);
+      setNowMe(j.nowMe);
+      setInsight(j.insight);
+      setCommitment24h(j.commitment24h);
+      setLoudestVoiceId(j.loudestVoiceId);
+      setLoudestVoiceName(j.loudestVoiceName);
+      pushEntry({ kind: "verdict", text: j.nowMe, marginalia: j.insight });
+    } catch (e: any) {
+      if (e?.message !== "safety-offramp") setError(e?.message || "清明句生成失败");
+    } finally {
+      setBusy(false);
     }
   }
 
-  function skipRemainingCross() {
-    pushScribe("跳过剩余质询。");
-    setStage("revision_check");
+  function enterCommitment() {
+    const sentence = clarityDraft.trim();
+    if (!sentence) return;
+    setClaritySentence(sentence);
+    pushEntry({ kind: "user-mark", text: `清明句：${sentence}` });
+    setStage("commitment");
   }
 
-  // ─── Stage 5 · revision (full only) ───
-  function chooseRevision(based: "original" | "revised" | "both") {
-    setVerdictBasedOn(based);
-    if (based === "revised" && topicRevised.trim()) {
-      pushScribe(`议题修订为：${topicRevised.trim()}`);
-    } else if (based === "both" && topicRevised.trim()) {
-      pushScribe("两个议题都记入档案。");
-    } else {
-      pushScribe("按原议题继续。");
-    }
-    pushScribe("裁决送出。");
-    pushEntry({
-      kind: "verdict",
-      text: verdictBuffered,
-      marginalia: insightBuffered,
-    });
-    setStage("verdict");
-  }
-
-  // ─── Stage 6 · verdict → signature ───
-  function startSignature() {
-    setStage("signature");
-  }
   function handleSign(action: string) {
-    pushEntry({ kind: "user-mark", text: `主持人签字：「${action}」` });
+    pushEntry({ kind: "user-mark", text: `24h 承诺：「${action}」` });
     const sig = { decision: "signed" as SignatureDecision, action };
     setSignature(sig);
-    enterMemoryConsent(sig);
+    setCommitment24h(action);
+    setMemoryCandidates(buildMemoryCandidates(sig));
+    setStage("memory");
   }
+
   function handlePause() {
-    pushEntry({ kind: "user-mark", text: "主持人选择暂缓" });
     const sig = { decision: "paused" as SignatureDecision, action: "" };
     setSignature(sig);
-    enterMemoryConsent(sig);
+    setMemoryCandidates(buildMemoryCandidates(sig));
+    setStage("memory");
   }
+
   function handleEscape() {
-    pushEntry({ kind: "user-mark", text: "主持人说：我在逃避" });
     const sig = { decision: "escaped" as SignatureDecision, action: "" };
     setSignature(sig);
-    enterMemoryConsent(sig);
+    setMemoryCandidates(buildMemoryCandidates(sig));
+    setStage("memory");
   }
 
-  // ─── Memory ───
-  function enterMemoryConsent(sig: { decision: SignatureDecision; action: string }) {
-    setMemoryCandidates(buildCandidates(sig));
-    setStage("memory_consent");
-  }
-
-  function buildCandidates(sig: {
-    decision: SignatureDecision;
-    action: string;
-  }): MemoryCandidate[] {
-    const cands: MemoryCandidate[] = [];
-    if (loudestId && SELVES[loudestId]) {
-      cands.push({
-        id: "c-loud",
-        statement: `这次「${SELVES[loudestId].name}」的声音最响。`,
-        category: "seat-power",
-      });
-    }
-    const silenced = (episodeBuffered?.silenced_voice as SelfId | undefined) ?? null;
-    if (silenced && SELVES[silenced] && silenced !== loudestId) {
-      cands.push({
-        id: "c-silent",
-        statement: `「${SELVES[silenced].name}」被你按下来了。`,
-        category: "avoided",
-      });
-    }
-    const hitMarks = userMarks.filter((m) => m.judgement === "hit");
-    if (modeParam === "full" && hitMarks.length > 0) {
-      const example = crossPairs[hitMarks[0].targetIndex];
-      if (example) {
-        cands.push({
-          id: "c-cross-hit",
-          statement: `「${example.q.from}」对「${example.q.to}」的质询你说了"问中了"。`,
-          category: "pattern",
-        });
-      }
-    }
-    if (modeParam === "full" && topicRevised.trim()) {
-      cands.push({
-        id: "c-revision",
-        statement: `质询之后，你看见的真问题：${topicRevised.trim().slice(0, 40)}${topicRevised.length > 40 ? "…" : ""}`,
+  function buildMemoryCandidates(sig: { decision: SignatureDecision; action: string }): MemoryCandidate[] {
+    const candidates: MemoryCandidate[] = [];
+    if (claritySentence) {
+      candidates.push({
+        id: "clarity",
+        statement: `清明句：${claritySentence}`,
         category: "pattern",
+      });
+    }
+    if (loudestVoiceName) {
+      candidates.push({
+        id: "loudest",
+        statement: `这次「${loudestVoiceName}」最响。`,
+        category: "voice-power",
       });
     }
     if (sig.decision === "signed" && sig.action) {
-      cands.push({
-        id: "c-decision",
-        statement: `你说接下来 24 小时会：${sig.action}`,
+      candidates.push({
+        id: "commitment",
+        statement: `24 小时承诺：${sig.action}`,
         category: "decision",
       });
     } else if (sig.decision === "paused") {
-      cands.push({
-        id: "c-decision",
-        statement: "这次议题你选择暂缓——这也是一种诚实。",
+      candidates.push({
+        id: "paused",
+        statement: "这次你选择暂缓，不用硬给答案。",
         category: "decision",
       });
     } else if (sig.decision === "escaped") {
-      cands.push({
-        id: "c-decision",
-        statement: "你诚实地说了「我在逃避」——这本身就是一步。",
+      candidates.push({
+        id: "escaped",
+        statement: "你承认自己在逃避，这也是看见。",
         category: "decision",
       });
     }
-    if (cands.length < 3) {
-      cands.push({
-        id: "c-topic",
-        statement: `这次议题：${topic.slice(0, 28)}${topic.length > 28 ? "…" : ""}`,
-        category: "pattern",
-      });
-    }
-    return cands.slice(0, 3);
+    return candidates.slice(0, 3);
   }
 
   async function archiveMeeting(savedIds: string[]) {
@@ -606,52 +497,36 @@ function MeetingInner() {
           : signature?.decision === "escaped"
             ? "escaped"
             : "abandoned";
-    const crossExamRecords: CrossExam[] = crossPairs.map((p) => ({
-      fromSeatId: p.q.fromId,
-      toSeatId: p.q.toId,
-      text: p.q.text,
-      at: Date.now(),
-    }));
     const meeting: Meeting = {
       id: meetingIdRef.current,
       createdAt: startedAtRef.current,
       closedAt: Date.now(),
       status,
-      mode: modeParam,
-      topicRaw: topicParam,
-      topicRefined: topic !== topicParam ? topic : undefined,
-      topicRevised: topicRevised.trim() || undefined,
-      verdictBasedOn:
-        modeParam === "full" && topicRevised.trim() ? verdictBasedOn : undefined,
-      seatIds: seats.map((s) => s.id),
-      turns: seats.map((s) => ({ seatId: s.id, text: s.text, at: Date.now() })),
-      followups: followup
-        ? [
-            {
-              seatId: followup.seatId,
-              question: followup.question,
-              answer: followup.answer,
-              at: Date.now(),
-            },
-          ]
-        : [],
-      crossExams: modeParam === "full" ? crossExamRecords : undefined,
-      userMarks: modeParam === "full" ? userMarks : undefined,
-      verdict: verdictBuffered
+      petition,
+      clarifyingAnswers: questions.map((question, i) => ({
+        question,
+        answer: answers[i]?.trim() || "（未回答）",
+        at: Date.now(),
+      })),
+      workingFocus,
+      activatedVoices,
+      voiceTurns,
+      calledVoice: calledVoiceId ?? undefined,
+      followups,
+      roleReversalTurns,
+      crossClarifications,
+      claritySentence,
+      nowMe: nowMe
         ? {
-            text: verdictBuffered,
-            loudestSeatId: loudestId || undefined,
-            insight: insightBuffered || undefined,
+            text: nowMe,
+            insight,
+            loudestVoiceId,
+            loudestVoiceName,
             at: Date.now(),
           }
         : undefined,
-      signature: signature
-        ? {
-            decision: signature.decision,
-            action24h: signature.action || undefined,
-            at: Date.now(),
-          }
-        : undefined,
+      commitment24h: commitment24h || undefined,
+      signature: signature ? { decision: signature.decision, at: Date.now() } : undefined,
       memoryConsent: {
         candidates: memoryCandidates,
         savedIds,
@@ -661,293 +536,242 @@ function MeetingInner() {
     try {
       await saveMeeting(meeting);
     } catch (e) {
-      console.error("[meeting save] failed", e);
+      console.error("[voice session save] failed", e);
     }
-    pushScribe("档案已归档。");
+    pushScribe("纸页已保存。");
     setStage("archived");
-    setTimeout(() => router.push("/"), 1600);
+    setTimeout(() => router.push("/"), 1300);
   }
 
-  // ─── Free-text speak ───
   const onSpeak = useCallback(
     (text: string) => {
       pushEntry({ kind: "user", speakerName: "你", text });
       return false;
     },
-    [pushEntry]
+    [pushEntry],
   );
 
-  // ─── Stage rail ───
-  const stageRail = modeParam === "full" ? STAGE_RAIL_FULL : STAGE_RAIL_QUICK;
-  const railIds = stageRail.map((s) => s.id);
-  const currentRailId =
-    stage === "memory_consent" || stage === "archived"
-      ? "signature"
-      : stage === "loading"
-        ? "case"
-        : stage;
-  const currentIdx = railIds.indexOf(currentRailId);
-  const doneStageIds = railIds.slice(0, Math.max(0, currentIdx));
-  if (stage === "memory_consent" || stage === "archived") {
-    doneStageIds.push("signature");
-  }
-
-  // ─── Seat dock ───
-  const dockSeatIds: SelfId[] =
-    seats.length > 0
-      ? seats.map((s) => s.id)
-      : modeParam === "full"
-        ? (["lay", "money", "roam", "filial", "future"] as SelfId[])
-        : [];
-
-  const dockCallable = stage === "interrogation";
-
-  // ─── Console actions ───
+  const bigStage = toBigStage(stage);
+  const done = doneBigStages(bigStage);
   const actions: ConsoleAction[] = [];
   let stageLabel = "";
-  let inputDisabled = running || stage === "statements";
-  let inputPlaceholder: string | undefined;
+  let inputDisabled = busy;
 
-  switch (stage) {
-    case "loading":
-      stageLabel = "…";
-      inputDisabled = true;
-      break;
-    case "case":
-      stageLabel = editingTopic ? "立案 · 改写议题" : "立案 · 等你确认议题";
-      if (!editingTopic) {
-        actions.push({ id: "confirm", label: "就这个 ✓", onClick: confirmCase, variant: "primary" });
-        actions.push({ id: "edit", label: "改一下", onClick: startEditTopic, variant: "secondary" });
-      } else {
-        actions.push({ id: "save", label: "改完了", onClick: commitTopicEdit, variant: "primary" });
-        actions.push({ id: "cancel", label: "取消", onClick: cancelEditTopic, variant: "muted" });
-      }
-      break;
-    case "assembly":
-      stageLabel = "组阁 · 5 席就位";
-      actions.push({ id: "confirm", label: "确认组阁，开始表态 →", onClick: confirmAssembly, variant: "primary" });
-      break;
-    case "statements":
-      stageLabel = running ? "三席同时开口…" : "表态进行中";
-      inputDisabled = true;
-      break;
-    case "interrogation":
-      if (followup) {
-        stageLabel = `${SELVES[followup.seatId].name} 已回应`;
-        actions.push({
-          id: "advance",
-          label:
-            modeParam === "full" && crossPairs.length > 0
-              ? "进入交叉质询 →"
-              : "够了，让此刻的我裁决 →",
-          onClick: advanceFromInterrogation,
-          variant: "primary",
-        });
-        actions.push({
-          id: "again",
-          label: "再问一席",
-          onClick: changeCalledSeat,
-          variant: "muted",
-        });
-      } else if (calledSeatId) {
-        stageLabel = `问 ${SELVES[calledSeatId].name}`;
-        inputPlaceholder = `你想问 ${SELVES[calledSeatId].name} 什么？`;
-        actions.push({
-          id: "ask",
-          label: followupAsking ? "等回应…" : "问出去",
-          onClick: submitFollowup,
-          variant: "primary",
-          disabled: !followupQuestion.trim() || followupAsking,
-        });
-        actions.push({
-          id: "switch",
-          label: "换一席",
-          onClick: changeCalledSeat,
-          variant: "muted",
-        });
-      } else {
-        stageLabel = "点名 · 从顶部 dock 选一席";
-      }
-      break;
-    case "cross_exam":
-      stageLabel = `交叉质询 · ${crossIndex + 1}/${crossPairs.length}`;
-      if (!iWantReplyMode) {
-        actions.push({ id: "hit", label: "问中了", onClick: () => judgeCross("hit"), variant: "primary" });
-        actions.push({ id: "miss", label: "没问中", onClick: () => judgeCross("miss"), variant: "secondary" });
-        actions.push({ id: "iwa", label: "我想回答", onClick: () => setIWantReplyMode(true), variant: "muted" });
-        if (crossIndex + 1 < crossPairs.length) {
-          actions.push({ id: "skip", label: "跳过剩下", onClick: skipRemainingCross, variant: "muted" });
-        }
-      } else {
-        actions.push({
-          id: "iwa-submit",
-          label: "记入档案",
-          onClick: () => judgeCross("i-want-to-answer"),
-          variant: "primary",
-          disabled: !iWantReply.trim(),
-        });
-        actions.push({
-          id: "iwa-cancel",
-          label: "算了",
-          onClick: () => {
-            setIWantReplyMode(false);
-            setIWantReply("");
-          },
-          variant: "muted",
-        });
-      }
-      break;
-    case "revision_check":
-      stageLabel = "议案修订";
+  if (stage === "forming") {
+    stageLabel = busy ? "困惑成形 · 正在整理" : "困惑成形 · 回答几个小问题";
+    actions.push({
+      id: "focus",
+      label: busy ? "整理中…" : "整理工作焦点 →",
+      onClick: refineFocus,
+      variant: "primary",
+      disabled: busy || questions.length === 0,
+    });
+  } else if (stage === "focus") {
+    stageLabel = "困惑成形 · 确认工作焦点";
+    actions.push({
+      id: "confirm",
+      label: "让五声入席 →",
+      onClick: confirmFocus,
+      variant: "primary",
+      disabled: !focusDraft.trim() || busy,
+    });
+  } else if (stage === "voices") {
+    stageLabel = busy ? "五声入席 · 正在唤起" : "五声入席 · 看见它们";
+    actions.push({
+      id: "reveal",
+      label: "听五声表态 →",
+      onClick: revealVoiceTurns,
+      variant: "primary",
+      disabled: busy || voiceTurns.length === 0,
+    });
+  } else if (stage === "dialogue") {
+    stageLabel = calledVoiceId ? `五声对话 · ${voiceName(calledVoiceId)}` : "五声对话 · 点名一声";
+    if (calledVoiceId && !latestFollowupFor(calledVoiceId)) {
       actions.push({
-        id: "original",
-        label: "按原议题",
-        onClick: () => chooseRevision("original"),
-        variant: "secondary",
-      });
-      actions.push({
-        id: "revised",
-        label: "按修订议题",
-        onClick: () => chooseRevision("revised"),
+        id: "ask",
+        label: busy ? "等回应…" : "问出去",
+        onClick: submitFollowup,
         variant: "primary",
-        disabled: !topicRevised.trim(),
+        disabled: !followupQuestion.trim() || busy,
+      });
+    } else if (calledVoiceId) {
+      actions.push({
+        id: "role",
+        label: roleReversalMode ? "记下换位回答" : "坐到这一声回答",
+        onClick: roleReversalMode ? saveRoleReversal : () => setRoleReversalMode(true),
+        variant: roleReversalMode ? "primary" : "secondary",
+        disabled: roleReversalMode && !roleReversalText.trim(),
       });
       actions.push({
-        id: "both",
-        label: "都记入",
-        onClick: () => chooseRevision("both"),
-        variant: "muted",
-        disabled: !topicRevised.trim(),
-      });
-      break;
-    case "verdict":
-      stageLabel = "此刻的我已发言";
-      actions.push({
-        id: "sign",
-        label: "进入签字 →",
-        onClick: startSignature,
+        id: "cross",
+        label: "进入五声互问 →",
+        onClick: enterClarifying,
         variant: "primary",
+        disabled: busy,
       });
-      break;
-    case "signature":
-      stageLabel = "签字 · 这是仪式";
-      break;
-    case "memory_consent":
-      stageLabel = "记忆 · 你说可以才记入";
-      break;
-    case "archived":
-      stageLabel = "已归档";
-      inputDisabled = true;
-      break;
+    }
+  } else if (stage === "clarifying") {
+    stageLabel = "五声对话 · 互相照见盲点";
+    inputDisabled = true;
+  } else if (stage === "clarity") {
+    stageLabel = nowMe ? "清明落定 · 确认清明句" : "清明落定 · 生成清明句";
+    actions.push({
+      id: nowMe ? "commitment" : "generate",
+      label: nowMe ? "进入 24h 承诺 →" : busy ? "生成中…" : "生成清明句 →",
+      onClick: nowMe ? enterCommitment : generateClarity,
+      variant: "primary",
+      disabled: busy || (nowMe ? !clarityDraft.trim() : false),
+    });
+  } else if (stage === "commitment") {
+    stageLabel = "清明落定 · 24h 承诺";
+  } else if (stage === "memory") {
+    stageLabel = "记忆同意 · 你说可以才记";
+  } else {
+    stageLabel = "已保存";
+    inputDisabled = true;
   }
 
-  // ─── Trailing inline UI ───
+  function latestFollowupFor(id: VoiceId) {
+    return [...followups].reverse().find((f) => f.voiceId === id);
+  }
+
+  function voiceName(id: VoiceId): string {
+    return activatedVoices.find((v) => v.voiceId === id)?.name || SELVES[id as SelfId]?.name || String(id);
+  }
+
   let trailing: React.ReactNode = null;
-  if (stage === "case" && editingTopic) {
+  if (stage === "forming") {
     trailing = (
-      <DocketPaper stage="改写议题" className="my-4">
-        <textarea
-          value={topicDraft}
-          onChange={(e) => setTopicDraft(e.target.value.slice(0, 800))}
-          rows={4}
-          autoFocus
-          className="w-full p-3 rounded-md bg-paper-base border border-paper-edge focus:border-ink-core focus:outline-none text-body text-ink-body font-serif resize-none"
-        />
-      </DocketPaper>
-    );
-  } else if (stage === "assembly") {
-    trailing = (
-      <DocketPaper stage="本次组阁" className="my-4" marginalia="替换 / 旁听是 Week 6+ 功能。">
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          {(Object.values(SELVES) as any[]).map((s) => (
-            <div
-              key={s.id}
-              className="bg-paper-base border border-paper-edge rounded-md p-3"
-              style={{
-                borderLeft: `3px solid var(--color-seat-${SEAT_COLOR_VAR_KEY[s.id as SelfId]})`,
-              }}
-            >
-              <div className="flex items-baseline justify-between gap-2 mb-1">
-                <span className="font-medium text-ink-core">{s.name}</span>
-                <span className="text-[10px] tracking-wider text-ink-faint uppercase">
-                  常任
-                </span>
-              </div>
-              <p className="text-body-sm text-ink-mute leading-snug mb-1.5">
-                {s.ifs_label}
-              </p>
-              <p className="text-body-sm text-ink-body leading-snug italic font-serif">
-                保护：{s.core_value}
-              </p>
-            </div>
+      <DocketPaper stage="追问" className="my-4" marginalia="不用答得漂亮，只要答得具体。">
+        <div className="space-y-4">
+          {questions.map((q, i) => (
+            <label key={q} className="block">
+              <span className="block text-body-sm text-ink-mute mb-2">{q}</span>
+              <textarea
+                value={answers[i] ?? ""}
+                onChange={(e) =>
+                  setAnswers((prev) => {
+                    const next = [...prev];
+                    next[i] = e.target.value.slice(0, 240);
+                    return next;
+                  })
+                }
+                rows={2}
+                className="w-full p-3 rounded-md bg-paper-base border border-paper-edge focus:border-ink-core focus:outline-none text-body text-ink-body font-serif resize-none"
+              />
+            </label>
           ))}
         </div>
       </DocketPaper>
     );
-  } else if (stage === "interrogation" && calledSeatId && !followup) {
+  } else if (stage === "focus") {
+    trailing = (
+      <DocketPaper stage="工作焦点" className="my-4" marginalia="它不是题目，也不是答案，只是这次先听清楚什么。">
+        <textarea
+          value={focusDraft}
+          onChange={(e) => setFocusDraft(e.target.value.slice(0, 180))}
+          rows={3}
+          autoFocus
+          className="w-full p-3 rounded-md bg-paper-base border border-paper-edge focus:border-ink-core focus:outline-none text-body-long text-ink-body font-serif resize-none"
+        />
+      </DocketPaper>
+    );
+  } else if (stage === "voices") {
+    trailing = (
+      <DocketPaper stage="五声入席" className="my-4" marginalia="每一声都先被看见：它在保护什么，它怕什么。">
+        {busy ? (
+          <p className="font-serif text-title text-ink-core">正在听见五声…</p>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {activatedVoices.map((v) => (
+              <VoiceCard key={v.voiceId} voice={v} />
+            ))}
+          </div>
+        )}
+      </DocketPaper>
+    );
+  } else if (stage === "dialogue" && !calledVoiceId) {
     trailing = (
       <DocketPaper stage="点名追问" className="my-4">
+        <p className="text-body-sm text-ink-mute mb-4">
+          选一声追问。让会谈从“听它说”进入“你和它说”。
+        </p>
+        <div className="flex flex-wrap gap-2">
+          {activatedVoices.map((v) => (
+            <button
+              key={v.voiceId}
+              type="button"
+              onClick={() => selectVoice(v.voiceId)}
+              className="px-3 py-1.5 rounded-full bg-paper-base border border-paper-edge text-body-sm text-ink-body hover:border-ink-core transition-colors"
+            >
+              {v.name}
+            </button>
+          ))}
+        </div>
+      </DocketPaper>
+    );
+  } else if (stage === "dialogue" && calledVoiceId && !latestFollowupFor(calledVoiceId)) {
+    trailing = (
+      <DocketPaper stage="追问这一声" className="my-4">
         <p className="text-body-sm text-ink-mute mb-3">
-          问 {SELVES[calledSeatId].name}（直接在底部输入框输入问题）
+          问「{voiceName(calledVoiceId)}」一句。
         </p>
         <textarea
           value={followupQuestion}
-          onChange={(e) => setFollowupQuestion(e.target.value.slice(0, 200))}
-          rows={2}
-          autoFocus
-          placeholder="你真正想保护我什么？／你是不是在吓我？／这句话来自哪一次经历？"
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
-              e.preventDefault();
-              submitFollowup();
-            }
-          }}
-          className="w-full p-3 rounded-md bg-paper-base border border-paper-edge focus:border-ink-core focus:outline-none text-body text-ink-body resize-none"
-        />
-      </DocketPaper>
-    );
-  } else if (stage === "cross_exam" && iWantReplyMode) {
-    trailing = (
-      <DocketPaper stage="替自己回答" className="my-4">
-        <textarea
-          value={iWantReply}
-          onChange={(e) => setIWantReply(e.target.value.slice(0, 300))}
+          onChange={(e) => setFollowupQuestion(e.target.value.slice(0, 220))}
           rows={3}
           autoFocus
-          placeholder="说出口的那一句。"
+          placeholder="你真正想保护我什么？／如果我听你，会牺牲什么？"
           className="w-full p-3 rounded-md bg-paper-base border border-paper-edge focus:border-ink-core focus:outline-none text-body text-ink-body font-serif resize-none"
         />
       </DocketPaper>
     );
-  } else if (stage === "revision_check") {
+  } else if (stage === "dialogue" && calledVoiceId && roleReversalMode) {
+    trailing = (
+      <DocketPaper stage="换位回答" className="my-4" marginalia="坐到这一声的位置，替它说一句更准确的话。">
+        <textarea
+          value={roleReversalText}
+          onChange={(e) => setRoleReversalText(e.target.value.slice(0, 300))}
+          rows={3}
+          autoFocus
+          className="w-full p-3 rounded-md bg-paper-base border border-paper-edge focus:border-ink-core focus:outline-none text-body text-ink-body font-serif resize-none"
+        />
+      </DocketPaper>
+    );
+  } else if (stage === "clarity") {
     trailing = (
       <DocketPaper
-        stage="重写议题（可选）"
+        stage="清明句"
         className="my-4"
-        marginalia="原议题不一定是真问题。修订是一种诚实。"
+        marginalia={nowMe ? "这句会成为本次纸页的标题。" : undefined}
       >
-        <textarea
-          value={topicRevised}
-          onChange={(e) => setTopicRevised(e.target.value.slice(0, 400))}
-          rows={3}
-          placeholder={"重写一个更精准的议题。\n比如：「我要不要在不让妈妈失望的前提下，找到自己的步调」"}
-          className="w-full p-3 rounded-md bg-paper-base border border-paper-edge focus:border-ink-core focus:outline-none text-body text-ink-body font-serif resize-none"
-        />
+        {!nowMe ? (
+          <p className="font-serif text-title text-ink-core">
+            准备把整场会谈落成一句话。
+          </p>
+        ) : (
+          <textarea
+            value={clarityDraft}
+            onChange={(e) => setClarityDraft(e.target.value.slice(0, 180))}
+            rows={3}
+            className="w-full p-3 rounded-md bg-paper-base border border-paper-edge focus:border-ink-core focus:outline-none text-body-long text-ink-body font-serif resize-none"
+          />
+        )}
       </DocketPaper>
     );
-  } else if (stage === "signature") {
+  } else if (stage === "commitment") {
     trailing = (
       <SignatureSlip
-        verdict={verdictBuffered}
-        loudestSeatName={loudestId ? SELVES[loudestId].name : undefined}
-        defaultAction24h={episodeBuffered?.decision || ""}
+        verdict={`${claritySentence}\n\n${nowMe}`}
+        loudestSeatName={loudestVoiceName}
+        defaultAction24h={commitment24h}
         onSign={handleSign}
         onPause={handlePause}
         onEscape={handleEscape}
         className="my-4"
       />
     );
-  } else if (stage === "memory_consent") {
+  } else if (stage === "memory") {
     trailing = (
       <MemoryConsentGate
         candidates={memoryCandidates}
@@ -957,58 +781,70 @@ function MeetingInner() {
     );
   } else if (stage === "archived") {
     trailing = (
-      <DocketPaper stage="档案" className="my-4">
-        <p className="font-serif text-title text-ink-core mb-3">已归档。</p>
-        <p className="text-body text-ink-body">
-          下次回来，我会问你：那件事，做了吗。
-        </p>
+      <DocketPaper stage="纸页" className="my-4">
+        <p className="font-serif text-title text-ink-core mb-3">已保存。</p>
+        <p className="text-body text-ink-body">这次你听见了自己。</p>
       </DocketPaper>
     );
   }
 
   return (
     <div className="min-h-screen bg-paper-base flex flex-col">
-      {/* Header */}
       <header className="px-5 sm:px-10 pt-6 pb-3 max-w-3xl mx-auto w-full">
         <div className="flex items-start justify-between gap-3 flex-wrap mb-3">
           <Link
             href="/"
             className="text-xs tracking-[0.18em] text-ink-mute uppercase hover:text-ink-core transition-colors mt-1"
           >
-            ← 我的阁
+            ← 我的声音
           </Link>
           <div className="flex flex-col items-end gap-2">
             <span className="text-[10px] tracking-[0.18em] text-ink-faint uppercase">
-              {modeParam === "full" ? "完整内阁会议" : "快速会议"}
+              五声会谈
             </span>
-            <StageRail
-              stages={stageRail}
-              current={currentRailId}
-              done={doneStageIds}
-            />
+            <StageRail stages={BIG_STAGES} current={bigStage} done={done} />
           </div>
         </div>
       </header>
 
-      {/* Persistent SeatDock */}
-      {dockSeatIds.length > 0 && (
+      {activatedVoices.length > 0 && (
         <div className="sticky top-0 z-20 bg-paper-base/95 backdrop-blur border-b border-paper-edge">
           <div className="max-w-3xl mx-auto px-5 sm:px-10 py-2">
-            <SeatDock
-              seatIds={dockSeatIds}
-              speakingId={speakingId}
-              loudestId={loudestId}
-              calledId={calledSeatId}
-              spokenIds={seats.map((s) => s.id)}
-              callable={dockCallable}
-              onCall={callOnSeat}
-            />
+            <div className="flex items-center gap-1.5 overflow-x-auto sm:flex-wrap sm:overflow-x-visible py-2 -mx-1 px-1">
+              {activatedVoices.map((v) => (
+                <span
+                  key={v.voiceId}
+                  className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-paper-lift border border-paper-edge text-xs whitespace-nowrap"
+                  style={{
+                    borderLeft: `2px solid ${voiceColor(v.voiceId)}`,
+                  }}
+                >
+                  <span
+                    className="w-1.5 h-1.5 rounded-full"
+                    style={{ background: voiceColor(v.voiceId) }}
+                  />
+                  <span className="text-ink-core font-medium">{v.name}</span>
+                  {v.voiceId === loudestVoiceId && (
+                    <span className="text-[9px] tracking-wider text-attention-copper uppercase">
+                      最响
+                    </span>
+                  )}
+                </span>
+              ))}
+            </div>
           </div>
         </div>
       )}
 
-      {/* Errors */}
-      {error && (
+      {crisis && (
+        <div className="max-w-3xl mx-auto w-full px-5 sm:px-10 my-4">
+          <div className="p-4 rounded-md border border-seal-action/40 bg-paper-lift text-seal-action text-body-sm leading-relaxed">
+            {crisis}
+          </div>
+        </div>
+      )}
+
+      {error && !crisis && (
         <div className="max-w-3xl mx-auto w-full px-5 sm:px-10 my-4">
           <div className="p-4 rounded-md border border-seal-action/40 bg-paper-lift text-seal-action text-body-sm">
             {error}
@@ -1016,21 +852,64 @@ function MeetingInner() {
         </div>
       )}
 
-      {/* Timeline */}
       <main className="flex-1 max-w-3xl mx-auto w-full px-5 sm:px-10 py-6 pb-32 sm:pb-40 font-sans text-ink-body">
         <MeetingTimeline entries={entries} trailing={trailing} />
       </main>
 
-      {/* Host console */}
       <HostConsole
         stageLabel={stageLabel}
         actions={actions}
         onSpeak={onSpeak}
-        inputDisabled={inputDisabled}
-        inputPlaceholder={inputPlaceholder}
+        inputDisabled={inputDisabled || !!crisis}
+        inputPlaceholder="有一句话想先放在这里…"
       />
     </div>
   );
+}
+
+function VoiceCard({ voice }: { voice: ActivatedVoice }) {
+  return (
+    <article
+      className="bg-paper-base border border-paper-edge rounded-md p-3"
+      style={{ borderLeft: `3px solid ${voiceColor(voice.voiceId)}` }}
+    >
+      <div className="flex items-baseline justify-between gap-2 mb-1">
+        <span className="font-medium text-ink-core">{voice.name}</span>
+        <span className="text-[10px] tracking-wider text-ink-faint uppercase">五声</span>
+      </div>
+      <p className="text-body-sm text-ink-mute leading-snug mb-2">
+        {voice.activatedReason}
+      </p>
+      <p className="text-body-sm text-ink-body leading-snug font-serif">
+        保护：{voice.protect}
+      </p>
+      <p className="text-body-sm text-ink-mute leading-snug font-serif">
+        怕：{voice.fear}
+      </p>
+    </article>
+  );
+}
+
+function toBigStage(stage: Stage): string {
+  if (stage === "forming" || stage === "focus") return "forming";
+  if (stage === "voices") return "voices";
+  if (stage === "dialogue" || stage === "clarifying") return "dialogue";
+  return "clarity";
+}
+
+function doneBigStages(current: string): string[] {
+  const ids = BIG_STAGES.map((s) => s.id);
+  const idx = ids.indexOf(current);
+  return idx <= 0 ? [] : ids.slice(0, idx);
+}
+
+function isStanding(id: VoiceId): id is SelfId {
+  return STANDING_IDS.includes(id as SelfId);
+}
+
+function voiceColor(id: VoiceId): string {
+  if (isStanding(id)) return `var(--${SEAT_COLOR_VAR[id]})`;
+  return "var(--color-ink-mute)";
 }
 
 function formatTime(ts: number): string {

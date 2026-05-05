@@ -1,6 +1,6 @@
-// P0 component · 席位名牌 (SeatNameplate)
-// Identifies a seat at the table — never large color blocks, only a dot,
-// a left border accent, and the seat name. State drives visual emphasis.
+// P0 component · 声音牌 (SeatNameplate)
+// Identifies a voice in the session with a dot, left border accent, and name.
+// State drives visual emphasis.
 
 "use client";
 
@@ -11,7 +11,7 @@ export type SeatState =
   | "default"        // resting on the table
   | "speaking"       // currently emitting tokens (during streaming)
   | "called"         // user has called on this seat
-  | "interrogated"   // being cross-examined (full mode)
+  | "interrogated"   // being asked by another voice
   | "silent"         // long absent, low-opacity
   | "exiled";        // exiled — small footprint, never threatening
 

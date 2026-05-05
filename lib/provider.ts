@@ -1,16 +1,22 @@
 // lib/provider.ts — Provider Setup
 // Local-first: ProviderConfig + apiKey are stored on the user's device only.
-// Server never persists them. See docs/design/TECH-ARCHITECTURE.md § 4.
+// Server never persists them. See docs/design/TECH-ARCHITECTURE.md.
 
-export type ProviderType = "deepseek" | "openai" | "openai-compatible" | "mock";
+export type ProviderType =
+  | "deepseek"
+  | "bailian"
+  | "kimi"
+  | "minimax"
+  | "doubao"
+  | "custom";
 
 export interface ProviderConfig {
   id: string;
   provider: ProviderType;
   label: string;
-  baseUrl: string;        // empty for mock
-  model: string;          // empty for mock
-  apiKeyRef: "browser" | "session" | "env";
+  baseUrl: string;
+  model: string;
+  apiKeyRef: "browser" | "session";
   maskedKey?: string;
   createdAt: number;
   lastTestedAt?: number;
@@ -22,50 +28,86 @@ export interface ProviderConfig {
 export interface ProviderPreset {
   provider: ProviderType;
   label: string;
+  shortName: string;
   baseUrl: string;
   model: string;
   hint?: string;
+  keyHint?: string;
+  docsUrl?: string;
 }
 
 export const PRESETS: Record<ProviderType, ProviderPreset> = {
   deepseek: {
     provider: "deepseek",
     label: "DeepSeek",
-    baseUrl: "https://api.deepseek.com/v1",
+    shortName: "DeepSeek",
+    baseUrl: "https://api.deepseek.com",
     model: "deepseek-chat",
-    hint: "推荐：便宜、中文好、不卡。注册地：platform.deepseek.com",
+    hint: "默认推荐。中文稳定、成本友好，适合五声会谈；长期部署可手动改为 deepseek-v4-flash。",
+    keyHint: "在 DeepSeek 平台创建 API key。官方文档提示 deepseek-chat 将于 2026-07-24 弃用，本版本按产品默认保留。",
+    docsUrl: "https://api-docs.deepseek.com/zh-cn/",
   },
-  openai: {
-    provider: "openai",
-    label: "OpenAI",
-    baseUrl: "https://api.openai.com/v1",
-    model: "gpt-4o-mini",
-    hint: "标准且稳定。需要 OpenAI 账号。",
+  bailian: {
+    provider: "bailian",
+    label: "阿里云百炼",
+    shortName: "百炼",
+    baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    model: "qwen-plus",
+    hint: "通义千问与百炼 OpenAI 兼容接口。北京地域默认地址已填好。",
+    keyHint: "使用 DASHSCOPE_API_KEY / 百炼 API Key。",
+    docsUrl: "https://help.aliyun.com/zh/model-studio/what-is-model-studio",
   },
-  "openai-compatible": {
-    provider: "openai-compatible",
+  kimi: {
+    provider: "kimi",
+    label: "Kimi",
+    shortName: "Kimi",
+    baseUrl: "https://api.moonshot.ai/v1",
+    model: "kimi-k2.6",
+    hint: "Moonshot / Kimi OpenAI 兼容接口，适合长上下文。",
+    keyHint: "在 Kimi API Platform 创建 Moonshot API key。",
+    docsUrl: "https://platform.kimi.ai/docs/api/overview",
+  },
+  minimax: {
+    provider: "minimax",
+    label: "MiniMax",
+    shortName: "MiniMax",
+    baseUrl: "https://api.minimax.io/v1",
+    model: "MiniMax-M2.7",
+    hint: "MiniMax OpenAI 兼容接口，当前默认 M2.7。",
+    keyHint: "在 MiniMax 开发者平台创建 API key。",
+    docsUrl: "https://platform.minimax.io/docs/api-reference/text-openai-api",
+  },
+  doubao: {
+    provider: "doubao",
+    label: "豆包 / 火山方舟",
+    shortName: "豆包",
+    baseUrl: "https://ark.cn-beijing.volces.com/api/v3",
+    model: "doubao-seed-1-6-251015",
+    hint: "火山方舟 OpenAI 兼容接口。若你创建了推理接入点，可把 model 改成 ep- 开头的接入点 ID。",
+    keyHint: "在火山方舟 API Key 管理中创建 ARK_API_KEY。",
+    docsUrl: "https://www.volcengine.com/docs/82379/1330626",
+  },
+  custom: {
+    provider: "custom",
     label: "自定义 OpenAI 兼容",
+    shortName: "自定义",
     baseUrl: "",
     model: "",
-    hint: "Moonshot / 智谱 / Together / Groq / 本地 Ollama 都走这条。",
-  },
-  mock: {
-    provider: "mock",
-    label: "演员模式",
-    baseUrl: "",
-    model: "",
-    hint: "无需 key。声音是预设剧本，体验产品流程用。",
+    hint: "用于智谱、Ollama、OpenAI、代理网关或任何兼容 /chat/completions 的服务。",
+    keyHint: "填入该服务商的 API key。",
   },
 };
 
-const KEY_ACTIVE = "parallelme:v3:provider:active";
-const KEY_SECRET_PREFIX = "parallelme:v3:provider:secret:";
+const KEY_ACTIVE = "parallelme:v4:provider:active";
+const KEY_SECRET_PREFIX = "parallelme:v4:provider:secret:";
 
 export function loadActiveProvider(): ProviderConfig | null {
   if (typeof window === "undefined") return null;
   try {
     const s = window.localStorage.getItem(KEY_ACTIVE);
-    return s ? JSON.parse(s) : null;
+    const parsed = s ? JSON.parse(s) : null;
+    if (!parsed || !isProviderType(parsed.provider)) return null;
+    return parsed;
   } catch {
     return null;
   }
@@ -76,14 +118,16 @@ export function saveActiveProvider(c: ProviderConfig) {
   window.localStorage.setItem(KEY_ACTIVE, JSON.stringify(c));
 }
 
-export function loadProviderSecret(id: string): string | null {
+export function loadProviderSecret(id: string, ref: "browser" | "session" = "browser"): string | null {
   if (typeof window === "undefined") return null;
-  return window.localStorage.getItem(KEY_SECRET_PREFIX + id);
+  const storage = ref === "session" ? window.sessionStorage : window.localStorage;
+  return storage.getItem(KEY_SECRET_PREFIX + id);
 }
 
-export function saveProviderSecret(id: string, apiKey: string) {
+export function saveProviderSecret(id: string, apiKey: string, ref: "browser" | "session" = "browser") {
   if (typeof window === "undefined") return;
-  window.localStorage.setItem(KEY_SECRET_PREFIX + id, apiKey);
+  const storage = ref === "session" ? window.sessionStorage : window.localStorage;
+  storage.setItem(KEY_SECRET_PREFIX + id, apiKey);
 }
 
 export function clearProvider() {
@@ -91,6 +135,7 @@ export function clearProvider() {
   const active = loadActiveProvider();
   if (active) {
     window.localStorage.removeItem(KEY_SECRET_PREFIX + active.id);
+    window.sessionStorage.removeItem(KEY_SECRET_PREFIX + active.id);
   }
   window.localStorage.removeItem(KEY_ACTIVE);
 }
@@ -105,9 +150,13 @@ export function newProviderId(): string {
   return `prov_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
+export function isProviderType(value: unknown): value is ProviderType {
+  return typeof value === "string" && value in PRESETS;
+}
+
 // Status pill computation
 export type ProviderStatusVariant =
-  | "actor" | "ok" | "warn" | "untested" | "missing";
+  | "ok" | "warn" | "untested" | "missing";
 
 export interface ProviderStatusInfo {
   variant: ProviderStatusVariant;
@@ -117,9 +166,10 @@ export interface ProviderStatusInfo {
 
 export function providerStatus(p: ProviderConfig | null): ProviderStatusInfo {
   if (!p)
-    return { variant: "missing", label: "钥匙未配置", detail: "去设置一把" };
-  if (p.provider === "mock")
-    return { variant: "actor", label: "演员模式", detail: "声音是预设剧本" };
+    return { variant: "missing", label: "未配置 API", detail: "先放一把钥匙" };
+  if (!loadProviderSecret(p.id, p.apiKeyRef)) {
+    return { variant: "missing", label: "API Key 不在当前会话", detail: "重新配置" };
+  }
   if (p.lastStatus === "ok")
     return { variant: "ok", label: p.label, detail: p.model };
   if (p.lastStatus === "failed")
@@ -131,7 +181,7 @@ export function providerStatus(p: ProviderConfig | null): ProviderStatusInfo {
   return { variant: "untested", label: p.label, detail: "尚未测试" };
 }
 
-// For passing into /api/parallel and other LLM endpoints.
+// For passing into focused LLM endpoints.
 export interface RuntimeProviderPayload {
   baseUrl: string;
   model: string;
@@ -141,8 +191,8 @@ export interface RuntimeProviderPayload {
 export function toRuntimePayload(
   p: ProviderConfig | null
 ): RuntimeProviderPayload | null {
-  if (!p || p.provider === "mock") return null;
-  const apiKey = loadProviderSecret(p.id);
+  if (!p) return null;
+  const apiKey = loadProviderSecret(p.id, p.apiKeyRef);
   if (!apiKey) return null;
   return { baseUrl: p.baseUrl, model: p.model, apiKey };
 }

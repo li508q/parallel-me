@@ -1,10 +1,6 @@
-// Week 5 · HostConsole — persistent bottom bar where the user is the host.
-// Stage-specific actions live on the right; an always-on free-text input lives
-// on the left so the user can speak even when no button fits the moment.
-//
-// Free input semantics in Week 5: text is captured as a user-turn entry on the
-// timeline (and recorded into the archive as a UserMark). Intent recognition
-// ("等等" → pause, "问 X" → call on X, etc.) is Week 6.
+// HostConsole — persistent bottom bar where the user stays in the host position.
+// Stage actions live on the right; a small free-text input lets the user pause,
+// correct, or add a note without leaving the structured flow.
 
 "use client";
 
@@ -19,13 +15,13 @@ export interface ConsoleAction {
 }
 
 export interface HostConsoleProps {
-  /** Short label in the upper-left, e.g. "立案 · 等你确认". */
+  /** Short label in the upper-left, e.g. "困惑成形 · 等你确认". */
   stageLabel?: string;
   /** Stage-specific actions, rendered right-aligned. */
   actions: ConsoleAction[];
   /** Submit handler for free-text. Returns whether to clear input. */
   onSpeak?: (text: string) => boolean | void | Promise<boolean | void>;
-  /** Disable free-input (e.g. when SSE is streaming and input would be ignored). */
+  /** Disable free-input while a request is running. */
   inputDisabled?: boolean;
   inputPlaceholder?: string;
 }

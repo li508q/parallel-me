@@ -4,8 +4,8 @@
 // :root override (mobile media-query, dark mode if added later) propagates
 // without rebuilding.
 //
-// We are pinned to Tailwind v3.4 because Next.js 14's dev-mode CSS error
-// plugin still expects v3 syntax. See TECH-ARCHITECTURE.md § 8.3.
+// We are pinned to Tailwind v3.4 with Next.js 14. See
+// docs/design/TECH-ARCHITECTURE.md for the current stack boundary.
 
 import type { Config } from "tailwindcss";
 
@@ -36,7 +36,6 @@ const config: Config = {
         "seat-roam":      "var(--color-seat-roam)",
         "seat-filial":    "var(--color-seat-filial)",
         "seat-future":    "var(--color-seat-future)",
-        "seat-temporary": "var(--color-seat-temporary)",
         "seat-silent":    "var(--color-seat-silent)",
         "seat-exiled":    "var(--color-seat-exiled)",
 
@@ -45,7 +44,7 @@ const config: Config = {
         "safe-green":       "var(--color-safe-green)",
         "trace-blue":       "var(--color-trace-blue)",
 
-        // V2 backward-compat alias (auto-migrated via :root)
+        // Compatibility aliases for still-live personal pages.
         paper:   "var(--color-paper)",
         ink:     "var(--color-ink)",
         ink2:    "var(--color-ink2)",

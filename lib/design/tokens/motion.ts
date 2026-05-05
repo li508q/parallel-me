@@ -8,13 +8,13 @@ export const spring = {
   // 默认纸墨 spring：稳定、克制
   paper: { stiffness: 200, damping: 28, mass: 1 },
 
-  // 席位入席：纸卡轻轻"落桌"，不弹跳
+  // 声音入席：纸卡轻轻"落桌"，不弹跳
   seatLanding: { stiffness: 180, damping: 32, mass: 1 },
 
   // 阶段切换：横向 8px slide + 透明度交叉
   stageTransition: { stiffness: 240, damping: 30, mass: 0.8 },
 
-  // 签字：墨痕从中心扩散
+  // 承诺：墨痕从中心扩散
   signature: { stiffness: 100, damping: 18, mass: 1.2 },
 } as const;
 
@@ -23,7 +23,7 @@ export const duration = {
   fast:   "150ms",
   base:   "200ms",
   slow:   "300ms",
-  ritual: "500ms", // 仅签字 / 裁决进入
+  ritual: "500ms", // 仅承诺 / 清明落定进入
 } as const;
 
 // Easing — single curve covers 99% of transitions.

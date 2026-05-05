@@ -1,6 +1,6 @@
-// P0 component · 签字条 (SignatureSlip)
+// P0 component · 24h 承诺条 (SignatureSlip)
 // The emotional peak: the verdict carved on a deep-ink ritual surface, with
-// three honest exits — sign / defer / "I'm avoiding". 24h action is editable
+// three honest exits — commit / defer / "I'm avoiding". 24h action is editable
 // because users own their own commitment. Surface uses surface-deep token.
 
 "use client";
@@ -49,7 +49,7 @@ export function SignatureSlip({
     >
       <header className="px-6 sm:px-8 pt-6 pb-3 border-b border-paper-lift/10">
         <div className="text-[10px] tracking-[0.18em] text-paper-lift/50 uppercase">
-          会议决议
+          清明落定
         </div>
       </header>
 
@@ -59,7 +59,7 @@ export function SignatureSlip({
         </p>
         {loudestSeatName && (
           <p className="mt-3 text-body-sm text-paper-lift/50">
-            最响的声音：{loudestSeatName}
+          最响的声音：{loudestSeatName}
           </p>
         )}
       </div>
@@ -86,7 +86,7 @@ export function SignatureSlip({
           disabled={!canSign}
           className="px-5 py-2.5 rounded-md bg-paper-lift text-ink-core text-body-sm font-medium hover:bg-paper-base disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
         >
-          {signed ? "已签字" : "签字"}
+          {signed ? "已承诺" : "写下承诺"}
         </button>
         <button
           onClick={onPause}
@@ -106,7 +106,7 @@ export function SignatureSlip({
 
       {signed && (
         <div className="px-6 sm:px-8 py-3 bg-paper-lift/5 text-body-sm text-paper-lift/70 italic font-serif">
-          已签字。不是完美答案，是先走一步。
+          已写下。不是完美答案，是先走一步。
         </div>
       )}
     </article>

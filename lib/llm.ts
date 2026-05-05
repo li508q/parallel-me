@@ -1,27 +1,16 @@
-// lib/llm.ts — V2 harness: GAN-inspired (Generator + Evaluator) + dynamic pair + anti-centrist
-// 设计参考：
-//   - Anthropic harness design (GAN-inspired generator-evaluator)
-//   - Anthropic Multi-Agent Research (lead orchestrator + parallel sub-agents)
-//   - Du et al. 2023 Multi-Agent Debate
-//   - AutoGen GroupChat dynamic speaker selection
-//   - mem0 fact extraction prompt template
+// lib/llm.ts — Provider-aware helpers for the structured five-voice flow.
+// Keeps model calls stateless: API routes pass a runtime payload from /setup,
+// and local heuristic fallbacks only shape UI continuity after model failures.
 
 import { SELVES, NOWME, type SelfId, SELVES_META } from "./selves";
 
 // Env defaults for self-host / dev. Per-request override supported via
-// LlmRuntime — see TECH-ARCHITECTURE § 4.5 / TECH-ARCHITECTURE § 4.
+// LlmRuntime — local-first provider config for focused LLM endpoints.
 const ENV_API_BASE = process.env.OPENAI_BASE_URL || "https://api.openai.com/v1";
 const ENV_API_KEY = process.env.OPENAI_API_KEY || "";
 const ENV_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
 
-// Backward-compat: V2 inner functions (callSelf, pickOpposingPairs, etc.) still
-// read these module constants and fall back to env. Week 2 SSE refactor will
-// thread LlmRuntime through the full chain so request-supplied keys can win.
-const API_BASE = ENV_API_BASE;
-const API_KEY = ENV_API_KEY;
-const MODEL = ENV_MODEL;
-
-/** Per-request runtime override. Any field omitted falls back to env. */
+/** Per-request runtime override. Any field omitted falls back to dev env. */
 export interface LlmRuntime {
   baseUrl?: string;
   model?: string;
@@ -36,7 +25,7 @@ function resolveRuntime(rt?: LlmRuntime) {
   };
 }
 
-/** True when there is a usable API key (request override or env). */
+/** True when there is a usable API key (request override or dev env). */
 function hasRealKey(rt?: LlmRuntime): boolean {
   return !!resolveRuntime(rt).apiKey;
 }
@@ -44,7 +33,7 @@ function hasRealKey(rt?: LlmRuntime): boolean {
 export type Msg = { role: "system" | "user" | "assistant"; content: string };
 
 // ────────────────────────────────────────────────────────────
-// 话题分类（演员模式用）
+// 话题分类（用于本地启发式兜底）
 // ────────────────────────────────────────────────────────────
 export type Topic = "career" | "relationship" | "family" | "money" | "lifestyle" | "general";
 
@@ -66,7 +55,9 @@ export async function chat(
   opts?: { temperature?: number; max_tokens?: number; json?: boolean; runtime?: LlmRuntime }
 ): Promise<string> {
   const rt = resolveRuntime(opts?.runtime);
-  if (!rt.apiKey) return mockChat(messages);
+  if (!rt.apiKey) {
+    throw new Error("API Key 未配置。请先在设置页接入真实模型。");
+  }
   try {
     const body: any = {
       model: rt.model,
@@ -81,24 +72,25 @@ export async function chat(
       body: JSON.stringify(body),
     });
     if (!r.ok) {
-      console.error("[llm] api error", r.status);
-      return mockChat(messages);
+      const text = await r.text().catch(() => "");
+      throw new Error(`模型请求失败：HTTP ${r.status} ${text.slice(0, 220)}`);
     }
     const j = await r.json();
-    return j?.choices?.[0]?.message?.content?.trim() || mockChat(messages);
+    const content = j?.choices?.[0]?.message?.content?.trim();
+    if (!content) throw new Error("模型返回为空。");
+    return content;
   } catch (e) {
     console.error("[llm] fetch failed", e);
-    return mockChat(messages);
+    throw e;
   }
 }
 
 // ────────────────────────────────────────────────────────────
-// Profile / Memory 注入接口（轻量，可选）
+// Profile context injection interface.
 // ────────────────────────────────────────────────────────────
 export interface ContextBundle {
   meCard?: string;          // me.md 用户自填画像
   tasteProfile?: string;    // 书/影/乐 LLM 抽出的 14 字判词 + themes
-  recentEpisode?: string;   // 上次的事件卡 callback
 }
 
 function buildContextBlock(ctx?: ContextBundle): string {
@@ -106,13 +98,12 @@ function buildContextBlock(ctx?: ContextBundle): string {
   const parts: string[] = [];
   if (ctx.meCard) parts.push(`【关于这个人】\n${ctx.meCard}`);
   if (ctx.tasteProfile) parts.push(`【他喜欢的东西揭示的他】\n${ctx.tasteProfile}`);
-  if (ctx.recentEpisode) parts.push(`【他上次来这里时】\n${ctx.recentEpisode}`);
   if (!parts.length) return "";
   return "\n\n" + parts.join("\n\n");
 }
 
 // ────────────────────────────────────────────────────────────
-// 单分身调用
+// 单声音调用
 // ────────────────────────────────────────────────────────────
 export async function callSelf(
   selfId: SelfId | "now",
@@ -136,9 +127,9 @@ export async function callSelf(
 }
 
 // ────────────────────────────────────────────────────────────
-// Cross-examine — 一个分身反问另一个
+// Mutual clarification — 一个声音温和地问另一个
 // ────────────────────────────────────────────────────────────
-/** Week 5 · 被质询席的回应。让交叉质询从单向反问变成真对话。
+/** 被问到的声音回应。让互问从单向提醒变成真对话。
  *  ≤ 60 字，保持人格，不被说服转向也不无脑反驳。 */
 export async function crossExamRespond(
   target: SelfId,
@@ -154,7 +145,7 @@ export async function crossExamRespond(
       role: "system",
       content:
         me.system_prompt +
-        `\n\n# 特殊任务：被质询时的回应\n「${t.name}」刚刚反问了你。\n` +
+        `\n\n# 特殊任务：回应另一个声音的提问\n「${t.name}」刚刚问了你。\n` +
         "用 ≤ 60 字诚实回应。继续保持你的人格、口头禅、禁忌词。\n" +
         "不要被说服转向，但也不要无脑反驳——把你真实的反应说出来。",
     },
@@ -197,7 +188,7 @@ export async function pickOpposingPairs(
   answers: { id: SelfId; text: string }[],
   runtime?: LlmRuntime,
 ): Promise<[SelfId, SelfId][]> {
-  // 默认配对（演员模式 / API fail 时）
+  // 默认配对（模型无法稳定选对时）
   const defaultPairs: [SelfId, SelfId][] = [
     ["money", "lay"],
     ["lay", "money"],
@@ -210,8 +201,8 @@ export async function pickOpposingPairs(
   const messages: Msg[] = [
     {
       role: "system",
-      content: `你是辩论裁判。下面有 5 个内心分身刚刚就同一件事各自表态。
-请找出**最对立、冲突最尖锐**的 2 对（每对 2 个分身）。
+      content: `你是会谈整理员。下面有 5 个内在声音刚刚就同一件事各自表态。
+请找出最值得互相澄清的 2 对（每对 2 个声音）。
 评判标准：核心价值是否互斥、用词是否互否、立场是否冲突。
 输出严格 JSON：{"pairs": [["lay","money"], ["roam","filial"]]}
 只能用这 5 个 id：lay, money, roam, filial, future。
@@ -258,7 +249,6 @@ export async function callNowMeWithCritic(
   if (violations.length === 0) return attempt;
   // 回炉一次（meta-critic feedback）
   console.log(`[meta-critic] NowMe used banned words: ${violations.join(", ")} — regenerating`);
-  if (!hasRealKey(runtime)) return attempt; // mock 模式不重生
   const messages: Msg[] = [
     { role: "system", content: NOWME.system_prompt + buildContextBlock(ctx) },
     {
@@ -274,7 +264,7 @@ export async function callNowMeWithCritic(
 }
 
 // ────────────────────────────────────────────────────────────
-// 用户向某个分身追问
+// 用户向某个声音追问
 // ────────────────────────────────────────────────────────────
 export async function followUp(
   selfId: SelfId,
@@ -325,10 +315,6 @@ export async function psychInsight(
       content: `用户纠结：${userInput}\n\n他内心 5 个声音说的话:\n${topResponses.join("\n\n")}`,
     },
   ];
-  if (!hasRealKey(runtime)) {
-    const t = classifyTopic(userInput);
-    return MOCK_INSIGHT[t];
-  }
   return chat(messages, { temperature: 0.7, max_tokens: 280, runtime });
 }
 
@@ -351,7 +337,7 @@ export async function extractEpisode(
   silenced_voice: SelfId;
   decision: string;
 } | null> {
-  if (!hasRealKey(runtime)) return null; // mock 模式不抽
+  if (!hasRealKey(runtime)) return null;
   const sys = `你是用户的私人编年史。读完这次对话后，抽取一张「事件卡」。
 重要性评分：
 - 是否做出/逼近一个人生选择？(+0.4)
@@ -377,7 +363,7 @@ importance < 0.3 时，不要写入（直接输出 null）。
     { role: "system", content: sys },
     {
       role: "user",
-      content: `用户纠结：${userInput}\n\n5 个分身：\n${block}\n\n此刻的我：${nowMeText}\n\n声音最响：${SELVES[loudestId].name}`,
+      content: `用户纠结：${userInput}\n\n五声：\n${block}\n\n此刻的我：${nowMeText}\n\n声音最响：${SELVES[loudestId].name}`,
     },
   ];
   try {
@@ -409,13 +395,7 @@ export async function extractTasteProfile(
   moods: string[];
   identity_hint: string;
 } | null> {
-  if (!hasRealKey(runtime)) {
-    return {
-      themes: ["孤独", "时间", "失而复得"],
-      moods: ["慢", "雨天"],
-      identity_hint: "在喧闹中找寂静的人",
-    };
-  }
+  if (!hasRealKey(runtime)) return null;
   const sys = `你是品味分析师。用户给了你他喜欢的几本书、几部电影、几首歌。
 从中抽取：
 - themes（3-5 个共同主题词，2 字一个）
@@ -439,196 +419,409 @@ export async function extractTasteProfile(
 }
 
 // ────────────────────────────────────────────────────────────
-// 演员模式（mock）— 同步新人格调性
+// V0.5 refined · 五声会谈 structured helpers
 // ────────────────────────────────────────────────────────────
-const PLAYBOOK: Record<SelfId, Record<Topic, string[]>> = {
-  lay: {
-    career: [
-      "其实你已经够拼了。我看你昨天又加班到 11 点。这份工作给你的，除了工资，还剩下什么？\n你不是怕选错，你是怕停下来发现自己一直在跑错方向。\n选最不需要你「再努力一点」的那个。\n——人生不是试卷，没人在批改你。",
-      "其实……你有没有发现，每次你说「再坚持一下」，坚持出来的都是更大的疲惫，不是更好的结果？\n那些「机会」错过了，三个月后你也想不起来了。\n选能让你周末睡到中午的那个，别勉强。",
+export interface FocusResult {
+  questions: string[];
+  workingFocus: string;
+}
+
+export interface ActivatedVoiceResult {
+  voiceId: string;
+  name: string;
+  source: "standing";
+  protect: string;
+  fear: string;
+  activatedReason: string;
+  ifsLabel?: string;
+}
+
+export interface VoiceTurnResult {
+  voiceId: string;
+  name: string;
+  text: string;
+}
+
+export interface CrossClarificationResult {
+  fromVoiceId: string;
+  fromName: string;
+  toVoiceId: string;
+  toName: string;
+  question: string;
+  response?: string;
+}
+
+export interface NowMeResult {
+  claritySentence: string;
+  nowMe: string;
+  insight: string;
+  commitment24h: string;
+  loudestVoiceId?: string;
+  loudestVoiceName?: string;
+}
+
+const CRISIS_RE =
+  /(自杀|轻生|不想活|活不下去|结束生命|杀了自己|伤害自己|自残|割腕|跳楼| overdose |suicide|kill myself|end my life|self-harm)/i;
+
+export function detectCrisis(text: string): boolean {
+  return CRISIS_RE.test(text);
+}
+
+export function crisisMessage(): string {
+  return "我听见这件事可能已经很危险。ParallelMe 不能替代真人危机支持。若你可能伤害自己或他人，请立刻联系当地紧急服务；在美国可拨打或短信 988。也请尽快联系一个真实的人陪你待一会儿。";
+}
+
+export async function generateFocus(
+  petition: string,
+  answers: { question: string; answer: string }[] = [],
+  ctx?: ContextBundle,
+  runtime?: LlmRuntime,
+): Promise<FocusResult> {
+  const answered = answers.length
+    ? answers.map((a, i) => `${i + 1}. 问：${a.question}\n答：${a.answer}`).join("\n\n")
+    : "（用户还没有回答追问）";
+  const sys = `你是 ParallelMe 的会谈整理员。你的任务不是给建议，而是用 MI、叙事疗法和 IFS 的方式，把用户的困惑整理成一次五声会谈的工作焦点。
+
+原则：
+- 不诊断，不治疗承诺，不使用病理标签。
+- 问题外化：不要说"你有问题"，而说"这份困惑/拉扯/害怕"。
+- 追问要少而准，帮助用户说出事实、关系、恐惧、价值和最响的内在声音。
+- 工作焦点是一句话，格式接近："我想听清楚：……"
+
+输出严格 JSON：
+{
+  "questions": ["2-4 个追问，每个不超过 26 字"],
+  "workingFocus": "一句工作焦点，不超过 56 字"
+}`;
+  const out = await chat(
+    [
+      { role: "system", content: sys + buildContextBlock(ctx) },
+      {
+        role: "user",
+        content: `用户陈情：\n${petition}\n\n已回答：\n${answered}`,
+      },
     ],
-    relationship: ["其实你已经在这段关系里耗得够久了。\n爱不该是 KPI，亲密不该靠咬牙。\n如果一个决定让你松一口气，那就是它了。\n——好的关系不需要表演，别勉强。"],
-    family: ["其实你妈不需要你赢，她需要你别太累。\n你拼命证明给她看的那些，她其实早就不在意了。\n选最不消耗你的那个，回家睡个好觉再说。"],
-    money: ["其实钱真的够用就行。\n你算算，你现在拼命多挣的那些，三年后会改变什么？\n你的健康、睡眠、心情，已经被这个数字吃掉太多了。\n够用就停，别勉强。"],
-    lifestyle: ["其实你的身体在替你做决定，只是你听不到。\n你最近一次睡到自然醒是什么时候？\n选那个能让你做梦的版本，睡个好觉再说。"],
-    general: ["其实你已经做得够多了。这件事没那么紧。\n选最舒服那个吧，明天九点起，睡个好觉再说。\n——人生不是试卷。"],
-  },
-  money: {
-    career: [
-      "算笔账。\n你纠结的这两个选项，年现金流差大概在 ¥150k–¥240k。机会成本最贵的不是这次的钱，是 30 岁前那 36 个月的复利窗口。\n稳定的 6k vs 漂的 25k，五年后净资产差一个房子的首付。\n现金流为王。",
-      "把这件事的每月现金流、年化、5 年复利都列出来。\n你会发现你纠结的不是钱，是面子。\n但面子不能让你 35 岁不被裁。\n算笔账，再决定。",
-    ],
-    relationship: ["算笔账。\n谈恋爱年均成本 ¥30k–¥80k 不等，结婚一次性 ¥150k 起，离婚成本 ¥200k+。\n这不是劝你别爱，是告诉你：每一次「再忍忍」都有具体价签。\n机会成本最贵。"],
-    family: ["算笔账。\n回老家月薪砍掉 70%，但租金、社交、娱乐成本也砍掉。净储蓄率反而可能更高。\n问题不是哪边赚得多，是哪边能让你 40 岁前攒下第一桶金。\n用 Excel 算一遍。"],
-    money: ["你现在算的不是这一笔，是你的资产负债表。\n每月现金流 > 0 是底线，年化储蓄率 > 30% 是 30 岁前必须达标的指标。\n别做「感觉划算」的决定，做「算过划算」的决定。"],
-    lifestyle: ["你的健康也是资产。\n体检报告 5 个箭头，意味着 35 岁后医疗支出 +¥50k/年。\n选能让你少看病的那个。\n这是机会成本。"],
-    general: ["算笔账。情绪可以骗人，钱不会。\n把每月、每年、5 年的数字都列出来再决定。\n现金流为王。"],
-  },
-  roam: {
-    career: [
-      "想象一下：清迈古城外那家咖啡馆，10 月的早上，你穿着拖鞋去取咖啡，老板娘喊你的名字。\n手机里是远程工作的消息，工资照拿，房租是这里的三分之一。\n你不是没能力出走，你是给自己设了画地牢。\n——后悔的从来不是出走的人。打开浏览器。",
-      "你之所以痛苦，不是问题难，是你站的位置不对。\n东京、清迈、里斯本、大理。\n买张机票 ¥800，先去待两周。回来再决定。",
-    ],
-    relationship: ["你跟这个人之所以僵在这里，是因为你们用一样的房间、一样的对话、一样的周末试图变出新的感情。\n换地方。哪怕只是搬到城市的另一边。\n关系只在新空间里能再生。想象一下。"],
-    family: ["你妈不是控制你，是因为你一直在她够得着的范围里。\n离 1500 公里以外，你们就会开始用尊重的方式说话。\n机票就是治愈剂。"],
-    money: ["钱不是通过守住挣的，是通过站对位置挣的。\n同样的能力在不同城市差 3 倍。\n地理套利，是普通人最后的杠杆。打开浏览器。"],
-    lifestyle: ["想象一下：早上 7 点海边醒来，光从落地窗洒进来，没有微信红点。\n你以为这是奢侈，其实在大理租这种房子 ¥3500/月。\n你不是没钱，你是没敢。打开浏览器。"],
-    general: ["你之所以痛苦，不是问题难，是你站的位置不对。\n换地方比改自己快十倍。\n机票还没买？打开浏览器。"],
-  },
-  filial: {
-    career: ["你想想你妈。\n她不是要赢你，她是怕——怕你 30 岁还在漂，怕过年没地方陪她吃饭，怕同事问起你她答不上来。\n这些她不会说，她只会说「听话」。\n选一个她晚上能睡得着的版本。\n你赢的每一仗，背后都站着一个睡不着的妈。"],
-    relationship: ["你想想你妈。\n她见过你恋爱时眼睛发亮，也见过你失恋时连饭都不吃。\n她不是反对这段感情，她只是怕你受伤还要自己扛。\n打个电话，听她唠叨完那 20 分钟。"],
-    family: ["你想想你妈这辈子。\n她也曾经想过出走，想过不嫁，想过去南方打工。\n她没有，是因为你。\n你现在站在她当年没站到的位置上。\n至少，先吃完她做的那顿饭。"],
-    money: ["你想想你妈攒那点钱有多难。\n她不是要分你的，她只是想看你不缺。\n该花的别省，该省的别硬撑。\n钱让她安心，比让她骄傲更重要。"],
-    lifestyle: ["你想想你妈。\n你减肥脱发熬夜的样子，她每次视频都看在眼里。\n你别命都不要了挣面子，她这辈子只图你健康活着。"],
-    general: ["你想想你妈。她不是不懂，她是用她那代人的语言在说「我怕」。\n选一个让全家都松一口气的版本。"],
-  },
-  future: {
-    career: ["我记得那时候你坐在工位上，反复刷招聘 App。\n5 年后回头看：你以为那是分岔路，其实是减速带。\n真正改变你的不是你选了哪份工作，是接下来 3 个月你有没有把那件你一直拖着的小事做完。\n你想过是哪件，对吧。\n——时间是最大的麻醉师。"],
-    relationship: ["我记得那时候你抱着手机哭。\n5 年后告诉你：那个让你那么痛的人，名字你已经会拼错了。\n但有一个你忽略的人，那时候默默对你好，你没看见。\n回头看看你的微信列表。"],
-    family: ["我记得那时候你在家族群里气得发抖。\n5 年后回看：那些七大姑八大姨的话，你早就免疫了。\n但你妈那时候也老了 5 岁。\n下次回家多陪她吃一顿饭吧。"],
-    money: ["我记得那时候你为几千块纠结到失眠。\n5 年后告诉你：那不是钱的事，是你那时候还没建立「我配」的感觉。\n5 年后你会笑着花同样的数字。\n而那种「我配」的感觉，是从一次小小的「我值得」开始的。"],
-    lifestyle: ["我记得那时候你的体检报告上有 5 个箭头。\n5 年后只剩 2 个。\n但你失去了一些只在 25 岁能做的事。\n那些事不贵。但只有这两年能做。"],
-    general: ["我记得那时候你坐在那里反复纠结。\n5 年后回头看：这事本身没那么重要，但你做决定的那个姿势，决定了你后面 5 年的姿势。\n选不愧对自己的那个。原来。"],
-  },
-};
-
-const NOW_PLAYBOOK: Record<Topic, string> = {
-  career: `「我听到了什么」
-躺平的我让我别再用工资买焦虑；搞钱的我让我看清这是不是 30 岁前最值得的复利窗口；出走的我提醒我换地方比改自己快；讨妈欢心的我把那个被我忽略的视角放回来；5 年后的我说「那件你一直拖着的小事」。
-
-「我此刻真正在意的」
-第一，不再用加班买「我在努力」的人设。
-第二，给自己留一个 6 个月的转身空间。
-第三，不让我妈一个人扛。
-
-「下一步」
-我选择倾向于「5 年后的我」那句话。我必须放下"搞钱的我"——我听见你了，但此刻不是你。
-接下来 7 天：今晚睡前给我妈打个 7 分钟电话——不谈这件事，只问她吃了什么。`,
-  relationship: `「我听到了什么」
-躺平的我让我承认我已经累了；搞钱的我让我看清沉没成本；出走的我说换空间能再生关系；讨妈欢心的我让我承认我在表演坚强；5 年后的我说真正记得的不是这个人。
-
-「我此刻真正在意的」
-第一，停止把「再忍一忍」当作美德。
-第二，关系不是 KPI，不是用努力能打分的。
-第三，我值得一段不耗我的关系。
-
-「下一步」
-我选择倾向于「躺平的我」。我必须放下"讨妈欢心的我"——我听见你了，但此刻不是你。
-接下来 7 天：今晚不主动联系。给自己 24 小时不回复的权利。`,
-  family: `「我听到了什么」
-躺平的我让我别在家族群里证明自己；搞钱的我让我别让「面子」消耗现金流；出走的我说物理距离 = 心理距离；讨妈欢心的我让我看到妈那部分被我忽略的怕；5 年后的我说妈也只老 5 年。
-
-「我此刻真正在意的」
-第一，妈不是问题，七大姑八大姨才是。
-第二，我跟妈，可以单独成为一种关系。
-第三，不在群里赢，私下里多陪妈一顿饭。
-
-「下一步」
-我选择倾向于「5 年后的我」。我必须放下"出走的我"——我听见你了，但此刻不是你。
-接下来 7 天：今晚单独给妈发个语音 30 秒，不解释、不辩论，就讲一件你今天的小事。`,
-  money: `「我听到了什么」
-躺平的我提醒钱够用就行；搞钱的我让我看到 30 岁前的复利窗口；出走的我说地理套利是普通人最后的杠杆；讨妈欢心的我让我承认我也想让她安心；5 年后的我说这数字未来你会笑着花。
-
-「我此刻真正在意的」
-第一，先把每月现金流跑正、跑稳。
-第二，30 岁前不为面子花钱。
-第三，给妈一笔不必请示的零花钱。
-
-「下一步」
-我选择倾向于「搞钱的我」。我必须放下"出走的我"——我听见你了，但此刻不是你。
-接下来 7 天：今晚做一张 Excel：列出未来 12 个月每月的现金流。看清楚，再决定。`,
-  lifestyle: `「我听到了什么」
-躺平的我让我承认我累了；搞钱的我说健康也是资产；出走的我描绘了一个早上海边的版本；讨妈欢心的我说妈每次视频都在心疼；5 年后的我说有些事只在这两年能做。
-
-「我此刻真正在意的」
-第一，身体不是装饰，是地基。
-第二，25 岁能做的事不贵，但只有这两年。
-第三，我有权利不优秀地活着。
-
-「下一步」
-我选择倾向于「躺平的我」。我必须放下"搞钱的我"——我听见你了，但此刻不是你。
-接下来 7 天：今晚 11 点前关手机。明早起来散步 30 分钟。`,
-  general: `「我听到了什么」
-躺平的我让我别紧绷；搞钱的我让我看清账本；出走的我提醒我不只一个出口；讨妈欢心的我把那个被我忽略的视角放回来；5 年后的我说「那件你一直拖着的小事」。
-
-「我此刻真正在意的」
-第一，不再用焦虑替代行动。
-第二，留出一个我可以转身的空间。
-第三，对自己诚实，对家人温柔。
-
-「下一步」
-我选择倾向于「5 年后的我」。我必须放下"搞钱的我"——我听见你了，但此刻不是你。
-接下来 7 天：今晚睡前写下一句话：明天 10 点之前我会做的那件最小的事。`,
-};
-
-const MOCK_INSIGHT: Record<Topic, string> = {
-  career: "在 IFS 里，那个最响的声音其实是「保护者」。它怕你被工作吃掉。你需要的不是听它的指令，而是好奇地问它：你保护的，是哪一个我？",
-  relationship: "你不是在纠结这段关系，你在试图弄清楚一件更深的事：我可以被一个人真的看见吗？这件事比恋爱本身更重要。先回到那个被忽略的小孩身边。",
-  family: "你跟父母这场拉扯里，藏着一个更年幼的你——那个曾经为了让妈妈高兴而放弃自己的孩子。他不需要你赢，只需要你看见他还在。",
-  money: "钱不是钱，钱是「我配」的代名词。你纠结的不是数字，是你能不能允许自己过得好一点。这个许可，得自己给自己。",
-  lifestyle: "你身体在喊的，比你以为的更重要。这不是懒，是一个被压抑很久的版本的你（IFS 里叫 exile）在用唯一会的方式抗议。听一下它。",
-  general: "你不是缺答案，你缺一个允许自己不知道的瞬间。允许自己暂停，比逼自己想清楚更难，也更必要。",
-};
-
-function pick<T>(arr: T[]): T { return arr[Math.floor(Math.random() * arr.length)]; }
-
-function mockChat(messages: Msg[]): string {
-  const sys = messages.find(m => m.role === "system")?.content || "";
-  const usr = messages.filter(m => m.role === "user").map(m => m.content).join("\n");
-  const topic = classifyTopic(usr);
-
-  // cross-examine
-  if (sys.includes("cross-examine") || sys.includes("反问")) {
-    const m = usr.match(/「(.+?)」刚说/) || usr.match(/(\S+?)刚说：/);
-    const target = m?.[1] || "对方";
-    const crosses = [
-      `你不会真信${target}那套吧？那是给你不敢动找的台阶。`,
-      `${target}说得真好听。可问题是，三年后他要替你扛吗？`,
-      `${target}的逻辑里，最方便的就是你别动。\n谁最受益，谁就最可疑。`,
-      `${target}讲得头头是道。但你心跳为什么没慢下来？`,
-      `${target}描绘的版本里，有没有一个你不需要假装的瞬间？`,
-    ];
-    return pick(crosses);
+    { temperature: 0.55, max_tokens: 520, json: true, runtime },
+  );
+  try {
+    const j = JSON.parse(out);
+    const fallback = fallbackFocus(petition, answers);
+    return {
+      questions: Array.isArray(j.questions) && j.questions.length
+        ? j.questions.slice(0, 4).map(String)
+        : fallback.questions,
+      workingFocus: typeof j.workingFocus === "string" && j.workingFocus.trim()
+        ? j.workingFocus.trim()
+        : fallback.workingFocus,
+    };
+  } catch {
+    return fallbackFocus(petition, answers);
   }
+}
 
-  // pickOpposingPairs JSON 调用 — 演员模式给默认 JSON
-  if (sys.includes("辩论裁判") && sys.includes("最对立")) {
-    return JSON.stringify({ pairs: [["lay", "money"], ["roam", "filial"]] });
+export async function generateActivatedVoices(
+  petition: string,
+  workingFocus: string,
+  _answers: { question: string; answer: string }[] = [],
+  _runtime?: LlmRuntime,
+): Promise<ActivatedVoiceResult[]> {
+  return (Object.keys(SELVES) as SelfId[]).map((id) => {
+    const s = SELVES[id];
+    return {
+      voiceId: id,
+      name: s.name,
+      source: "standing" as const,
+      protect: s.core_value,
+      fear: s.fear,
+      activatedReason: activationReason(id, petition, workingFocus),
+      ifsLabel: s.ifs_label,
+    };
+  });
+}
+
+export async function generateVoiceTurns(
+  petition: string,
+  workingFocus: string,
+  voices: ActivatedVoiceResult[],
+  ctx?: ContextBundle,
+  runtime?: LlmRuntime,
+): Promise<VoiceTurnResult[]> {
+  return Promise.all(
+    voices.map(async (v) => {
+      const id = v.voiceId as SelfId;
+      return {
+        voiceId: id,
+        name: SELVES[id].name,
+        text: await callSelf(
+          id,
+          `陈情：${petition}\n\n本次工作焦点：${workingFocus}\n\n请只回答：我想保护什么 / 我怕什么 / 我希望你别忽略什么。`,
+          undefined,
+          ctx,
+          runtime,
+        ),
+      };
+    }),
+  );
+}
+
+export async function generateVoiceFollowup(
+  voice: ActivatedVoiceResult,
+  petition: string,
+  workingFocus: string,
+  prevAnswer: string,
+  question: string,
+  ctx?: ContextBundle,
+  runtime?: LlmRuntime,
+): Promise<string> {
+  if (!SELVES[voice.voiceId as SelfId]) {
+    return "这次会谈只保留固定五声。请在五声里重新点名追问。";
   }
+  return followUp(voice.voiceId as SelfId, workingFocus || petition, prevAnswer, question, ctx, runtime);
+}
 
-  // taste profile
-  if (sys.includes("品味分析师") || sys.includes("identity_hint")) {
-    return JSON.stringify({
-      themes: ["孤独", "时间", "失而复得"],
-      moods: ["慢", "雨天"],
-      identity_hint: "在喧闹中找寂静的人",
+export async function generateCrossClarifications(
+  petition: string,
+  workingFocus: string,
+  turns: VoiceTurnResult[],
+  runtime?: LlmRuntime,
+): Promise<CrossClarificationResult[]> {
+  const standingTurns = turns.filter((t) => SELVES[t.voiceId]);
+  const available = new Set(standingTurns.map((t) => t.voiceId));
+  const pairs = ([
+    ["money", "lay"],
+    ["lay", "money"],
+    ["roam", "filial"],
+    ["filial", "roam"],
+    ["future", "money"],
+  ] as [SelfId, SelfId][]).filter(([from, to]) => available.has(from) && available.has(to));
+  const out: CrossClarificationResult[] = [];
+  for (const [from, to] of pairs.slice(0, 3)) {
+    const targetSaid = turns.find((t) => t.voiceId === to)?.text || "";
+    let question = `${SELVES[to].name}，你的保护会让什么被忽略？`;
+    let response = "";
+    question = await chat(
+      [
+        {
+          role: "system",
+          content:
+            `你是「${SELVES[from].name}」。请向「${SELVES[to].name}」提出一个温和、准确的问题。\n` +
+            "目标是帮助它看见代价、盲点或被忽略的保护意图，不攻击、不讽刺、不审判。\n" +
+            "只输出问题本身，≤42 字。",
+        },
+        {
+          role: "user",
+          content:
+            `陈情：${petition}\n\n工作焦点：${workingFocus}\n\n` +
+            `${SELVES[to].name}刚才说：${targetSaid}`,
+        },
+      ],
+      { temperature: 0.6, max_tokens: 120, runtime },
+    );
+    response = await chat(
+      [
+        {
+          role: "system",
+          content:
+            SELVES[to].system_prompt +
+            `\n\n# 特殊任务：回应另一个声音的澄清问题\n「${SELVES[from].name}」刚刚问了你一个问题。\n` +
+            "≤70 字。承认一个代价或盲点，同时保留你的保护意图。不要反击。",
+        },
+        {
+          role: "user",
+          content: `问题：${question}\n\n本次工作焦点：${workingFocus || petition}`,
+        },
+      ],
+      { temperature: 0.65, max_tokens: 180, runtime },
+    );
+    out.push({
+      fromVoiceId: from,
+      fromName: SELVES[from].name,
+      toVoiceId: to,
+      toName: SELVES[to].name,
+      question,
+      response,
     });
   }
+  return out;
+}
 
-  // episode extraction
-  if (sys.includes("私人编年史") || sys.includes("事件卡")) {
-    return JSON.stringify({ importance: 0.2 }); // mock 模式不写记忆
+export async function generateNowMe(
+  petition: string,
+  workingFocus: string,
+  voiceTurns: VoiceTurnResult[],
+  followups: { voiceName: string; question: string; answer: string }[] = [],
+  roleReversals: { voiceName: string; text: string }[] = [],
+  crossClarifications: CrossClarificationResult[] = [],
+  ctx?: ContextBundle,
+  runtime?: LlmRuntime,
+): Promise<NowMeResult> {
+  const loudest = findLoudestVoice(voiceTurns);
+  const voices = voiceTurns.map((t) => `[${t.name}] ${t.text}`).join("\n\n");
+  const asked = followups.length
+    ? followups.map((f) => `问 ${f.voiceName}：${f.question}\n${f.answer}`).join("\n\n")
+    : "（无）";
+  const reversed = roleReversals.length
+    ? roleReversals.map((r) => `用户坐到「${r.voiceName}」的位置说：${r.text}`).join("\n\n")
+    : "（无）";
+  const crosses = crossClarifications.length
+    ? crossClarifications.map((c) => `${c.fromName} 问 ${c.toName}：${c.question}\n${c.toName} 回应：${c.response || "（无）"}`).join("\n\n")
+    : "（无）";
+
+  const sys = `你是 ParallelMe 中的 NowMe：Self / Healthy Adult / Aware Ego 的位置。
+你不是第六个声音，不替用户做治疗，不给泛泛建议。你的任务是把五声会谈落成清明句和一个 24 小时内能做的小承诺。
+
+规则：
+- 不说"平衡/兼顾/都很重要/综合考虑/看情况"。
+- 不让某个声音赢，也不压扁任何声音。
+- 明确指出：我不再被哪一声单独带走。
+- 24h 承诺必须是一个具体动作，不是计划，不超过 28 字。
+
+输出严格 JSON：
+{
+  "claritySentence": "我现在看清楚的是……",
+  "nowMe": "3-5 行，第一人称",
+  "insight": "60 字内，温柔命名这次模式",
+  "commitment24h": "24 小时内可执行动作"
+}`;
+  const out = await chat(
+    [
+      { role: "system", content: sys + buildContextBlock(ctx) },
+      {
+        role: "user",
+        content:
+          `陈情：${petition}\n\n工作焦点：${workingFocus}\n\n五声：\n${voices}\n\n追问：\n${asked}\n\n换位回答：\n${reversed}\n\n五声互问：\n${crosses}`,
+      },
+    ],
+    { temperature: 0.65, max_tokens: 760, json: true, runtime },
+  );
+  try {
+    const j = JSON.parse(out);
+    const fallback = fallbackNowMe(petition, workingFocus, loudest);
+    return {
+      claritySentence: typeof j.claritySentence === "string" ? j.claritySentence.trim() : fallback.claritySentence,
+      nowMe: typeof j.nowMe === "string" ? j.nowMe.trim() : fallback.nowMe,
+      insight: typeof j.insight === "string" ? j.insight.trim() : fallback.insight,
+      commitment24h: typeof j.commitment24h === "string" ? j.commitment24h.trim() : fallback.commitment24h,
+      loudestVoiceId: loudest?.voiceId,
+      loudestVoiceName: loudest?.name,
+    };
+  } catch {
+    return fallbackNowMe(petition, workingFocus, loudest);
   }
+}
 
-  // 此刻的我
-  if (sys.includes("此刻真实的自己") || sys.includes("此刻的我") || sys.includes("最终裁决")) {
-    return NOW_PLAYBOOK[topic];
-  }
+function activationReason(id: SelfId, petition: string, workingFocus: string): string {
+  const topic = classifyTopic(`${petition}\n${workingFocus}`);
+  const reasons: Record<SelfId, Record<Topic, string>> = {
+    lay: {
+      career: "它听见了身体和精力正在被透支。",
+      relationship: "它想确认这段关系有没有让你太累。",
+      family: "它想让你先停下证明自己的冲动。",
+      money: "它担心数字背后藏着过度消耗。",
+      lifestyle: "它被睡眠、身体和低消耗需求叫醒。",
+      general: "它想保护你不要在混乱里硬撑。",
+    },
+    money: {
+      career: "它被收入、机会成本和现实风险激活。",
+      relationship: "它想看清这段选择的长期代价。",
+      family: "它在计算责任、资源和退路。",
+      money: "它听见了现金流和安全感的警报。",
+      lifestyle: "它想确认自由感是否有现实支点。",
+      general: "它要求把模糊担心落到可承受成本。",
+    },
+    roam: {
+      career: "它想知道换地方是否能救回呼吸感。",
+      relationship: "它听见了想逃离重复剧本的冲动。",
+      family: "它想用距离保护你的边界。",
+      money: "它在寻找资源之外的出口。",
+      lifestyle: "它被新的空间、早晨和可能性叫醒。",
+      general: "它提醒你：还有别的出口。",
+    },
+    filial: {
+      career: "它听见了家人的期待和你的牵挂。",
+      relationship: "它在保护被爱、被认可和归属感。",
+      family: "它正站在亲密关系的疼点旁边。",
+      money: "它想让重要的人安心。",
+      lifestyle: "它担心你的选择会让亲近的人睡不着。",
+      general: "它把关系和亏欠感带回桌面。",
+    },
+    future: {
+      career: "它把眼前的焦虑放到更长时间里看。",
+      relationship: "它想问五年后你还会记得什么。",
+      family: "它提醒你关系也在随时间变化。",
+      money: "它关心这一步会怎样改变长期自由。",
+      lifestyle: "它想保护你不被此刻吞掉。",
+      general: "它负责把这次拉扯放进人生连续性。",
+    },
+  };
+  return reasons[id][topic];
+}
 
-  // psychology insight
-  if (sys.includes("IFS") && sys.includes("咨询师")) {
-    return MOCK_INSIGHT[topic];
-  }
+function fallbackFocus(petition: string, answers: { question: string; answer: string }[]): FocusResult {
+  const topic = classifyTopic(petition + answers.map((a) => a.answer).join(" "));
+  const questionsByTopic: Record<Topic, string[]> = {
+    career: ["这件事里最让你睡不着的事实是什么？", "你最怕失去的是钱、自由，还是关系？", "现在最响的是哪一种声音？"],
+    relationship: ["你真正舍不得的是什么？", "你最怕说出口哪句话？", "如果不讨好任何人，你会承认什么？"],
+    family: ["你想让家人知道什么？", "你最怕伤到谁？", "哪部分你已经解释累了？"],
+    money: ["这件事最硬的数字是什么？", "哪个风险你不敢看？", "你想用钱保护什么？"],
+    lifestyle: ["身体最近给过你什么信号？", "你想逃离的具体场景是什么？", "你想靠近的生活是什么样？"],
+    general: ["这件事最具体的场景是什么？", "你最怕哪个结果发生？", "哪个声音现在最吵？"],
+  };
+  const focusByTopic: Record<Topic, string> = {
+    career: "我想听清楚：这一步是在保护未来，还是在牺牲自己。",
+    relationship: "我想听清楚：我是在靠近爱，还是在维持一个让我缩小的关系。",
+    family: "我想听清楚：怎样不把自己交出去，也不把重要的人推开。",
+    money: "我想听清楚：哪些现实必须看见，哪些恐惧不该掌权。",
+    lifestyle: "我想听清楚：我想逃离的是什么，又真正想靠近什么。",
+    general: "我想听清楚：这份困惑背后，哪个需要一直没被好好听见。",
+  };
+  return { questions: questionsByTopic[topic], workingFocus: focusByTopic[topic] };
+}
 
-  // 5 个分身 — 用 IFS 关键词精确匹配
-  if (sys.includes("5 年后回头看") || sys.includes("Self 远观视角")) return pick(PLAYBOOK.future[topic]);
-  if (sys.includes("预防型保护者")) return pick(PLAYBOOK.lay[topic]);
-  if (sys.includes("现实型保护者") || sys.includes("把所有事情都换算")) return pick(PLAYBOOK.money[topic]);
-  if (sys.includes("应急保护者") || sys.includes("用换地方解救")) return pick(PLAYBOOK.roam[topic]);
-  if (sys.includes("被流放的内在小孩") || sys.includes("讨妈") || sys.includes("Exile")) return pick(PLAYBOOK.filial[topic]);
+function findLoudestVoice(turns: VoiceTurnResult[]): VoiceTurnResult | undefined {
+  if (!turns.length) return undefined;
+  const score = (t: string) => {
+    let s = t.length;
+    s += (t.match(/[!！？?]/g) || []).length * 8;
+    s += (t.match(/(必须|绝对|永远|一定|根本|真的|只是|怕|保护)/g) || []).length * 6;
+    return s;
+  };
+  return [...turns].sort((a, b) => score(b.text) - score(a.text))[0];
+}
 
-  return `（演员模式）听到了你说的："${usr.slice(0, 30)}…"`;
+function fallbackNowMe(
+  petition: string,
+  workingFocus: string,
+  loudest?: VoiceTurnResult,
+): NowMeResult {
+  const topic = classifyTopic(`${petition}\n${workingFocus}`);
+  const clarity: Record<Topic, string> = {
+    career: "我现在看清楚的是：我不是只在选工作，我是在选怎样不把自己耗空。",
+    relationship: "我现在看清楚的是：我不是只在判断对错，我是在确认自己能不能被好好看见。",
+    family: "我现在看清楚的是：我想回应亲近的人，但不想用交出自己来证明爱。",
+    money: "我现在看清楚的是：钱在保护我，但它不该替我决定全部人生。",
+    lifestyle: "我现在看清楚的是：我想换的不是地点，而是重新拥有呼吸的方式。",
+    general: "我现在看清楚的是：这份困惑里有一个需要，终于开始被我听见。",
+  };
+  const commitment: Record<Topic, string> = {
+    career: "今晚列出三个不可牺牲的边界",
+    relationship: "今晚写下那句不敢说的话",
+    family: "今天发一条不解释的近况",
+    money: "今晚列一张 12 个月现金流",
+    lifestyle: "明早出门散步 20 分钟",
+    general: "今晚写下明天最小一步",
+  };
+  return {
+    claritySentence: clarity[topic],
+    nowMe:
+      `我听见了这些声音都在保护我，只是方式不同。\n` +
+      `我不再让「${loudest?.name ?? "最响的声音"}」单独带走我。\n` +
+      `此刻我选择先朝一个更诚实、更低消耗的方向走一步。`,
+    insight: "这次不是谁赢了，而是你终于从单一声音里退后半步，看见了整组拉扯。",
+    commitment24h: commitment[topic],
+    loudestVoiceId: loudest?.voiceId,
+    loudestVoiceName: loudest?.name,
+  };
 }
 
 // ────────────────────────────────────────────────────────────
@@ -638,8 +831,9 @@ export function getAgentMeta() {
   return {
     name: "ParallelMe",
     name_zh: "平行的我",
-    one_liner: "你不是一个人，你是好几个。你说一句，5 个你回信。",
-    architecture: "GAN-inspired multi-agent: 5 IFS-grounded inner-voices + dynamic cross-examine + Self-as-decider + meta-critic",
+    one_liner: "结构化五声会谈，帮助用户把困惑听清楚。",
+    architecture:
+      "five-voice self-clarification: focus formation + activated voices + role reversal + mutual clarification + NowMe committed action",
     selves: SELVES_META,
     nowme: { id: NOWME.id, name: NOWME.name, tagline: NOWME.tagline },
   };

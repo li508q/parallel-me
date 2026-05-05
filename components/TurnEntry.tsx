@@ -1,14 +1,14 @@
-// Week 5 · TurnEntry — single line on the meeting timeline.
+// TurnEntry — a single line on the five-voice meeting timeline.
 // Kinds:
-//   case          · 立案 paper inside timeline
-//   seat          · 席位发言（带左色边 + 时间戳 + 名字 + 正文）
-//   followup      · 席位被点名后的回答（同 seat 但有 "被点名" badge）
+//   case          · 陈情 paper inside timeline
+//   seat          · 声音发言（带左色边 + 时间戳 + 名字 + 正文）
+//   followup      · 声音被点名后的回答（同 seat 但有 "被点名" badge）
 //   user          · 用户的话（右对齐 italic 引号）
 //   scribe        · 书记中性侧记（居中 横线 灰小字）
-//   cross-question· 交叉质询的发问（⚔ A → B + 大字引号）
-//   cross-response· 被质询席的回应（小卡 dim）
-//   user-mark     · 用户判定（居中小字 "主持人判定：问中了"）
-//   verdict       · 此刻的我裁决（surface-deep ritual block）
+//   cross-question· 五声互问
+//   cross-response· 被问到的声音回应
+//   user-mark     · 用户修正或阶段确认
+//   verdict       · NowMe 收束（surface-deep ritual block）
 
 import * as React from "react";
 import type { SelfId } from "@/lib/selves";
@@ -96,7 +96,7 @@ export function TurnEntry(props: TurnEntryProps) {
     return (
       <article className="bg-paper-lift border border-paper-edge rounded-md px-5 py-4 mb-6">
         <div className="text-[10px] tracking-[0.18em] text-ink-mute uppercase mb-2">
-          本次议题
+          陈情
         </div>
         <p className="font-serif text-title text-ink-core leading-snug">
           {props.text}
@@ -131,9 +131,9 @@ export function TurnEntry(props: TurnEntryProps) {
     return (
       <article className="my-5">
         <div className="text-[10px] tracking-[0.18em] text-ink-mute uppercase mb-2 flex items-center gap-2">
-          <span className="text-attention-copper">⚔</span>
+          <span className="text-attention-copper">·</span>
           <span>
-            {props.speakerName} 质询 {props.toSpeakerName}
+            {props.speakerName} 问 {props.toSpeakerName}
           </span>
           {props.meta && <span className="text-ink-faint">· {props.meta}</span>}
         </div>

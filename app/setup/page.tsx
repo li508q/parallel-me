@@ -1,25 +1,25 @@
 "use client";
 
-// Provider Setup Wizard — 5 steps. Pure visual (no .scribble/.hand-box).
-// See TECH-ARCHITECTURE.md § 4 for product spec.
+// Provider Setup · real API only.
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import {
   PRESETS,
+  clearProvider,
+  loadActiveProvider,
+  maskKey,
   newProviderId,
   saveActiveProvider,
   saveProviderSecret,
-  maskKey,
-  loadActiveProvider,
-  clearProvider,
-  type ProviderType,
   type ProviderConfig,
+  type ProviderPreset,
+  type ProviderType,
 } from "@/lib/provider";
 
-type Step = 1 | 2 | 3 | 4 | 5;
-type SaveMode = "browser" | "session" | "env";
+type Step = 1 | 2 | 3 | 4;
+type SaveMode = "browser" | "session";
 
 interface TestResult {
   ok: boolean;
@@ -29,11 +29,13 @@ interface TestResult {
   error?: string;
 }
 
-const PROVIDERS_ORDER: ProviderType[] = [
+const PROVIDERS: ProviderType[] = [
   "deepseek",
-  "openai",
-  "openai-compatible",
-  "mock",
+  "bailian",
+  "kimi",
+  "minimax",
+  "doubao",
+  "custom",
 ];
 
 export default function SetupPage() {
@@ -41,47 +43,31 @@ export default function SetupPage() {
   const existing = typeof window !== "undefined" ? loadActiveProvider() : null;
 
   const [step, setStep] = useState<Step>(1);
-  const [selected, setSelected] = useState<ProviderType | null>(null);
+  const [selected, setSelected] = useState<ProviderType>("deepseek");
   const [apiKey, setApiKey] = useState("");
-  const [baseUrl, setBaseUrl] = useState("");
-  const [model, setModel] = useState("");
+  const [baseUrl, setBaseUrl] = useState(PRESETS.deepseek.baseUrl);
+  const [model, setModel] = useState(PRESETS.deepseek.model);
+  const [saveMode, setSaveMode] = useState<SaveMode>("browser");
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<TestResult | null>(null);
-  const [saveMode, setSaveMode] = useState<SaveMode>("browser");
 
-  function selectProvider(p: ProviderType) {
-    setSelected(p);
-    const preset = PRESETS[p];
-    setBaseUrl(preset.baseUrl);
-    setModel(preset.model);
+  const preset = PRESETS[selected];
+  const canContinue =
+    step === 1 ||
+    (step === 2 && !!apiKey.trim() && !!baseUrl.trim() && !!model.trim()) ||
+    (step === 3 && !!testResult?.ok);
+
+  function selectProvider(provider: ProviderType) {
+    setSelected(provider);
+    setBaseUrl(PRESETS[provider].baseUrl);
+    setModel(PRESETS[provider].model);
     setApiKey("");
     setTestResult(null);
   }
 
-  function next() {
-    if (step === 1) {
-      if (!selected) return;
-      setStep(selected === "mock" ? 5 : 2);
-    } else if (step === 2) {
-      setStep(3);
-    } else if (step === 3) {
-      setStep(4);
-    } else if (step === 4) {
-      saveAndFinish();
-    }
-  }
-
-  function back() {
-    if (step === 5 && selected === "mock") {
-      setStep(1);
-      return;
-    }
-    if (step > 1) setStep((step - 1) as Step);
-  }
-
   async function runTest() {
-    if (!apiKey || !baseUrl || !model) {
-      setTestResult({ ok: false, error: "请填写完整 base URL / model / key" });
+    if (!apiKey.trim() || !baseUrl.trim() || !model.trim()) {
+      setTestResult({ ok: false, error: "API Key、Base URL、Model 三项都需要填写。" });
       return;
     }
     setTesting(true);
@@ -90,7 +76,11 @@ export default function SetupPage() {
       const r = await fetch("/api/provider/test", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ baseUrl, model, apiKey }),
+        body: JSON.stringify({
+          baseUrl: baseUrl.trim(),
+          model: model.trim(),
+          apiKey: apiKey.trim(),
+        }),
       });
       const j: TestResult = await r.json();
       setTestResult(j);
@@ -102,256 +92,251 @@ export default function SetupPage() {
   }
 
   function saveAndFinish() {
-    if (!selected) return;
+    if (!testResult?.ok) {
+      setStep(3);
+      return;
+    }
     const id = newProviderId();
     const config: ProviderConfig = {
       id,
       provider: selected,
-      label: PRESETS[selected].label,
-      baseUrl,
-      model,
-      apiKeyRef: saveMode === "env" ? "env" : saveMode,
-      maskedKey: apiKey ? maskKey(apiKey) : undefined,
+      label: preset.label,
+      baseUrl: baseUrl.trim().replace(/\/+$/, ""),
+      model: model.trim(),
+      apiKeyRef: saveMode,
+      maskedKey: maskKey(apiKey.trim()),
       createdAt: Date.now(),
-      lastTestedAt: testResult ? Date.now() : undefined,
-      lastStatus: testResult?.ok ? "ok" : testResult ? "failed" : undefined,
-      lastTestLatencyMs: testResult?.latencyMs,
-      lastTestError: testResult?.ok ? undefined : testResult?.error?.slice(0, 120),
+      lastTestedAt: Date.now(),
+      lastStatus: "ok",
+      lastTestLatencyMs: testResult.latencyMs,
     };
     saveActiveProvider(config);
-    if (saveMode === "browser" && apiKey && selected !== "mock") {
-      saveProviderSecret(id, apiKey);
-    }
-    setStep(5);
-  }
-
-  function finishMock() {
-    const id = newProviderId();
-    const config: ProviderConfig = {
-      id,
-      provider: "mock",
-      label: PRESETS.mock.label,
-      baseUrl: "",
-      model: "",
-      apiKeyRef: "browser",
-      createdAt: Date.now(),
-    };
-    saveActiveProvider(config);
-    router.push("/");
-  }
-
-  function finishReal() {
+    saveProviderSecret(id, apiKey.trim(), saveMode);
     router.push("/");
   }
 
   function deleteExisting() {
-    if (!confirm("将删除当前钥匙与连接配置。确认？")) return;
+    if (!confirm("将删除当前 API Key 与连接配置。确认？")) return;
     clearProvider();
     location.reload();
   }
 
-  const canNext =
-    (step === 1 && !!selected) ||
-    (step === 2 && !!apiKey && !!baseUrl && !!model) ||
-    step === 3 ||
-    step === 4;
-
   return (
-    <main className="min-h-screen px-5 sm:px-10 py-12 sm:py-16 max-w-2xl mx-auto font-sans text-ink-body">
-      <header className="mb-12">
-        <Link
-          href="/"
-          className="text-xs tracking-[0.18em] text-ink-mute uppercase hover:text-ink-core transition-colors"
-        >
-          ← 返回我的阁
-        </Link>
-        <p className="mt-8 text-xs tracking-[0.18em] text-ink-mute uppercase mb-2">
-          ParallelMe · 内阁会议
-        </p>
-        <h1 className="font-serif text-headline text-ink-core leading-tight">
-          给你的阁<br />一把钥匙
-        </h1>
-        <p className="mt-4 text-body text-ink-body leading-relaxed">
-          钥匙存在这台设备上，你随时可以更换或删除。
-          <br />
-          ParallelMe 的服务器永远不保存它。
-        </p>
+    <main className="min-h-screen px-5 sm:px-10 py-10 sm:py-14 max-w-5xl mx-auto font-sans text-ink-body">
+      <header className="mb-10">
+        <div className="flex items-center justify-between gap-3 flex-wrap mb-10">
+          <Link
+            href="/"
+            className="text-xs tracking-[0.18em] text-ink-mute uppercase hover:text-ink-core transition-colors"
+          >
+            ← 我的声音
+          </Link>
+          <span className="text-xs tracking-[0.18em] text-ink-mute uppercase">
+            ParallelMe · API Setup
+          </span>
+        </div>
 
-        {existing && (
-          <div className="mt-6 inline-flex items-center gap-3 px-4 py-2 rounded-md bg-paper-lift border border-paper-edge text-body-sm text-ink-mute">
-            <span>当前已配置：{existing.label}</span>
-            <button
-              onClick={deleteExisting}
-              className="text-seal-action hover:underline"
-            >
-              删除
-            </button>
-          </div>
-        )}
+        <div className="grid lg:grid-cols-[1fr_320px] gap-8 items-end">
+          <section>
+            <p className="text-xs tracking-[0.18em] text-ink-mute uppercase mb-3">
+              五声会谈需要一把真实钥匙
+            </p>
+            <h1 className="font-serif text-headline sm:text-display text-ink-core leading-[1.05]">
+              先把 API 接上，<br />
+              再让五声开口。
+            </h1>
+            <p className="mt-5 text-body text-ink-body max-w-2xl leading-relaxed">
+              ParallelMe 现在只接入真实模型。你的 API Key 只保存在这台设备或本次会话中，
+              服务器只转发请求，不保存钥匙，也不保存会谈内容。
+            </p>
+          </section>
+
+          <aside className="rounded-md border border-paper-edge bg-paper-lift p-4">
+            <div className="text-[10px] tracking-[0.18em] text-ink-mute uppercase mb-2">
+              当前配置
+            </div>
+            {existing ? (
+              <div>
+                <div className="font-medium text-ink-core">{existing.label}</div>
+                <div className="mt-1 text-body-sm text-ink-mute font-mono break-all">
+                  {existing.model}
+                </div>
+                <button
+                  onClick={deleteExisting}
+                  className="mt-4 text-body-sm text-seal-action hover:underline"
+                >
+                  删除并重新配置
+                </button>
+              </div>
+            ) : (
+              <p className="text-body-sm text-ink-mute leading-relaxed">
+                还没有 API Key。完成下面四步后即可开始五声会谈。
+              </p>
+            )}
+          </aside>
+        </div>
       </header>
 
-      <StepDots step={step} skipMock={selected === "mock"} />
+      <StepRail step={step} />
 
-      <section className="mt-10 mb-12 min-h-[280px]">
-        {step === 1 && (
-          <StepSelectProvider
-            selected={selected}
-            onSelect={selectProvider}
-          />
-        )}
-        {step === 2 && selected && selected !== "mock" && (
-          <StepFillCredentials
-            providerType={selected}
-            apiKey={apiKey}
-            baseUrl={baseUrl}
-            model={model}
-            onApiKey={setApiKey}
-            onBaseUrl={setBaseUrl}
-            onModel={setModel}
-          />
-        )}
-        {step === 3 && (
-          <StepTest
-            testing={testing}
-            result={testResult}
-            onTest={runTest}
-          />
-        )}
-        {step === 4 && (
-          <StepSaveMode value={saveMode} onChange={setSaveMode} />
-        )}
-        {step === 5 && (
-          <StepFinish
-            isMock={selected === "mock"}
-            onFinish={selected === "mock" ? finishMock : finishReal}
-          />
-        )}
+      <section className="mt-8 grid lg:grid-cols-[minmax(0,1fr)_320px] gap-8 items-start">
+        <div className="rounded-md border border-paper-edge bg-paper-lift p-5 sm:p-6 min-h-[460px]">
+          {step === 1 && (
+            <ProviderStep selected={selected} onSelect={selectProvider} />
+          )}
+          {step === 2 && (
+            <CredentialStep
+              preset={preset}
+              apiKey={apiKey}
+              baseUrl={baseUrl}
+              model={model}
+              onApiKey={setApiKey}
+              onBaseUrl={(v) => {
+                setBaseUrl(v);
+                setTestResult(null);
+              }}
+              onModel={(v) => {
+                setModel(v);
+                setTestResult(null);
+              }}
+            />
+          )}
+          {step === 3 && (
+            <TestStep
+              providerLabel={preset.label}
+              testing={testing}
+              result={testResult}
+              onTest={runTest}
+            />
+          )}
+          {step === 4 && (
+            <SaveStep value={saveMode} onChange={setSaveMode} configLabel={preset.label} />
+          )}
+        </div>
+
+        <ConnectionCard
+          label={preset.label}
+          docsUrl={preset.docsUrl}
+          baseUrl={baseUrl}
+          model={model}
+          keyReady={!!apiKey.trim()}
+          testResult={testResult}
+        />
       </section>
 
-      <BottomBar
-        step={step}
-        canNext={canNext}
-        nextLabel={
-          step === 4 ? "保存并完成" : step === 5 ? "" : "继续"
-        }
-        onBack={back}
-        onNext={next}
-      />
+      <nav className="mt-8 flex items-center justify-between gap-4 border-t border-paper-edge pt-6">
+        <button
+          onClick={() => setStep((Math.max(1, step - 1) as Step))}
+          disabled={step === 1}
+          className="text-body-sm text-ink-mute hover:text-ink-core disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+        >
+          ← 上一步
+        </button>
+        {step < 4 ? (
+          <button
+            onClick={() => setStep((Math.min(4, step + 1) as Step))}
+            disabled={!canContinue}
+            className="px-5 py-2.5 rounded-md bg-ink-core text-paper-base text-body-sm font-medium hover:bg-ink-body disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+          >
+            {step === 3 ? "选择保存方式" : "继续"} →
+          </button>
+        ) : (
+          <button
+            onClick={saveAndFinish}
+            className="px-5 py-2.5 rounded-md bg-ink-core text-paper-base text-body-sm font-medium hover:bg-ink-body transition-colors"
+          >
+            保存钥匙，进入我的声音 →
+          </button>
+        )}
+      </nav>
     </main>
   );
 }
 
-// ───────────────────────────────────────────────────────────
-// Step indicator
-// ───────────────────────────────────────────────────────────
-function StepDots({ step, skipMock }: { step: Step; skipMock: boolean }) {
-  // For mock path we collapse to 2 logical phases: Select → Done.
-  const total = skipMock ? 2 : 5;
-  const current = skipMock ? (step === 1 ? 1 : 2) : step;
+function StepRail({ step }: { step: Step }) {
+  const items = ["选服务商", "填钥匙", "测试连接", "保存"];
   return (
-    <div className="flex items-center gap-2 text-xs text-ink-mute">
-      {Array.from({ length: total }).map((_, i) => {
-        const filled = i + 1 <= current;
+    <div className="flex items-center gap-2 overflow-x-auto pb-1">
+      {items.map((label, i) => {
+        const active = step === i + 1;
+        const done = step > i + 1;
         return (
-          <span key={i} className="flex items-center gap-2">
+          <div key={label} className="flex items-center gap-2 flex-shrink-0">
             <span
-              className={`w-1.5 h-1.5 rounded-full transition-colors ${
-                filled ? "bg-ink-core" : "bg-paper-edge"
-              }`}
-            />
-            {i < total - 1 && (
-              <span
-                className={`w-6 h-px ${
-                  filled ? "bg-ink-core" : "bg-paper-edge"
-                }`}
-              />
-            )}
-          </span>
+              className={[
+                "inline-flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs transition-colors",
+                active
+                  ? "bg-ink-core text-paper-base border-ink-core"
+                  : done
+                    ? "bg-paper-lift text-ink-core border-ink-core/30"
+                    : "bg-paper-base text-ink-mute border-paper-edge",
+              ].join(" ")}
+            >
+              <span className="font-mono">{i + 1}</span>
+              {label}
+            </span>
+            {i < items.length - 1 && <span className="w-8 h-px bg-paper-edge" />}
+          </div>
         );
       })}
-      <span className="ml-3 tracking-wider uppercase">
-        {labelOfStep(step, skipMock)}
-      </span>
     </div>
   );
 }
 
-function labelOfStep(step: Step, skipMock: boolean) {
-  if (skipMock) {
-    return step === 1 ? "选择服务商" : "完成";
-  }
-  return (
-    {
-      1: "选择服务商",
-      2: "填连接信息",
-      3: "测试连接",
-      4: "保存方式",
-      5: "完成",
-    } as const
-  )[step];
-}
-
-// ───────────────────────────────────────────────────────────
-// Step 1 · Select
-// ───────────────────────────────────────────────────────────
-function StepSelectProvider({
+function ProviderStep({
   selected,
   onSelect,
 }: {
-  selected: ProviderType | null;
-  onSelect: (p: ProviderType) => void;
+  selected: ProviderType;
+  onSelect: (provider: ProviderType) => void;
 }) {
   return (
-    <div>
-      <h2 className="font-serif text-title text-ink-core mb-2">
-        选一个服务商
-      </h2>
+    <section>
+      <Kicker>Step 1</Kicker>
+      <h2 className="font-serif text-title text-ink-core mb-2">选择 API 服务商</h2>
       <p className="text-body-sm text-ink-mute mb-6">
-        ParallelMe 兼容任何 OpenAI-compatible endpoint。
+        默认推荐 DeepSeek。所有预设都走兼容 `/chat/completions` 的接口形态，后续可手动改 Base URL 和 Model。
       </p>
-      <div className="space-y-3">
-        {PROVIDERS_ORDER.map((p) => {
-          const preset = PRESETS[p];
-          const active = selected === p;
+
+      <div className="grid sm:grid-cols-2 gap-3">
+        {PROVIDERS.map((id) => {
+          const p = PRESETS[id];
+          const active = selected === id;
           return (
             <button
-              key={p}
-              onClick={() => onSelect(p)}
-              className={`w-full text-left p-4 rounded-md border transition-all ${
+              key={id}
+              onClick={() => onSelect(id)}
+              className={[
+                "group text-left rounded-md border p-4 transition-all min-h-[132px]",
                 active
-                  ? "bg-paper-lift border-ink-core ring-1 ring-ink-core"
-                  : "bg-paper-base border-paper-edge hover:border-ink-mute"
-              }`}
+                  ? "bg-paper-base border-ink-core ring-1 ring-ink-core"
+                  : "bg-paper-lift border-paper-edge hover:border-ink-mute",
+              ].join(" ")}
             >
-              <div className="flex items-baseline justify-between gap-3">
-                <div className="font-medium text-ink-core">{preset.label}</div>
-                {p === "deepseek" && (
-                  <span className="text-[10px] tracking-wider uppercase text-attention-copper">
+              <div className="flex items-start justify-between gap-3 mb-2">
+                <div>
+                  <div className="font-medium text-ink-core">{p.label}</div>
+                  <div className="text-[10px] tracking-[0.18em] text-ink-faint uppercase mt-1">
+                    {p.shortName}
+                  </div>
+                </div>
+                {id === "deepseek" && (
+                  <span className="text-[10px] tracking-[0.18em] text-attention-copper uppercase">
                     推荐
                   </span>
                 )}
-                {p === "mock" && (
-                  <span className="text-[10px] tracking-wider uppercase text-ink-mute">
-                    无需 key
-                  </span>
-                )}
               </div>
-              {preset.hint && (
-                <p className="mt-1 text-body-sm text-ink-mute">{preset.hint}</p>
-              )}
+              <p className="text-body-sm text-ink-mute leading-relaxed">{p.hint}</p>
             </button>
           );
         })}
       </div>
-    </div>
+    </section>
   );
 }
 
-// ───────────────────────────────────────────────────────────
-// Step 2 · Credentials
-// ───────────────────────────────────────────────────────────
-function StepFillCredentials({
-  providerType,
+function CredentialStep({
+  preset,
   apiKey,
   baseUrl,
   model,
@@ -359,7 +344,7 @@ function StepFillCredentials({
   onBaseUrl,
   onModel,
 }: {
-  providerType: ProviderType;
+  preset: ProviderPreset;
   apiKey: string;
   baseUrl: string;
   model: string;
@@ -367,28 +352,36 @@ function StepFillCredentials({
   onBaseUrl: (v: string) => void;
   onModel: (v: string) => void;
 }) {
-  const preset = PRESETS[providerType];
-  const baseUrlEditable = providerType === "openai-compatible";
+  const modelHints = useMemo(
+    () => [
+      "DeepSeek: deepseek-chat（可改 deepseek-v4-flash）",
+      "百炼: qwen-plus",
+      "Kimi: kimi-k2.6",
+      "MiniMax: MiniMax-M2.7",
+      "豆包: doubao-seed-1-6-251015 或 ep-...",
+    ],
+    [],
+  );
+
   return (
-    <div>
-      <h2 className="font-serif text-title text-ink-core mb-2">
-        填连接信息
-      </h2>
-      <p className="text-body-sm text-ink-mute mb-6">{preset.hint}</p>
+    <section>
+      <Kicker>Step 2</Kicker>
+      <h2 className="font-serif text-title text-ink-core mb-2">填写连接信息</h2>
+      <p className="text-body-sm text-ink-mute mb-6">{preset.keyHint}</p>
 
       <div className="space-y-5">
         <Field label="API Key">
           <input
             type="password"
-            placeholder="sk-..."
             value={apiKey}
             onChange={(e) => onApiKey(e.target.value)}
-            className="w-full px-3 py-2.5 rounded-md bg-paper-lift border border-paper-edge focus:border-ink-core focus:outline-none text-body font-mono"
+            placeholder="sk-..."
+            className="w-full px-3 py-2.5 rounded-md bg-paper-base border border-paper-edge focus:border-ink-core focus:outline-none text-body font-mono"
             spellCheck={false}
             autoComplete="off"
           />
           <p className="mt-1.5 text-body-sm text-ink-mute">
-            只存在这台设备上。
+            只保存在你选择的位置。服务器不会写入数据库。
           </p>
         </Field>
 
@@ -397,10 +390,7 @@ function StepFillCredentials({
             type="text"
             value={baseUrl}
             onChange={(e) => onBaseUrl(e.target.value)}
-            disabled={!baseUrlEditable}
-            className={`w-full px-3 py-2.5 rounded-md bg-paper-lift border border-paper-edge focus:border-ink-core focus:outline-none text-body font-mono ${
-              !baseUrlEditable ? "text-ink-mute" : ""
-            }`}
+            className="w-full px-3 py-2.5 rounded-md bg-paper-base border border-paper-edge focus:border-ink-core focus:outline-none text-body font-mono"
             spellCheck={false}
             autoComplete="off"
           />
@@ -411,78 +401,64 @@ function StepFillCredentials({
             type="text"
             value={model}
             onChange={(e) => onModel(e.target.value)}
-            className="w-full px-3 py-2.5 rounded-md bg-paper-lift border border-paper-edge focus:border-ink-core focus:outline-none text-body font-mono"
+            className="w-full px-3 py-2.5 rounded-md bg-paper-base border border-paper-edge focus:border-ink-core focus:outline-none text-body font-mono"
             spellCheck={false}
             autoComplete="off"
           />
+          <div className="mt-2 flex flex-wrap gap-2">
+            {modelHints.map((hint) => (
+              <span
+                key={hint}
+                className="text-[11px] px-2 py-1 rounded-sm bg-paper-sunk text-ink-mute"
+              >
+                {hint}
+              </span>
+            ))}
+          </div>
         </Field>
       </div>
-    </div>
+    </section>
   );
 }
 
-function Field({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <label className="block">
-      <span className="block mb-1.5 text-body-sm tracking-wider uppercase text-ink-mute">
-        {label}
-      </span>
-      {children}
-    </label>
-  );
-}
-
-// ───────────────────────────────────────────────────────────
-// Step 3 · Test
-// ───────────────────────────────────────────────────────────
-function StepTest({
+function TestStep({
+  providerLabel,
   testing,
   result,
   onTest,
 }: {
+  providerLabel: string;
   testing: boolean;
   result: TestResult | null;
   onTest: () => void;
 }) {
   return (
-    <div>
-      <h2 className="font-serif text-title text-ink-core mb-2">
-        测一下能开会吗
-      </h2>
+    <section>
+      <Kicker>Step 3</Kicker>
+      <h2 className="font-serif text-title text-ink-core mb-2">测试连接</h2>
       <p className="text-body-sm text-ink-mute mb-6">
-        ParallelMe 会发一个 5-token 的小请求，确认钥匙能用。
+        会向 {providerLabel} 发出一个极小的请求。只有测试通过，才保存为可用配置。
       </p>
 
       <button
         onClick={onTest}
         disabled={testing}
-        className="px-5 py-2.5 rounded-md bg-ink-core text-paper-base text-body-sm font-medium hover:bg-ink-body disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        className="px-5 py-2.5 rounded-md bg-ink-core text-paper-base text-body-sm font-medium hover:bg-ink-body disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
       >
-        {testing ? "正在测试…" : result ? "再测一次" : "测试连接"}
+        {testing ? "正在测试…" : result ? "重新测试" : "测试 API 连接"}
       </button>
 
       {result && (
         <div
-          className={`mt-6 p-4 rounded-md border ${
-            result.ok
-              ? "bg-paper-lift border-safe-green/30"
-              : "bg-paper-lift border-seal-action/40"
-          }`}
+          className={[
+            "mt-6 rounded-md border p-4",
+            result.ok ? "border-safe-green/40 bg-safe-green/5" : "border-seal-action/40 bg-seal-action/5",
+          ].join(" ")}
         >
-          <div className="flex items-baseline gap-2 mb-2">
-            <span
-              className={`w-2 h-2 rounded-full ${
-                result.ok ? "bg-safe-green" : "bg-seal-action"
-              }`}
-            />
+          <div className="flex items-center gap-2 mb-2">
+            <span className={`w-2 h-2 rounded-full ${result.ok ? "bg-safe-green" : "bg-seal-action"}`} />
             <span className="font-medium text-ink-core">
-              {result.ok ? "连上了" : "没连上"}
+              {result.ok ? "连接成功" : "连接失败"}
             </span>
             {typeof result.latencyMs === "number" && (
               <span className="ml-auto text-body-sm text-ink-mute font-mono">
@@ -491,161 +467,146 @@ function StepTest({
             )}
           </div>
           {result.ok ? (
-            <div className="text-body-sm text-ink-body space-y-1">
+            <div className="text-body-sm text-ink-body leading-relaxed">
               <div>
                 <span className="text-ink-mute">model：</span>
                 <span className="font-mono">{result.model}</span>
               </div>
               {result.sampleReply && (
                 <div>
-                  <span className="text-ink-mute">回复：</span>
+                  <span className="text-ink-mute">reply：</span>
                   <span className="italic">「{result.sampleReply}」</span>
                 </div>
               )}
             </div>
           ) : (
-            <p className="text-body-sm text-ink-body whitespace-pre-wrap break-words font-mono">
+            <pre className="text-body-sm text-ink-body whitespace-pre-wrap break-words font-mono">
               {result.error}
-            </p>
+            </pre>
           )}
         </div>
       )}
-    </div>
+    </section>
   );
 }
 
-// ───────────────────────────────────────────────────────────
-// Step 4 · Save mode
-// ───────────────────────────────────────────────────────────
-function StepSaveMode({
+function SaveStep({
   value,
   onChange,
+  configLabel,
 }: {
   value: SaveMode;
   onChange: (v: SaveMode) => void;
+  configLabel: string;
 }) {
   const options: { id: SaveMode; label: string; hint: string }[] = [
     {
       id: "browser",
-      label: "仅这个浏览器",
-      hint: "推荐。关闭浏览器后仍保留，删除随时可做。",
+      label: "保存在这个浏览器",
+      hint: "推荐。关闭浏览器后仍可使用，随时可删除。",
     },
     {
       id: "session",
-      label: "仅本次会话",
-      hint: "关闭标签页就消失。最隐私，但每次都要重填。",
-    },
-    {
-      id: "env",
-      label: "我用的是自部署 + 环境变量",
-      hint: "不在浏览器存 key，靠 .env.local。适合开发者。",
+      label: "只保存在本次会话",
+      hint: "关闭标签页就消失。更克制，但下次需要重填。",
     },
   ];
   return (
-    <div>
-      <h2 className="font-serif text-title text-ink-core mb-2">
-        钥匙怎么放
-      </h2>
+    <section>
+      <Kicker>Step 4</Kicker>
+      <h2 className="font-serif text-title text-ink-core mb-2">选择钥匙放在哪里</h2>
       <p className="text-body-sm text-ink-mute mb-6">
-        ParallelMe 服务器永远不存。
+        已确认 {configLabel} 可用。接下来只决定本机保存方式。
       </p>
       <div className="space-y-3">
-        {options.map((o) => {
-          const active = value === o.id;
+        {options.map((option) => {
+          const active = value === option.id;
           return (
             <button
-              key={o.id}
-              onClick={() => onChange(o.id)}
-              className={`w-full text-left p-4 rounded-md border transition-all ${
+              key={option.id}
+              onClick={() => onChange(option.id)}
+              className={[
+                "w-full text-left rounded-md border p-4 transition-all",
                 active
-                  ? "bg-paper-lift border-ink-core ring-1 ring-ink-core"
-                  : "bg-paper-base border-paper-edge hover:border-ink-mute"
-              }`}
+                  ? "bg-paper-base border-ink-core ring-1 ring-ink-core"
+                  : "bg-paper-lift border-paper-edge hover:border-ink-mute",
+              ].join(" ")}
             >
-              <div className="font-medium text-ink-core">{o.label}</div>
-              <p className="mt-1 text-body-sm text-ink-mute">{o.hint}</p>
+              <div className="font-medium text-ink-core">{option.label}</div>
+              <p className="mt-1 text-body-sm text-ink-mute">{option.hint}</p>
             </button>
           );
         })}
       </div>
-    </div>
+    </section>
   );
 }
 
-// ───────────────────────────────────────────────────────────
-// Step 5 · Finish
-// ───────────────────────────────────────────────────────────
-function StepFinish({
-  isMock,
-  onFinish,
+function ConnectionCard({
+  label,
+  docsUrl,
+  baseUrl,
+  model,
+  keyReady,
+  testResult,
 }: {
-  isMock: boolean;
-  onFinish: () => void;
+  label: string;
+  docsUrl?: string;
+  baseUrl: string;
+  model: string;
+  keyReady: boolean;
+  testResult: TestResult | null;
 }) {
   return (
-    <div>
-      <h2 className="font-serif text-title text-ink-core mb-3">
-        {isMock ? "演员模式准备好了" : "钥匙已收好"}
-      </h2>
-      <p className="text-body text-ink-body mb-2 leading-relaxed">
-        {isMock
-          ? "可以打开你的阁。这些声音是预设剧本——它们足够带你跑完一遍流程，配 key 后会换成真实的模型。"
-          : "可以打开你的阁了。"}
-      </p>
-      {!isMock && (
-        <p className="text-body-sm text-ink-mute leading-relaxed">
-          想换 / 删除钥匙：随时回到这里。
-        </p>
+    <aside className="rounded-md border border-paper-edge bg-paper-base p-4 sticky top-6">
+      <Kicker>Connection</Kicker>
+      <h3 className="font-medium text-ink-core mb-4">{label}</h3>
+      <Meta label="Base URL">{baseUrl || "待填写"}</Meta>
+      <Meta label="Model">{model || "待填写"}</Meta>
+      <Meta label="API Key">{keyReady ? "已填写" : "未填写"}</Meta>
+      <Meta label="Test">
+        {testResult?.ok ? "已通过" : testResult ? "未通过" : "尚未测试"}
+      </Meta>
+      {docsUrl && (
+        <a
+          href={docsUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="mt-5 inline-block text-body-sm text-ink-mute hover:text-ink-core underline-offset-4 hover:underline"
+        >
+          打开官方文档 →
+        </a>
       )}
-      <button
-        onClick={onFinish}
-        className="mt-8 px-6 py-3 rounded-md bg-ink-core text-paper-base text-body-sm font-medium hover:bg-ink-body transition-colors"
-      >
-        进入我的阁 →
-      </button>
+    </aside>
+  );
+}
+
+function Kicker({ children }: { children: ReactNode }) {
+  return (
+    <div className="text-[10px] tracking-[0.18em] text-ink-mute uppercase mb-2">
+      {children}
     </div>
   );
 }
 
-// ───────────────────────────────────────────────────────────
-// Bottom navigation bar
-// ───────────────────────────────────────────────────────────
-function BottomBar({
-  step,
-  canNext,
-  nextLabel,
-  onBack,
-  onNext,
-}: {
-  step: Step;
-  canNext: boolean;
-  nextLabel: string;
-  onBack: () => void;
-  onNext: () => void;
-}) {
-  if (step === 5) {
-    return (
-      <div className="text-xs text-ink-faint">
-        ParallelMe 服务器无状态 · 你的钥匙不离开这台设备
-      </div>
-    );
-  }
+function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="flex items-center justify-between gap-4 pt-6 border-t border-paper-edge">
-      <button
-        onClick={onBack}
-        disabled={step === 1}
-        className="text-body-sm text-ink-mute hover:text-ink-core disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-      >
-        ← 上一步
-      </button>
-      <button
-        onClick={onNext}
-        disabled={!canNext}
-        className="px-5 py-2.5 rounded-md bg-ink-core text-paper-base text-body-sm font-medium hover:bg-ink-body disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-      >
-        {nextLabel || "继续"} →
-      </button>
+    <label className="block">
+      <span className="block mb-1.5 text-[10px] tracking-[0.18em] text-ink-mute uppercase">
+        {label}
+      </span>
+      {children}
+    </label>
+  );
+}
+
+function Meta({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="border-t border-paper-edge py-3">
+      <div className="text-[10px] tracking-[0.18em] text-ink-faint uppercase mb-1">
+        {label}
+      </div>
+      <div className="text-body-sm text-ink-body font-mono break-all">{children}</div>
     </div>
   );
 }

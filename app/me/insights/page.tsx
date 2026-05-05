@@ -1,111 +1,193 @@
 "use client";
+
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
-import { loadEpisodes, memoryStats, type Episode } from "@/lib/memory";
+import { useMemo } from "react";
+import { useLiveQuery } from "dexie-react-hooks";
 import { SelfAvatar } from "@/components/SelfAvatar";
 import { SELVES, type SelfId } from "@/lib/selves";
+import { db } from "@/lib/db";
 
-// 「自照」/「侧记」合并页 — Wrapped 风格 + AI 笔记
+const STANDING_IDS: SelfId[] = ["lay", "money", "roam", "filial", "future"];
+
+const VOICE_TEXT_CLASS: Record<SelfId, string> = {
+  lay: "text-lay",
+  money: "text-money",
+  roam: "text-roam",
+  filial: "text-filial",
+  future: "text-future",
+};
+
+const VOICE_BG_CLASS: Record<SelfId, string> = {
+  lay: "bg-lay",
+  money: "bg-money",
+  roam: "bg-roam",
+  filial: "bg-filial",
+  future: "bg-future",
+};
+
 export default function InsightsPage() {
-  const [eps, setEps] = useState<Episode[]>([]);
-  const [stats, setStats] = useState<any>(null);
-
-  useEffect(() => {
-    setEps(loadEpisodes());
-    setStats(memoryStats());
-  }, []);
+  const records = useLiveQuery(() => db.meetings.orderBy("createdAt").reverse().toArray(), []);
 
   const ranking = useMemo(() => {
-    if (!stats) return [];
-    const total = (stats.episodes || 1);
-    return Object.entries(stats.dominant || {})
-      .map(([id, n]: any) => ({ id: id as SelfId, n: n as number, pct: Math.round(((n as number)/total)*100) }))
-      .sort((a, b) => b.n - a.n);
-  }, [stats]);
+    const counts: Record<SelfId, number> = {
+      lay: 0,
+      money: 0,
+      roam: 0,
+      filial: 0,
+      future: 0,
+    };
+    for (const record of records || []) {
+      for (const turn of record.voiceTurns) {
+        const id = turn.voiceId as SelfId;
+        if (counts[id] !== undefined) counts[id] += 1;
+      }
+    }
+    const total = Math.max(1, records?.length || 0);
+    return STANDING_IDS.map((id) => ({
+      id,
+      n: counts[id],
+      pct: Math.round((counts[id] / total) * 100),
+    })).sort((a, b) => b.n - a.n);
+  }, [records]);
 
-  const silentRanking = useMemo(() => {
-    if (!stats || !eps.length) return [];
-    return Object.entries(stats.silenced || {})
-      .map(([id, n]: any) => ({ id: id as SelfId, n: n as number }))
-      .sort((a, b) => b.n - a.n);
-  }, [stats, eps]);
+  const leastAsked = useMemo(() => {
+    const asked: Record<SelfId, number> = {
+      lay: 0,
+      money: 0,
+      roam: 0,
+      filial: 0,
+      future: 0,
+    };
+    for (const record of records || []) {
+      for (const followup of record.followups) {
+        const id = followup.voiceId as SelfId;
+        if (asked[id] !== undefined) asked[id] += 1;
+      }
+    }
+    return STANDING_IDS.map((id) => ({ id, n: asked[id] })).sort((a, b) => a.n - b.n);
+  }, [records]);
 
-  // 筛个最高强度 episode 作为「标志性时刻」
-  const peak = useMemo(() => {
-    if (!eps.length) return null;
-    return [...eps].sort((a, b) => b.intensity - a.intensity)[0];
-  }, [eps]);
+  const totalRecords = records?.length || 0;
+  const latest = records?.[0];
+  const oldest = records?.[records.length - 1];
+  const days =
+    oldest && totalRecords > 0
+      ? Math.max(1, Math.round((Date.now() - oldest.createdAt) / 86_400_000))
+      : 0;
 
-  if (!stats || stats.episodes === 0) {
+  if (!records || totalRecords === 0) {
     return (
       <main className="min-h-screen px-5 sm:px-10 py-16 max-w-2xl mx-auto font-body">
         <div className="flex items-center justify-between mb-12">
-          <Link href="/me" className="font-display text-xs tracking-[0.18em] text-ink3 hover:text-ink uppercase">← 底片</Link>
-          <span className="font-display text-xs tracking-[0.18em] text-ink3 uppercase">自照</span>
+          <Link
+            href="/me"
+            className="font-display text-xs tracking-[0.18em] text-ink3 hover:text-ink uppercase"
+          >
+            ← 底片
+          </Link>
+          <span className="font-display text-xs tracking-[0.18em] text-ink3 uppercase">
+            自照
+          </span>
         </div>
         <div className="text-center py-20">
-          <h1 className="font-display text-display mb-4">自<span className="scribble">照</span></h1>
-          <p className="font-display text-base text-ink3 italic mb-6">— 以铜为镜，可以正衣冠。</p>
-          <p className="text-ink2 mb-8">至少和 5 个我谈过 3 次，这里才能照出你来。</p>
-          <Link href="/" className="font-display inline-block px-6 py-3 bg-ink text-paper rounded-full text-sm font-semibold hover:bg-ink/85">
-            回去先聊一次 →
+          <h1 className="font-display text-display mb-4">
+            自<span className="scribble">照</span>
+          </h1>
+          <p className="font-display text-base text-ink3 italic mb-6">
+            — 先留下一张纸页。
+          </p>
+          <p className="text-ink2 mb-8">
+            至少留下 3 张纸页，这里才会整理出一段时间里的声音倾向。
+          </p>
+          <Link
+            href="/"
+            className="font-display inline-block px-6 py-3 bg-ink text-paper rounded-full text-sm font-semibold hover:bg-ink/85"
+          >
+            先聊一次 →
           </Link>
         </div>
       </main>
     );
   }
 
-  if (stats.episodes < 3) {
+  if (totalRecords < 3) {
     return (
       <main className="min-h-screen px-5 sm:px-10 py-16 max-w-2xl mx-auto font-body">
         <div className="flex items-center justify-between mb-12">
-          <Link href="/me" className="font-display text-xs tracking-[0.18em] text-ink3 hover:text-ink uppercase">← 底片</Link>
+          <Link
+            href="/me"
+            className="font-display text-xs tracking-[0.18em] text-ink3 hover:text-ink uppercase"
+          >
+            ← 底片
+          </Link>
         </div>
-        <h1 className="font-display text-display mb-4">自<span className="scribble">照</span></h1>
-        <p className="font-display text-xl text-ink2 mb-8">还差 {3 - stats.episodes} 次，就能照出你了。</p>
-        <p className="text-ink3 mb-8">已经留下 {stats.episodes} 张纸页。</p>
-        <Link href="/" className="font-display inline-block px-6 py-3 bg-ink text-paper rounded-full text-sm font-semibold hover:bg-ink/85">回去和 5 个我谈一次 →</Link>
+        <h1 className="font-display text-display mb-4">
+          自<span className="scribble">照</span>
+        </h1>
+        <p className="font-display text-xl text-ink2 mb-8">
+          还差 {3 - totalRecords} 次，就能照出这段时间的声音倾向。
+        </p>
+        <p className="text-ink3 mb-8">已经留下 {totalRecords} 张纸页。</p>
+        <Link
+          href="/"
+          className="font-display inline-block px-6 py-3 bg-ink text-paper rounded-full text-sm font-semibold hover:bg-ink/85"
+        >
+          再进行一次五声会谈 →
+        </Link>
       </main>
     );
   }
 
-  const totalEpisodes = stats.episodes;
-  const days = peak ? Math.round((Date.now() - eps[eps.length-1].ts) / 86400000) : 0;
-
   return (
     <main className="min-h-screen px-5 sm:px-10 py-12 sm:py-16 max-w-3xl mx-auto font-body">
       <div className="flex items-center justify-between mb-12">
-        <Link href="/me" className="font-display text-xs tracking-[0.18em] text-ink3 hover:text-ink uppercase">← 底片</Link>
-        <span className="font-display text-xs tracking-[0.18em] text-ink3 uppercase">自照</span>
+        <Link
+          href="/me"
+          className="font-display text-xs tracking-[0.18em] text-ink3 hover:text-ink uppercase"
+        >
+          ← 底片
+        </Link>
+        <span className="font-display text-xs tracking-[0.18em] text-ink3 uppercase">
+          自照
+        </span>
       </div>
 
       <section className="mb-14 animate-ink-in">
-        <p className="font-display text-base text-ink3 italic mb-3">— 以铜为镜，可以正衣冠；以人为镜，可以明得失。</p>
+        <p className="font-display text-base text-ink3 italic mb-3">
+          — 不是结论，是一段时间里的声音纹理。
+        </p>
         <h1 className="font-display text-display text-ink mb-6 leading-[1.02]">
           自<span className="scribble">照</span>
         </h1>
         <p className="font-display text-xl text-ink2 leading-relaxed">
-          {days > 0 ? `这 ${days} 天里` : "这段时间里"}，<br/>
-          你和 5 个自己一共谈了 <span className="text-ink font-semibold">{totalEpisodes}</span> 次。
+          {days > 0 ? `这 ${days} 天里` : "这段时间里"}，
+          <br />
+          你和五声一共谈了{" "}
+          <span className="text-ink font-semibold">{totalRecords}</span> 次。
         </p>
       </section>
 
-      {/* Frame 2: 光谱 */}
       <section className="mb-14 animate-fade-up">
-        <div className="font-display text-xs tracking-[0.18em] text-ink3 uppercase mb-4">⓵ 你内心的光谱</div>
+        <div className="font-display text-xs tracking-[0.18em] text-ink3 uppercase mb-4">
+          ⓵ 哪些声音最常出现
+        </div>
         <div className="space-y-3">
-          {ranking.map((r, i) => {
+          {ranking.map((r) => {
             const meta = SELVES[r.id];
             return (
               <div key={r.id} className="flex items-center gap-3">
-                <SelfAvatar id={r.id} size={32}/>
+                <SelfAvatar id={r.id} size={32} />
                 <div className="flex-1">
                   <div className="flex items-baseline justify-between mb-1">
-                    <span className={`font-display text-${r.id} font-semibold`}>{meta.name}</span>
-                    <span className="text-xs text-ink3">{r.n} 次 · {r.pct}%</span>
+                    <span className={`font-display ${VOICE_TEXT_CLASS[r.id]} font-semibold`}>
+                      {meta.name}
+                    </span>
+                    <span className="text-xs text-ink3">
+                      {r.n} 次 · {r.pct}%
+                    </span>
                   </div>
                   <div className="h-2 bg-rule/40 rounded-full overflow-hidden">
-                    <div className={`h-full bg-${r.id}`} style={{width: `${r.pct}%`}} />
+                    <div className={`h-full ${VOICE_BG_CLASS[r.id]}`} style={{ width: `${r.pct}%` }} />
                   </div>
                 </div>
               </div>
@@ -114,71 +196,58 @@ export default function InsightsPage() {
         </div>
         {ranking[0] && (
           <p className="mt-6 font-display text-lg text-ink2 italic">
-            — 你最常召唤的，是<span className={`text-${ranking[0].id} font-semibold not-italic`}>{SELVES[ranking[0].id].name}</span>。
+            — 最近最常响起的，是
+            <span className={`${VOICE_TEXT_CLASS[ranking[0].id]} font-semibold not-italic`}>
+              {SELVES[ranking[0].id].name}
+            </span>
+            。
           </p>
         )}
       </section>
 
-      {/* Frame 3: 你按住的那个声音 */}
-      {silentRanking[0] && (
+      {leastAsked[0] && (
         <section className="mb-14 animate-fade-up bg-paper border-2 border-dashed border-ink/15 rounded-3xl p-7">
-          <div className="font-display text-xs tracking-[0.18em] text-ink3 uppercase mb-3">⓶ 你按住的那个</div>
+          <div className="font-display text-xs tracking-[0.18em] text-ink3 uppercase mb-3">
+            ⓶ 最少被追问的声音
+          </div>
           <div className="flex items-center gap-4">
-            <div className="opacity-50">
-              <SelfAvatar id={silentRanking[0].id} size={56}/>
+            <div className="opacity-60">
+              <SelfAvatar id={leastAsked[0].id} size={56} />
             </div>
             <div>
-              <div className={`font-display text-2xl text-${silentRanking[0].id} font-semibold mb-1`}>{SELVES[silentRanking[0].id].name}</div>
-              <div className="text-sm text-ink3">被你按下来 {silentRanking[0].n} 次。她想说的话，攒到了不少。</div>
+              <div
+                className={`font-display text-2xl ${VOICE_TEXT_CLASS[leastAsked[0].id]} font-semibold mb-1`}
+              >
+                {SELVES[leastAsked[0].id].name}
+              </div>
+              <div className="text-sm text-ink3">
+                被点名追问 {leastAsked[0].n} 次。下次可以多坐到它的位置听一听。
+              </div>
             </div>
           </div>
-          <p className="mt-5 font-display text-base text-ink2 italic leading-relaxed">
-            — IFS 里把这种声音叫做 {SELVES[silentRanking[0].id].ifs_label}。她不是错的，她只是没被听见。
-          </p>
         </section>
       )}
 
-      {/* Frame 4: 标志性时刻 */}
-      {peak && (
+      {latest && (
         <section className="mb-14 animate-fade-up text-center">
-          <div className="font-display text-xs tracking-[0.18em] text-ink3 uppercase mb-4">⓷ 那一刻</div>
+          <div className="font-display text-xs tracking-[0.18em] text-ink3 uppercase mb-4">
+            ⓷ 最近的清明句
+          </div>
           <div className="bg-surface-deep text-paper p-8 sm:p-12 rounded-3xl">
-            <div className="font-display text-3xl sm:text-4xl mb-4 leading-tight">「{peak.title}」</div>
-            <p className="text-paper/80 text-base leading-relaxed mb-5">{peak.summary}</p>
-            <div className="text-xs text-paper/50">— 你, {new Date(peak.ts).toLocaleDateString("zh-CN")}</div>
+            <div className="font-display text-3xl sm:text-4xl mb-4 leading-tight">
+              「{latest.claritySentence || latest.workingFocus || latest.petition}」
+            </div>
+            {latest.commitment24h && (
+              <p className="text-paper/80 text-base leading-relaxed mb-5">
+                24h 承诺：{latest.commitment24h}
+              </p>
+            )}
+            <div className="text-xs text-paper/50">
+              — {new Date(latest.createdAt).toLocaleDateString("zh-CN")}
+            </div>
           </div>
         </section>
       )}
-
-      {/* Frame 5: 分享卡 */}
-      <section className="mb-12 animate-fade-up text-center">
-        <div className="font-display text-xs tracking-[0.18em] text-ink3 uppercase mb-4">⓸ 带走它</div>
-        <button
-          onClick={() => {
-            // 用现有 /api/share 接口
-            const last = eps[0];
-            const fakeSelves = ranking.slice(0, 5).map(r => ({ id: r.id, text: "" }));
-            fetch("/api/share", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                input: peak?.title || "这段时间的我",
-                selves: fakeSelves,
-                loudestId: ranking[0]?.id,
-              }),
-            }).then(r=>r.text()).then(svg => {
-              const blob = new Blob([svg], { type: "image/svg+xml" });
-              const a = document.createElement("a");
-              a.href = URL.createObjectURL(blob);
-              a.download = `parallelme-self-portrait-${Date.now()}.svg`;
-              a.click();
-            });
-          }}
-          className="inline-block px-8 py-4 bg-ink text-paper rounded-full font-display text-base hover:bg-ink/85 shadow-[6px_6px_0_-1px_var(--color-ink-core)]"
-        >
-          ↓ 让另一个我也看到
-        </button>
-      </section>
     </main>
   );
 }
