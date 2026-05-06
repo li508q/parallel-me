@@ -43,7 +43,7 @@ export const PRESETS: Record<ProviderType, ProviderPreset> = {
     shortName: "DeepSeek",
     baseUrl: "https://api.deepseek.com",
     model: "deepseek-chat",
-    hint: "默认推荐。中文稳定、成本友好，适合五声会谈；长期部署可手动改为 deepseek-v4-flash。",
+    hint: "默认推荐。中文稳定、成本友好，适合五声圆桌；长期部署可手动改为 deepseek-v4-flash。",
     keyHint: "在 DeepSeek 平台创建 API key。官方文档提示 deepseek-chat 将于 2026-07-24 弃用，本版本按产品默认保留。",
     docsUrl: "https://api-docs.deepseek.com/zh-cn/",
   },

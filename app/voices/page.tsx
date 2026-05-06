@@ -1,6 +1,6 @@
 "use client";
 
-// 我的声音 · /voices — standing voice statistics derived from V4 records.
+// 我的声音 · /voices — standing voice statistics derived from v0.7 roundtables.
 
 import Link from "next/link";
 import { useLiveQuery } from "dexie-react-hooks";
@@ -58,8 +58,8 @@ export default function VoicesPage() {
         <DocketPaper stage="总览" className="mb-8" dense>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-center">
             <Stat label="纸页" value={overview.totalRecords} />
-            <Stat label="已承诺" value={overview.signedCount} accent="safe" />
-            <Stat label="暂缓" value={overview.pausedCount} accent="mute" />
+            <Stat label="已落定" value={overview.settledCount} accent="safe" />
+            <Stat label="未完成" value={overview.abandonedCount} accent="mute" />
             <Stat
               label="待复盘"
               value={overview.pendingCommitmentCount}
@@ -71,8 +71,8 @@ export default function VoicesPage() {
 
       {isEmpty && (
         <p className="mb-7 text-body-sm text-ink-mute leading-relaxed font-serif italic">
-          五声已经在。第一次五声会谈后，下面还会逐渐显出哪些声音常出现、谁最响、
-          哪一声经常被你追问或换位回答。
+          五声已经在。第一次圆桌后，下面会逐渐显出哪些声音常出现、
+          哪一声经常被你继续追问，以及哪些声音常被拉去对峙。
         </p>
       )}
 
@@ -162,17 +162,17 @@ function StandingVoiceCard({ stats }: { stats: VoiceStats }) {
           出现 <span className="text-ink-core font-medium">{stats.appearances}</span>
         </span>
         <span>
-          最响 <span className="text-ink-core font-medium">{stats.loudestCount}</span>
+          被继续 <span className="text-ink-core font-medium">{stats.requestedCount}</span>
         </span>
         <span>
-          被追问 <span className="text-ink-core font-medium">{stats.followedUpCount}</span>
+          被提问 <span className="text-ink-core font-medium">{stats.directQuestionCount}</span>
         </span>
         <span>
-          被换位 <span className="text-ink-core font-medium">{stats.roleReversalCount}</span>
+          被对峙 <span className="text-ink-core font-medium">{stats.challengedCount}</span>
         </span>
       </div>
 
-      {(stats.appearances > 0 || stats.loudestCount > 0) && (
+      {(stats.appearances > 0 || stats.requestedCount > 0) && (
         <p className="text-body-sm text-ink-body italic font-serif leading-snug">
           {describeStanding(stats)}
         </p>
@@ -194,15 +194,13 @@ function SoulBrief({ label, body }: { label: string; body: string }) {
 
 function describeStanding(s: VoiceStats): string {
   if (s.appearances === 0) return "还没在纸页中出现过。";
-  if (s.loudestCount === 0)
-    return `出现过 ${s.appearances} 次，但还没有最响过，它一直在旁边。`;
-  const ratio = s.loudestCount / s.appearances;
-  if (ratio >= 0.6) return `出现的记录里，超过一半是它最响，它最近很容易掌权。`;
-  if (s.followedUpCount > s.loudestCount)
-    return `你追问它的次数比它最响还多，说明你正在主动靠近它。`;
-  if (s.roleReversalCount > 0)
-    return `你曾坐到它的位置回答 ${s.roleReversalCount} 次，它不只是被听见，也被你体验过。`;
-  return "稳定出现。";
+  if (s.requestedCount === 0)
+    return `出现过 ${s.appearances} 次，但还很少被你主动叫出来继续说。`;
+  if (s.directQuestionCount > 0)
+    return `你直接问过它 ${s.directQuestionCount} 次，说明你在主动确认它背后的价值。`;
+  if (s.challengedCount > 0)
+    return `它参与过 ${s.challengedCount} 次对峙，常站在冲突比较亮的地方。`;
+  return "稳定出现，也开始被你主动听见。";
 }
 
 function timeAgo(ts: number): string {

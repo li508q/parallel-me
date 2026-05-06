@@ -1,5 +1,5 @@
 // P0 component · 纸面 (DocketPaper)
-// The paper-lift surface that holds petitions, focus notes, verdicts, and
+// The paper-lift surface that holds raw inputs, task frames, settlements, and
 // archives.
 
 import * as React from "react";

@@ -3,7 +3,7 @@ import Link from "next/link";
 const PSYCHOLOGY = [
   {
     name: "IFS",
-    text: "每一声都必须说清：它在保护什么、它最怕什么。NowMe 是退后一步后的 Self 位置，不是第六个声音。",
+    text: "每一声都必须说清：它在保护什么、它最怕什么、过度掌权会带来什么代价。书记员只整理，不成为第六声。",
   },
   {
     name: "Voice Dialogue",
@@ -11,11 +11,11 @@ const PSYCHOLOGY = [
   },
   {
     name: "Schema Therapy Modes",
-    text: "一个困惑会激活不同的应对模式：逃开、顺从、计算、麻木、远观。它帮助我们理解五声为什么在此刻被叫醒；未来若出现临时声，也必须从被激活的模式里长出来。",
+    text: "一个困惑会牵动不同的应对模式：逃开、顺从、计算、麻木、远观。它帮助我们理解五声为什么会在同一议题里给出不同保护方向。",
   },
   {
     name: "Chairwork",
-    text: "不同立场需要有不同位置。界面不能只是聊天流，而要让你能点名一声，也能坐到某一声的位置上，把它说得更准。",
+    text: "不同立场需要有不同位置。界面不能只是聊天流，而要让你能继续听某一声，也能让两声对峙，把代价和盲点照出来。",
   },
   {
     name: "ACT",
@@ -37,8 +37,8 @@ const VOICES = [
     line: "它不是任性。它记得你还需要空间、生命力和另一条路。",
   },
   {
-    name: "怕妈担心的我",
-    line: "它不是软弱。它怕重要的人难过，也怕你像是把她丢下。",
+    name: "被牵挂的我",
+    line: "它不是软弱。它知道重要的人会被你的选择牵动，也怕你把关系切得太轻。",
   },
   {
     name: "5 年后的我",
@@ -158,8 +158,8 @@ export default function About() {
         </div>
 
         <p className="mt-7 text-body-long leading-relaxed text-ink-body">
-          它们也不是一次性的角色。每一次纸页、每一次点名追问、
-          每一次换位回答，都会让「我的声音」更有轮廓。
+          它们也不是一次性的角色。每一次纸页、每一次继续追问、
+          每一次两声对峙，都会让「我的声音」更有轮廓。
           五声会慢慢显影：不是变多，而是越来越像你。
         </p>
       </section>
@@ -170,12 +170,12 @@ export default function About() {
         </h2>
         <div className="space-y-4 text-body-long leading-relaxed text-ink-body">
           <p>
-            五声会谈不是让某一声赢。它更像一次慢下来的自我澄清：
-            先把困惑放到桌面上，再整理本次真正要谈的焦点。
+            五声圆桌不是让某一声赢。它更像一次慢下来的自我澄清：
+            先把困惑放到桌面上，再由书记员整理成本次议题。
           </p>
           <p>
-            五声说完以后，你可以点名追问，也可以坐到某一声的位置上，
-            替它说得更准。最后留下的不是评判，也不是平均值，
+            五声第一轮立论之后，你可以让五声再来一轮，可以问某一声，
+            也可以让两声对峙。最后留下的不是评判，也不是平均值，
             而是一句清明句：我现在看清楚的是……
           </p>
           <p>
@@ -209,7 +209,7 @@ export default function About() {
         href="/"
         className="inline-block px-6 py-3 rounded-md bg-ink-core text-paper-base text-body-sm font-medium hover:bg-ink-body transition-colors"
       >
-        开始五声会谈 →
+        开始五声圆桌 →
       </Link>
 
       <footer className="mt-24 pt-10 border-t border-paper-edge text-xs text-ink-mute leading-relaxed">

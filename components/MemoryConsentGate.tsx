@@ -14,10 +14,10 @@ interface MemoryConsentGateProps {
 }
 
 const CATEGORY_LABEL: Record<MemoryCandidate["category"], string> = {
-  pattern:      "反复出现的模式",
-  "voice-power": "声音的强弱变化",
-  decision:     "你做出的决定",
-  avoided:      "你回避的声音",
+  clarity: "清明句",
+  preference: "偏好读数",
+  tradeoff: "代价承认",
+  commitment: "24h 承诺",
 };
 
 export function MemoryConsentGate({

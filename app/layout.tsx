@@ -6,7 +6,7 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "🪞 平行的我 · ParallelMe",
   description:
-    "你内心的多个声音，第一次被允许同时讲话。基于多种心理学框架的五声会谈，帮你在重要困惑里听见自己。",
+    "书记员牵引的固定五声圆桌，帮你在重要困惑里听见自己。",
   openGraph: {
     title: "🪞 平行的我 · ParallelMe",
     description: "你内心的多个声音，第一次被允许同时讲话。",

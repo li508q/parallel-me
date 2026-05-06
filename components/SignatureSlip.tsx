@@ -9,32 +9,26 @@ import * as React from "react";
 
 interface SignatureSlipProps {
   verdict: string;
-  loudestSeatName?: string;
   defaultAction24h?: string;
   onSign: (action: string) => void;
-  onPause: () => void;
-  onEscape: () => void;
   className?: string;
 }
 
 export function SignatureSlip({
   verdict,
-  loudestSeatName,
   defaultAction24h = "",
   onSign,
-  onPause,
-  onEscape,
   className = "",
 }: SignatureSlipProps) {
   const [action, setAction] = React.useState(defaultAction24h);
-  const [signed, setSigned] = React.useState(false);
+  const [saved, setSaved] = React.useState(false);
 
   const trimmed = action.trim();
-  const canSign = trimmed.length > 0 && !signed;
+  const canSign = trimmed.length > 0 && !saved;
 
   function handleSign() {
     if (!canSign) return;
-    setSigned(true);
+    setSaved(true);
     onSign(trimmed);
   }
 
@@ -57,11 +51,6 @@ export function SignatureSlip({
         <p className="font-serif text-verdict text-paper-lift leading-relaxed whitespace-pre-line">
           {verdict}
         </p>
-        {loudestSeatName && (
-          <p className="mt-3 text-body-sm text-paper-lift/50">
-          最响的声音：{loudestSeatName}
-          </p>
-        )}
       </div>
 
       <div className="px-6 sm:px-8 py-5 border-t border-paper-lift/10">
@@ -72,7 +61,7 @@ export function SignatureSlip({
           <textarea
             value={action}
             onChange={(e) => setAction(e.target.value.slice(0, 200))}
-            disabled={signed}
+            disabled={saved}
             rows={2}
             placeholder="一个具体的、24 小时之内可执行的小动作"
             className="w-full bg-transparent border-b border-paper-lift/30 focus:border-paper-lift/70 outline-none py-2 text-body text-paper-lift placeholder-paper-lift/30 font-serif resize-none transition-colors disabled:opacity-60"
@@ -86,25 +75,11 @@ export function SignatureSlip({
           disabled={!canSign}
           className="px-5 py-2.5 rounded-md bg-paper-lift text-ink-core text-body-sm font-medium hover:bg-paper-base disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
         >
-          {signed ? "已承诺" : "写下承诺"}
-        </button>
-        <button
-          onClick={onPause}
-          disabled={signed}
-          className="px-4 py-2 rounded-md text-body-sm text-paper-lift/80 hover:text-paper-lift hover:bg-paper-lift/10 disabled:opacity-30 transition-colors"
-        >
-          暂缓
-        </button>
-        <button
-          onClick={onEscape}
-          disabled={signed}
-          className="ml-auto px-4 py-2 rounded-md text-body-sm text-paper-lift/50 hover:text-paper-lift/80 hover:bg-paper-lift/10 disabled:opacity-30 transition-colors"
-        >
-          我在逃避
+          {saved ? "已落定" : "保存承诺"}
         </button>
       </footer>
 
-      {signed && (
+      {saved && (
         <div className="px-6 sm:px-8 py-3 bg-paper-lift/5 text-body-sm text-paper-lift/70 italic font-serif">
           已写下。不是完美答案，是先走一步。
         </div>

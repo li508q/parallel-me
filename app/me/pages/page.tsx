@@ -1,6 +1,6 @@
 "use client";
 
-// 纸页 — V4 five-voice session records.
+// 纸页 — v0.7 roundtable records.
 
 import Link from "next/link";
 import { useLiveQuery } from "dexie-react-hooks";
@@ -8,17 +8,13 @@ import { db, type Meeting } from "@/lib/db";
 
 const STATUS_LABEL: Record<Meeting["status"], string> = {
   in_progress: "进行中",
-  signed: "已承诺",
-  paused: "暂缓",
-  escaped: "我在逃避",
+  settled: "已落定",
   abandoned: "未完成",
 };
 
 const STATUS_DOT: Record<Meeting["status"], string> = {
   in_progress: "bg-attention-copper",
-  signed: "bg-safe-green",
-  paused: "bg-ink-mute",
-  escaped: "bg-seal-action",
+  settled: "bg-safe-green",
   abandoned: "bg-ink-faint",
 };
 
@@ -59,7 +55,7 @@ export default function PagesView() {
             href="/"
             className="text-ink-core underline-offset-4 hover:underline"
           >
-            回去开始五声会谈 →
+            回去开始五声圆桌 →
           </Link>
         </div>
       )}
@@ -78,8 +74,10 @@ export default function PagesView() {
 }
 
 function RecordCard({ meeting }: { meeting: Meeting }) {
-  const display = meeting.claritySentence || meeting.workingFocus || meeting.petition;
-  const loudest = meeting.nowMe?.loudestVoiceName;
+  const display =
+    meeting.clarity?.clarity_sentence ||
+    meeting.task_frame?.visible.problem_definition ||
+    meeting.raw_input;
 
   return (
     <Link href={`/archive/${meeting.id}`} className="block">
@@ -96,17 +94,13 @@ function RecordCard({ meeting }: { meeting: Meeting }) {
 
         <div className="flex items-center gap-3 text-xs text-ink-mute flex-wrap">
           <span>{timeAgo(meeting.createdAt)}</span>
-          {loudest && (
-            <>
-              <span>·</span>
-              <span>最响：{loudest}</span>
-            </>
-          )}
+          <span>·</span>
+          <span>{meeting.roundtable.opening_turns.length} 声立论</span>
         </div>
 
-        {meeting.commitment24h && (
+        {meeting.clarity?.commitment24h && (
           <p className="mt-3 text-body-sm text-ink-body italic font-serif border-l border-paper-edge pl-3">
-            「{meeting.commitment24h}」
+            「{meeting.clarity.commitment24h}」
           </p>
         )}
       </article>

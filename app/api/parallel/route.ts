@@ -4,7 +4,7 @@ export async function POST() {
   return NextResponse.json(
     {
       error:
-        "This endpoint has been retired. Use /api/focus, /api/voices, /api/clarify, and /api/nowme for five-voice sessions.",
+        "This endpoint has been retired in v0.7. Use /api/task-frame, /api/roundtable, /api/scribe-inquiry, and /api/settlement.",
     },
     { status: 410 }
   );

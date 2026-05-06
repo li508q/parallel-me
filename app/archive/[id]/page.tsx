@@ -1,6 +1,6 @@
 "use client";
 
-// 纸页 — saved five-voice session.
+// 纸页 — saved v0.7 roundtable record.
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -11,30 +11,29 @@ import {
   recordCommitmentFollowup,
   type CommitmentFollowupResult,
   type Meeting,
+  type RoundtableTurn,
 } from "@/lib/db";
 import { DocketPaper } from "@/components/DocketPaper";
+import { VOICE_IDS, voiceName } from "@/lib/v7";
+import { SELVES } from "@/lib/selves";
 
-type Tab = "summary" | "voices" | "after";
+type Tab = "summary" | "roundtable" | "scribe";
 
 const TABS: { id: Tab; label: string; hint: string }[] = [
-  { id: "summary", label: "摘要", hint: "清明句 / 承诺" },
-  { id: "voices", label: "原声", hint: "五声 / 追问 / 互问" },
-  { id: "after", label: "余波", hint: "记忆 / 复盘" },
+  { id: "summary", label: "落定", hint: "清明句 / 承诺" },
+  { id: "roundtable", label: "圆桌", hint: "五声 / 对峙" },
+  { id: "scribe", label: "书记员", hint: "议题 / 问询" },
 ];
 
 const STATUS_LABEL: Record<Meeting["status"], string> = {
   in_progress: "进行中",
-  signed: "已承诺",
-  paused: "暂缓",
-  escaped: "我在逃避",
+  settled: "已落定",
   abandoned: "未完成",
 };
 
 const STATUS_DOT: Record<Meeting["status"], string> = {
   in_progress: "bg-attention-copper",
-  signed: "bg-safe-green",
-  paused: "bg-ink-mute",
-  escaped: "bg-seal-action",
+  settled: "bg-safe-green",
   abandoned: "bg-ink-faint",
 };
 
@@ -55,12 +54,7 @@ export default function ArchivePage() {
   if (!meeting) {
     return (
       <main className="min-h-screen px-5 sm:px-10 py-14 max-w-3xl mx-auto font-sans text-ink-body">
-        <Link
-          href="/"
-          className="text-xs tracking-[0.18em] text-ink-mute uppercase hover:text-ink-core"
-        >
-          ← 我的声音
-        </Link>
+        <BackLink />
         <DocketPaper stage="纸页" className="mt-10">
           <p className="font-serif text-title text-ink-core mb-3">找不到这次记录。</p>
           <p className="text-body text-ink-mute">
@@ -71,17 +65,15 @@ export default function ArchivePage() {
     );
   }
 
-  const title = meeting.claritySentence || meeting.workingFocus || meeting.petition;
+  const title =
+    meeting.clarity?.clarity_sentence ||
+    meeting.task_frame?.visible.problem_definition ||
+    meeting.raw_input;
 
   return (
     <main className="min-h-screen px-5 sm:px-10 py-10 sm:py-14 max-w-3xl mx-auto font-sans text-ink-body">
       <header className="mb-8 flex items-center justify-between gap-3 flex-wrap">
-        <Link
-          href="/"
-          className="text-xs tracking-[0.18em] text-ink-mute uppercase hover:text-ink-core transition-colors"
-        >
-          ← 我的声音
-        </Link>
+        <BackLink />
         <span className="inline-flex items-center gap-2 text-xs text-ink-mute">
           <span className={`w-1.5 h-1.5 rounded-full ${STATUS_DOT[meeting.status]}`} />
           {STATUS_LABEL[meeting.status]}
@@ -93,7 +85,7 @@ export default function ArchivePage() {
           {title}
         </p>
         <p className="text-body-sm text-ink-mute leading-relaxed">
-          陈情：{meeting.petition}
+          原始输入：{meeting.raw_input}
         </p>
       </DocketPaper>
 
@@ -110,9 +102,7 @@ export default function ArchivePage() {
               ].join(" ")}
             >
               <span className="font-medium">{t.label}</span>
-              <span className="hidden sm:inline ml-2 text-xs text-ink-faint">
-                · {t.hint}
-              </span>
+              <span className="hidden sm:inline ml-2 text-xs text-ink-faint">· {t.hint}</span>
               {active && (
                 <span className="absolute left-2 right-2 sm:left-3 sm:right-3 -bottom-px h-px bg-ink-core" />
               )}
@@ -122,130 +112,116 @@ export default function ArchivePage() {
       </div>
 
       {tab === "summary" && <SummaryTab meeting={meeting} />}
-      {tab === "voices" && <VoicesTab meeting={meeting} />}
-      {tab === "after" && <AfterTab meeting={meeting} />}
+      {tab === "roundtable" && <RoundtableTab meeting={meeting} />}
+      {tab === "scribe" && <ScribeTab meeting={meeting} />}
     </main>
   );
 }
 
+function BackLink() {
+  return (
+    <Link
+      href="/"
+      className="text-xs tracking-[0.18em] text-ink-mute uppercase hover:text-ink-core transition-colors"
+    >
+      ← 我的声音
+    </Link>
+  );
+}
+
 function SummaryTab({ meeting }: { meeting: Meeting }) {
+  const clarity = meeting.clarity;
   return (
     <div className="space-y-5">
-      <DocketPaper stage="工作焦点">
-        <p className="font-serif text-title text-ink-core leading-snug">
-          {meeting.workingFocus}
-        </p>
-      </DocketPaper>
-
-      {meeting.nowMe && (
-        <DocketPaper stage="NowMe" marginalia={meeting.nowMe.insight || undefined}>
+      {clarity && (
+        <DocketPaper stage="清明句">
           <p className="font-serif text-verdict text-ink-core leading-relaxed whitespace-pre-line">
-            {meeting.nowMe.text}
+            {clarity.clarity_sentence}
           </p>
-          {meeting.nowMe.loudestVoiceName && (
-            <p className="mt-3 text-body-sm text-ink-mute">
-              最响的声音：{meeting.nowMe.loudestVoiceName}
-            </p>
-          )}
         </DocketPaper>
       )}
 
-      {meeting.commitment24h && (
+      {clarity && (
+        <div className="grid md:grid-cols-2 gap-4">
+          <DocketPaper stage="偏好读数" dense>
+            <p className="font-serif text-body-long text-ink-body leading-relaxed">
+              {clarity.preference_readout}
+            </p>
+          </DocketPaper>
+          <DocketPaper stage="代价承认" dense>
+            <p className="font-serif text-body-long text-ink-body leading-relaxed">
+              {clarity.tradeoff_acknowledgement}
+            </p>
+          </DocketPaper>
+        </div>
+      )}
+
+      {clarity && (
         <DocketPaper stage="24h 承诺">
           <p className="font-serif text-title text-ink-core leading-snug">
-            「{meeting.commitment24h}」
+            「{clarity.commitment24h}」
+          </p>
+          <p className="mt-3 text-body-sm text-ink-mute">
+            此刻落点：{postureLabel(clarity.settlement_posture)}
           </p>
           {meeting.closedAt && (
-            <p className="mt-3 text-body-sm text-ink-mute">
+            <p className="mt-2 text-body-sm text-ink-mute">
               保存于 {formatDateTime(meeting.closedAt)}
             </p>
           )}
         </DocketPaper>
       )}
+
+      {clarity?.commitment24h && <CommitmentFollowupCard meeting={meeting} />}
     </div>
   );
 }
 
-function VoicesTab({ meeting }: { meeting: Meeting }) {
+function RoundtableTab({ meeting }: { meeting: Meeting }) {
   return (
     <div className="space-y-5">
-      <DocketPaper stage="五声入席">
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          {meeting.activatedVoices.map((v) => (
-            <article key={v.voiceId} className="bg-paper-base border border-paper-edge rounded-md p-3">
-              <div className="font-medium text-ink-core mb-1">{v.name}</div>
-              <p className="text-body-sm text-ink-mute mb-2">{v.activatedReason}</p>
-              <p className="text-body-sm text-ink-body font-serif">保护：{v.protect}</p>
-              <p className="text-body-sm text-ink-mute font-serif">怕：{v.fear}</p>
-            </article>
-          ))}
+      <DocketPaper stage="本次议题">
+        <p className="font-serif text-title text-ink-core leading-snug mb-4">
+          {meeting.task_frame?.visible.problem_definition}
+        </p>
+        <div className="grid sm:grid-cols-2 gap-3 text-body-sm">
+          <ArchiveField label="这件事问你的是" body={meeting.task_frame?.visible.central_question} />
+          <ArchiveField label="圆桌焦点" body={meeting.task_frame?.visible.discussion_focus} />
+          <ArchiveField label="核心冲突" body={meeting.task_frame?.visible.core_conflict} />
+          <ArchiveField label="主要牵动点" body={meeting.task_frame?.visible.main_concerns.join(" / ")} />
         </div>
       </DocketPaper>
 
-      <DocketPaper stage="五声表态">
+      <DocketPaper stage="五声第一轮">
         <div className="space-y-4">
-          {meeting.voiceTurns.map((t) => (
-            <article key={`${t.voiceId}-${t.at}`} className="border-l-3 border-paper-edge pl-4">
-              <div className="text-[10px] tracking-[0.18em] text-ink-mute uppercase mb-2">
-                {t.name}
-              </div>
-              <p className="text-body text-ink-body leading-relaxed whitespace-pre-line">
-                {t.text}
-              </p>
-            </article>
-          ))}
+          {VOICE_IDS.map((id) => {
+            const turn = meeting.roundtable.opening_turns.find((t) => t.voice_id === id);
+            if (!turn) return null;
+            return (
+              <article key={id} className="border-l-3 border-paper-edge pl-4">
+                <div className="text-[10px] tracking-[0.18em] text-ink-mute uppercase mb-1">
+                  {voiceName(id)}
+                </div>
+                <p className="font-serif text-title-sm text-ink-core leading-snug mb-2">
+                  {turn.thesis}
+                </p>
+                <p className="text-body-sm text-ink-body leading-relaxed">
+                  保护：{turn.protected_value} · 担心：{turn.concern}
+                </p>
+                <p className="text-body-sm text-ink-mute leading-relaxed">
+                  拉向：{turn.pull} · 代价：{turn.overreach_cost}
+                </p>
+              </article>
+            );
+          })}
         </div>
       </DocketPaper>
 
-      {meeting.followups.length > 0 && (
-        <DocketPaper stage="点名追问">
+      {meeting.roundtable.turns.length > 0 && (
+        <DocketPaper stage="自由圆桌">
           <div className="space-y-4">
-            {meeting.followups.map((f) => (
-              <div key={`${f.voiceId}-${f.at}`}>
-                <div className="text-[10px] tracking-[0.18em] text-ink-mute uppercase mb-2">
-                  问 {f.voiceName}
-                </div>
-                <p className="font-serif text-body-long text-ink-body italic mb-2">
-                  「{f.question}」
-                </p>
-                <p className="text-body text-ink-body leading-relaxed whitespace-pre-line">
-                  {f.answer}
-                </p>
-              </div>
-            ))}
-          </div>
-        </DocketPaper>
-      )}
-
-      {meeting.roleReversalTurns.length > 0 && (
-        <DocketPaper stage="换位回答">
-          <div className="space-y-3">
-            {meeting.roleReversalTurns.map((r) => (
-              <p key={`${r.voiceId}-${r.at}`} className="font-serif italic text-body text-ink-body">
-                坐到「{r.voiceName}」的位置：{r.text}
-              </p>
-            ))}
-          </div>
-        </DocketPaper>
-      )}
-
-      {meeting.crossClarifications.length > 0 && (
-        <DocketPaper stage="五声互问">
-          <div className="space-y-4">
-            {meeting.crossClarifications.map((c) => (
-              <div key={`${c.fromVoiceId}-${c.toVoiceId}-${c.at}`} className="border-l-3 border-attention-copper pl-4">
-                <div className="text-xs text-ink-mute mb-1">
-                  {c.fromName} 问 {c.toName}
-                </div>
-                <p className="font-serif text-body-long text-ink-core leading-relaxed mb-2">
-                  「{c.question}」
-                </p>
-                {c.response && (
-                  <p className="text-body-sm text-ink-body leading-relaxed">
-                    {c.toName}：{c.response}
-                  </p>
-                )}
-              </div>
+            {meeting.roundtable.turns.map((turn) => (
+              <RoundtableTurnView key={turn.id} turn={turn} />
             ))}
           </div>
         </DocketPaper>
@@ -254,47 +230,119 @@ function VoicesTab({ meeting }: { meeting: Meeting }) {
   );
 }
 
-function AfterTab({ meeting }: { meeting: Meeting }) {
-  const consent = meeting.memoryConsent;
-  const savedSet = new Set(consent?.savedIds ?? []);
+function ScribeTab({ meeting }: { meeting: Meeting }) {
+  const profile = meeting.preference_profile;
   return (
     <div className="space-y-5">
-      {meeting.commitment24h && <CommitmentFollowupCard meeting={meeting} />}
-
-      {consent && (
-        <DocketPaper stage="记忆">
-          <p className="text-body-sm text-ink-mute mb-4">
-            这次你保留了 <span className="text-ink-core font-medium">{savedSet.size}</span> / {consent.candidates.length} 条记忆。
-          </p>
-          <ol className="space-y-3">
-            {consent.candidates.map((c) => {
-              const kept = savedSet.has(c.id);
-              return (
-                <li
-                  key={c.id}
-                  className={[
-                    "p-3 rounded-md border transition-colors",
-                    kept ? "bg-paper-base border-paper-edge" : "bg-paper-base border-paper-edge opacity-50",
-                  ].join(" ")}
-                >
-                  <p className="text-body text-ink-body leading-snug mb-1">
-                    {c.statement}
-                  </p>
-                  <span className="text-[10px] tracking-wider uppercase text-ink-faint">
-                    {kept ? "已记入" : "未记入"}
-                  </span>
-                </li>
-              );
-            })}
-          </ol>
+      {meeting.choice_answers.length > 0 && (
+        <DocketPaper stage="选择卡回答">
+          <div className="space-y-3">
+            {meeting.choice_answers.map((a) => (
+              <div key={`${a.card_id}-${a.at}`} className="border-b border-paper-edge last:border-0 pb-3 last:pb-0">
+                <div className="text-xs text-ink-mute mb-1">{a.question}</div>
+                <p className="font-serif text-body-long text-ink-body">
+                  {a.custom_text || a.selected_label}
+                </p>
+              </div>
+            ))}
+          </div>
         </DocketPaper>
+      )}
+
+      {meeting.inquiry_answers.length > 0 && (
+        <DocketPaper stage="书记员问询">
+          <div className="space-y-3">
+            {meeting.inquiry_answers.map((a) => (
+              <div key={`${a.question_id}-${a.at}`} className="border-b border-paper-edge last:border-0 pb-3 last:pb-0">
+                <div className="text-xs text-ink-mute mb-1">{a.question}</div>
+                <p className="font-serif text-body-long text-ink-body">
+                  {a.custom_text || a.selected_label}
+                </p>
+              </div>
+            ))}
+          </div>
+        </DocketPaper>
+      )}
+
+      {profile && (
+        <DocketPaper stage="偏好刻画">
+          <div className="grid md:grid-cols-2 gap-4">
+            <ListField label="已验证倾向" items={profile.validated_leanings} />
+            <ListField label="被抗拒的位置" items={profile.resisted_positions} />
+            <ListField label="对峙判断" items={profile.conflict_judgments} />
+            <ListField label="未解张力" items={profile.unresolved_tensions} />
+          </div>
+        </DocketPaper>
+      )}
+    </div>
+  );
+}
+
+function RoundtableTurnView({ turn }: { turn: RoundtableTurn }) {
+  if (turn.duel) {
+    return (
+      <article className="border-l-3 border-attention-copper pl-4">
+        <div className="text-xs text-ink-mute mb-1">
+          {turn.duel.from_name} 问 {turn.duel.to_name}
+        </div>
+        <p className="font-serif text-body-long text-ink-core leading-relaxed mb-2">
+          「{turn.duel.question}」
+        </p>
+        <p className="text-body-sm text-ink-body leading-relaxed">
+          {turn.duel.to_name}：{turn.duel.response}
+        </p>
+        <p className="mt-2 text-xs text-ink-mute">
+          未解开的点：{turn.duel.unresolved_point}
+        </p>
+      </article>
+    );
+  }
+  return (
+    <article className="border-l-3 border-paper-edge pl-4">
+      <div className="text-[10px] tracking-[0.18em] text-ink-mute uppercase mb-1">
+        {turn.voice_id ? voiceName(turn.voice_id) : "书记员"}
+      </div>
+      <p className="text-body text-ink-body leading-relaxed whitespace-pre-line">
+        {turn.text}
+      </p>
+    </article>
+  );
+}
+
+function ArchiveField({ label, body }: { label: string; body?: string }) {
+  return (
+    <div>
+      <div className="text-[10px] tracking-[0.18em] text-ink-faint uppercase mb-1">
+        {label}
+      </div>
+      <p className="font-serif text-ink-body leading-snug">{body || "未记录"}</p>
+    </div>
+  );
+}
+
+function ListField({ label, items }: { label: string; items: string[] }) {
+  return (
+    <div>
+      <div className="text-[10px] tracking-[0.18em] text-ink-mute uppercase mb-2">
+        {label}
+      </div>
+      {items.length ? (
+        <ul className="space-y-1.5">
+          {items.map((item, index) => (
+            <li key={`${label}-${index}`} className="text-body-sm text-ink-body leading-relaxed">
+              {item}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-body-sm text-ink-faint italic font-serif">尚未记录。</p>
       )}
     </div>
   );
 }
 
 const FOLLOWUP_LABEL: Record<CommitmentFollowupResult, { text: string; cls: string }> = {
-  done: { text: "做了 ✓", cls: "text-safe-green" },
+  done: { text: "做了", cls: "text-safe-green" },
   "not-done": { text: "没做", cls: "text-seal-action" },
   forgot: { text: "忘了", cls: "text-ink-mute" },
 };
@@ -331,30 +379,29 @@ function CommitmentFollowupCard({ meeting }: { meeting: Meeting }) {
         那件 24 小时的事，做了吗？
       </p>
       <div className="flex flex-wrap gap-2">
-        <button
-          onClick={() => record("done")}
-          disabled={submitting}
-          className="px-3 py-1.5 rounded-md border border-safe-green/40 text-safe-green text-body-sm hover:bg-safe-green/10 transition-colors disabled:opacity-50"
-        >
+        <button onClick={() => record("done")} disabled={submitting} className="px-3 py-1.5 rounded-md border border-safe-green/40 text-safe-green text-body-sm hover:bg-safe-green/10 transition-colors disabled:opacity-50">
           做了
         </button>
-        <button
-          onClick={() => record("not-done")}
-          disabled={submitting}
-          className="px-3 py-1.5 rounded-md border border-seal-action/40 text-seal-action text-body-sm hover:bg-seal-action/10 transition-colors disabled:opacity-50"
-        >
+        <button onClick={() => record("not-done")} disabled={submitting} className="px-3 py-1.5 rounded-md border border-seal-action/40 text-seal-action text-body-sm hover:bg-seal-action/10 transition-colors disabled:opacity-50">
           没做
         </button>
-        <button
-          onClick={() => record("forgot")}
-          disabled={submitting}
-          className="px-3 py-1.5 rounded-md border border-paper-edge text-ink-mute text-body-sm hover:bg-paper-base transition-colors disabled:opacity-50"
-        >
+        <button onClick={() => record("forgot")} disabled={submitting} className="px-3 py-1.5 rounded-md border border-paper-edge text-ink-mute text-body-sm hover:bg-paper-base transition-colors disabled:opacity-50">
           忘了
         </button>
       </div>
     </DocketPaper>
   );
+}
+
+function postureLabel(posture: string): string {
+  const labels: Record<string, string> = {
+    leaning: "已有倾向",
+    not_ready: "暂不决定",
+    testing: "先做验证",
+    boundary: "先立边界",
+    grieving: "先承认失去",
+  };
+  return labels[posture] || posture;
 }
 
 function formatDateTime(ts: number): string {

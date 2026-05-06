@@ -37,8 +37,18 @@ export default function InsightsPage() {
       future: 0,
     };
     for (const record of records || []) {
-      for (const turn of record.voiceTurns) {
-        const id = turn.voiceId as SelfId;
+      const seen = new Set<SelfId>();
+      for (const turn of record.roundtable.opening_turns) {
+        seen.add(turn.voice_id as SelfId);
+      }
+      for (const turn of record.roundtable.turns) {
+        if (turn.voice_id) seen.add(turn.voice_id as SelfId);
+        if (turn.duel) {
+          seen.add(turn.duel.from_voice_id as SelfId);
+          seen.add(turn.duel.to_voice_id as SelfId);
+        }
+      }
+      for (const id of seen) {
         if (counts[id] !== undefined) counts[id] += 1;
       }
     }
@@ -50,7 +60,7 @@ export default function InsightsPage() {
     })).sort((a, b) => b.n - a.n);
   }, [records]);
 
-  const leastAsked = useMemo(() => {
+  const leastRequested = useMemo(() => {
     const asked: Record<SelfId, number> = {
       lay: 0,
       money: 0,
@@ -59,8 +69,8 @@ export default function InsightsPage() {
       future: 0,
     };
     for (const record of records || []) {
-      for (const followup of record.followups) {
-        const id = followup.voiceId as SelfId;
+      for (const move of record.roundtable.moves) {
+        const id = move.target_voice_id as SelfId | undefined;
         if (asked[id] !== undefined) asked[id] += 1;
       }
     }
@@ -132,7 +142,7 @@ export default function InsightsPage() {
           href="/"
           className="font-display inline-block px-6 py-3 bg-ink text-paper rounded-full text-sm font-semibold hover:bg-ink/85"
         >
-          再进行一次五声会谈 →
+          再进行一次五声圆桌 →
         </Link>
       </main>
     );
@@ -205,23 +215,23 @@ export default function InsightsPage() {
         )}
       </section>
 
-      {leastAsked[0] && (
+      {leastRequested[0] && (
         <section className="mb-14 animate-fade-up bg-paper border-2 border-dashed border-ink/15 rounded-3xl p-7">
           <div className="font-display text-xs tracking-[0.18em] text-ink3 uppercase mb-3">
-            ⓶ 最少被追问的声音
+            ⓶ 最少被主动叫出的声音
           </div>
           <div className="flex items-center gap-4">
             <div className="opacity-60">
-              <SelfAvatar id={leastAsked[0].id} size={56} />
+              <SelfAvatar id={leastRequested[0].id} size={56} />
             </div>
             <div>
               <div
-                className={`font-display text-2xl ${VOICE_TEXT_CLASS[leastAsked[0].id]} font-semibold mb-1`}
+                className={`font-display text-2xl ${VOICE_TEXT_CLASS[leastRequested[0].id]} font-semibold mb-1`}
               >
-                {SELVES[leastAsked[0].id].name}
+                {SELVES[leastRequested[0].id].name}
               </div>
               <div className="text-sm text-ink3">
-                被点名追问 {leastAsked[0].n} 次。下次可以多坐到它的位置听一听。
+                被你主动继续或提问 {leastRequested[0].n} 次。下次可以让它多说一轮。
               </div>
             </div>
           </div>
@@ -235,11 +245,11 @@ export default function InsightsPage() {
           </div>
           <div className="bg-surface-deep text-paper p-8 sm:p-12 rounded-3xl">
             <div className="font-display text-3xl sm:text-4xl mb-4 leading-tight">
-              「{latest.claritySentence || latest.workingFocus || latest.petition}」
+              「{latest.clarity?.clarity_sentence || latest.task_frame?.visible.problem_definition || latest.raw_input}」
             </div>
-            {latest.commitment24h && (
+            {latest.clarity?.commitment24h && (
               <p className="text-paper/80 text-base leading-relaxed mb-5">
-                24h 承诺：{latest.commitment24h}
+                24h 承诺：{latest.clarity.commitment24h}
               </p>
             )}
             <div className="text-xs text-paper/50">

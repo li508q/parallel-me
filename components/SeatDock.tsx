@@ -18,8 +18,6 @@ export interface SeatDockProps {
   seatIds: SelfId[];
   /** Currently emitting tokens. Pulses. */
   speakingId?: SelfId | null;
-  /** Marked as loudest by the verdict event. */
-  loudestId?: SelfId | null;
   /** User has called on this seat (for follow-up). */
   calledId?: SelfId | null;
   /** Seats that have already finished speaking (less prominent dot). */
@@ -32,7 +30,6 @@ export interface SeatDockProps {
 export function SeatDock({
   seatIds,
   speakingId,
-  loudestId,
   calledId,
   spokenIds = [],
   callable = false,
@@ -49,7 +46,6 @@ export function SeatDock({
 
         const isSpeaking = speakingId === id;
         const isCalled = calledId === id;
-        const isLoudest = loudestId === id;
         const hasSpoken = spokenIds.includes(id);
 
         const colorVar = SEAT_COLOR_VAR[id];
@@ -59,13 +55,11 @@ export function SeatDock({
 
         const stateClass = isCalled
           ? "ring-1 ring-ink-core border-ink-core"
-          : isLoudest
-            ? "ring-1 ring-attention-copper/60 border-attention-copper/40"
-            : isSpeaking
+          : isSpeaking
               ? "border-ink-mute"
               : "border-paper-edge";
 
-        const opacity = !isSpeaking && !isCalled && !isLoudest && hasSpoken
+        const opacity = !isSpeaking && !isCalled && hasSpoken
           ? "opacity-70"
           : "";
 
@@ -83,11 +77,6 @@ export function SeatDock({
           >
             <span className={dotClass} style={{ background: `var(--${colorVar})` }} />
             <span className="text-ink-core font-medium">{seat.name}</span>
-            {isLoudest && (
-              <span className="text-[9px] tracking-wider text-attention-copper uppercase">
-                最响
-              </span>
-            )}
           </span>
         );
 

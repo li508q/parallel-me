@@ -4,21 +4,18 @@
 
 ## What ParallelMe Is
 
-ParallelMe is a structured five-voice self-clarification system for life-sized dilemmas. It is not a chatbot, therapy, diagnosis, or crisis intervention. The user stays in the host position while five fixed inner voices help turn a vague petition into a working focus, clarify costs and blind spots, and end with a clarity sentence plus a 24-hour commitment.
+ParallelMe is a local-first, scribe-guided five-voice roundtable for life-sized dilemmas. It is not a chatbot, therapy, diagnosis, or crisis intervention. The user gives one raw input, the scribe turns it into a clear task frame, five fixed inner voices discuss it, the scribe validates preference patterns, and the session ends with a clarity sentence plus a 24-hour commitment.
 
 ## Core Objects
 
-- `petition`: the user's raw concern.
-- `clarifyingAnswers`: short answers that help shape the concern.
-- `workingFocus`: what this session will listen for first.
-- `activatedVoices`: the fixed five voices and why each is present.
-- `voiceTurns`: each voice stating what it protects, fears, and asks not to ignore.
-- `followups`: user-named questions to a selected voice.
-- `roleReversalTurns`: the user sitting in a voice's position and correcting it.
-- `crossClarifications`: nonjudgmental voice-to-voice questions about costs and blind spots.
-- `claritySentence`: “what I can now see clearly.”
-- `nowMe`: Self / aware ego synthesis, not a sixth voice.
-- `commitment24h`: a concrete action within 24 hours.
+- `raw_input`: the user's original concern.
+- `choice_cards`: high-density multiple-choice cards used to clarify the issue.
+- `task_frame`: the confirmed issue frame, with visible fields and internal evidence status.
+- `roundtable`: fixed five-voice opening turns plus free roundtable moves.
+- `scribe_trace`: structured record of user actions such as continuing a voice, asking the table, or selecting a duel.
+- `inquiry_questions`: scribe questions that validate user preference patterns.
+- `preference_profile`: natural-language leaning, resistance, tradeoff, and unresolved-tension records.
+- `clarity`: clarity sentence, preference readout, tradeoff acknowledgement, posture, and 24-hour commitment.
 
 ## Fixed Five Voices
 
@@ -27,10 +24,10 @@ ParallelMe is a structured five-voice self-clarification system for life-sized d
 | `lay` | 躺平的我 | body, rest, lower-cost survival |
 | `money` | 搞钱的我 | cashflow, resources, options |
 | `roam` | 出走的我 | freedom, breathing room, exits |
-| `filial` | 怕妈担心的我 | attachment, belonging, family connection |
+| `filial` | 被牵挂的我 | attachment, belonging, family connection |
 | `future` | 5 年后的我 | long view, continuity, compounding choices |
 
-`now` is not part of the five voices. It is the user's Self / aware ego position.
+There is no sixth voice. The scribe organizes evidence and language, but does not take a value position.
 
 ## Provider Requirement
 
@@ -44,68 +41,64 @@ The client setup flow includes DeepSeek, 阿里云百炼, Kimi, MiniMax, 豆包 
 
 ## Endpoints
 
-### `POST /api/focus`
+### `POST /api/task-frame`
 
-Turns the petition and clarifying answers into questions plus a working focus.
+Turns raw input and optional choice answers into high-density choice cards plus a reviewable task frame.
 
 ```ts
 {
-  petition: string,
-  answers?: { question: string, answer: string }[],
+  rawInput: string,
+  choiceAnswers?: ChoiceAnswer[],
   context?: ContextBundle,
   provider: { baseUrl: string, model: string, apiKey: string }
 }
 ```
 
-Returns:
+### `POST /api/roundtable`
+
+Generates the fixed five-voice opening or advances one free roundtable move.
 
 ```ts
 {
-  crisis: boolean,
-  questions: string[],
-  workingFocus: string
-}
-```
-
-### `POST /api/voices`
-
-Identifies why the fixed five voices are activated and generates their statements.
-
-```ts
-{
-  petition: string,
-  workingFocus: string,
-  answers?: { question: string, answer: string }[],
+  action: "opening" | "move",
+  taskFrame: TaskFrame,
+  roundtable?: RoundtableRecord,
+  moveType?: "continue_all" | "continue_one" | "duel" | "user_to_voice" | "user_to_table" | "scribe_summary",
+  targetVoiceId?: "lay" | "money" | "roam" | "filial" | "future",
+  fromVoiceId?: "lay" | "money" | "roam" | "filial" | "future",
+  toVoiceId?: "lay" | "money" | "roam" | "filial" | "future",
+  userText?: string,
   context?: ContextBundle,
   provider: { baseUrl: string, model: string, apiKey: string }
 }
 ```
 
-### `POST /api/clarify`
+### `POST /api/scribe-inquiry`
 
-Supports named follow-up and voice-to-voice clarification.
+Creates or refreshes scribe questions and preference-profile observations after the free roundtable.
 
 ```ts
 {
-  action: "followup" | "cross",
-  petition: string,
-  workingFocus: string,
+  taskFrame: TaskFrame,
+  roundtable: RoundtableRecord,
+  scribeTrace: ScribeTrace,
+  inquiryAnswers?: ScribeInquiryAnswer[],
+  context?: ContextBundle,
   provider: { baseUrl: string, model: string, apiKey: string }
 }
 ```
 
-### `POST /api/nowme`
+### `POST /api/settlement`
 
-Produces the clarity sentence, NowMe synthesis, insight, and 24-hour commitment.
+Produces the clarity settlement.
 
 ```ts
 {
-  petition: string,
-  workingFocus: string,
-  voiceTurns: VoiceTurn[],
-  followups?: Followup[],
-  roleReversals?: RoleReversalTurn[],
-  crossClarifications?: CrossClarification[],
+  taskFrame: TaskFrame,
+  roundtable: RoundtableRecord,
+  scribeTrace: ScribeTrace,
+  inquiryAnswers: ScribeInquiryAnswer[],
+  preferenceProfile: PreferenceProfile,
   context?: ContextBundle,
   provider: { baseUrl: string, model: string, apiKey: string }
 }
@@ -127,11 +120,11 @@ Returns:
 
 ### Retired Endpoints
 
-`/api/parallel` and `/api/followup` now return `410 Gone`. Use the structured endpoints above.
+`/api/focus`, `/api/voices`, `/api/clarify`, `/api/nowme`, `/api/parallel`, `/api/followup`, and `/api/share` return `410 Gone`.
 
 ## Where The Prompts Live
 
-`/lib/selves.ts` contains the fixed five voice prompts and NowMe prompt.
+`/lib/selves.ts` contains the fixed five voice prompts. `/lib/llm.ts` contains the scribe, roundtable, inquiry, and settlement orchestration prompts.
 
 ## License
 

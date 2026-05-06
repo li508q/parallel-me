@@ -139,7 +139,7 @@ export default function SetupPage() {
         <div className="grid lg:grid-cols-[1fr_320px] gap-8 items-end">
           <section>
             <p className="text-xs tracking-[0.18em] text-ink-mute uppercase mb-3">
-              五声会谈需要一把真实钥匙
+              五声圆桌需要一把真实钥匙
             </p>
             <h1 className="font-serif text-headline sm:text-display text-ink-core leading-[1.05]">
               先把 API 接上，<br />
@@ -170,7 +170,7 @@ export default function SetupPage() {
               </div>
             ) : (
               <p className="text-body-sm text-ink-mute leading-relaxed">
-                还没有 API Key。完成下面四步后即可开始五声会谈。
+                还没有 API Key。完成下面四步后即可开始五声圆桌。
               </p>
             )}
           </aside>

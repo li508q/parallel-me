@@ -175,13 +175,13 @@ export default function MePage() {
             <div className="mt-4 pt-4 border-t rule">
               <div className="text-xs text-ink3 mb-1">最近一次</div>
               <div className="font-display text-lg text-ink2 italic">
-                「{latest.claritySentence || latest.workingFocus || latest.petition}」
+                「{latest.clarity?.clarity_sentence || latest.task_frame?.visible.problem_definition || latest.raw_input}」
               </div>
             </div>
           )}
           {!hasRecords && (
             <p className="mt-3 text-sm text-ink3 leading-relaxed">
-              每次五声会谈结束后，清明句和 24h 承诺会留成一页 →
+              每次五声圆桌结束后，清明句和 24h 承诺会留成一页 →
             </p>
           )}
         </Link>
@@ -204,7 +204,7 @@ export default function MePage() {
             这段时间的声音
           </div>
           <p className="mt-3 text-sm text-ink3 leading-relaxed">
-            五声会谈 3 次以上，这里会整理最常响起、最少被听见的声音 →
+            五声圆桌 3 次以上，这里会整理最常出现、最少被主动叫出的声音 →
           </p>
         </Link>
       </div>

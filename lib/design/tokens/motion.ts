@@ -7,7 +7,7 @@ export const spring = {
   // 默认纸墨 spring：稳定、克制
   paper: { stiffness: 200, damping: 28, mass: 1 },
 
-  // 声音入席：纸卡轻轻"落桌"，不弹跳
+  // 五声第一轮：纸卡轻轻"落桌"，不弹跳
   seatLanding: { stiffness: 180, damping: 32, mass: 1 },
 
   // 阶段切换：横向 8px slide + 透明度交叉

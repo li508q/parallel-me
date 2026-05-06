@@ -1,7 +1,6 @@
 "use client";
 
-// 声音详情 · /voices/[id] — one voice's activity feed across all records.
-// All data is derived from the ParallelMeV4 meetings table via lib/voices.ts.
+// 声音详情 · /voices/[id] — one voice's activity feed across v0.7 records.
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -107,9 +106,9 @@ export default function VoiceDetailPage() {
         <DocketPaper stage="它在你的纸页里" dense className="mb-8">
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-center">
             <Stat label="出现" value={stats.appearances} />
-            <Stat label="最响" value={stats.loudestCount} accent="warn" />
-            <Stat label="被追问" value={stats.followedUpCount} />
-            <Stat label="被换位" value={stats.roleReversalCount} accent="safe" />
+            <Stat label="被继续" value={stats.requestedCount} accent="warn" />
+            <Stat label="被提问" value={stats.directQuestionCount} />
+            <Stat label="被对峙" value={stats.challengedCount} accent="safe" />
           </div>
         </DocketPaper>
       )}
@@ -195,35 +194,30 @@ function ActivityCard({
       </div>
 
       <div className="flex flex-wrap gap-2 mb-3">
-        {entry.isLoudest && (
-          <Pill kind="warn">最响</Pill>
-        )}
-        {entry.followup && <Pill kind="default">被点名追问</Pill>}
-        {entry.roleReversal && <Pill kind="safe">被换位回答</Pill>}
-        <Pill kind="muted">{entry.status === "signed" ? "已承诺" : "未完成"}</Pill>
+        {entry.requested && <Pill kind="warn">被继续听见</Pill>}
+        {entry.directQuestion && <Pill kind="default">被直接提问</Pill>}
+        {entry.duel && <Pill kind="safe">参与对峙</Pill>}
+        <Pill kind="muted">{entry.status === "settled" ? "已落定" : "未完成"}</Pill>
       </div>
 
       <p className="text-body-sm text-ink-body leading-relaxed line-clamp-3 italic font-serif">
         「{entry.text}」
       </p>
 
-      {entry.followup && (
+      {entry.directQuestion && (
         <div className="mt-3 pt-3 border-t border-paper-edge">
           <div className="text-[10px] tracking-[0.18em] text-ink-mute uppercase mb-1">
             你问它
           </div>
-          <p className="text-body-sm text-ink-body italic">「{entry.followup.question}」</p>
-          <p className="mt-2 text-body-sm text-ink-mute leading-relaxed">
-            它答：「{entry.followup.answer}」
-          </p>
+          <p className="text-body-sm text-ink-body italic">「{entry.directQuestion}」</p>
         </div>
       )}
-      {entry.roleReversal && (
+      {entry.duel && (
         <div className="mt-3 pt-3 border-t border-paper-edge">
           <div className="text-[10px] tracking-[0.18em] text-ink-mute uppercase mb-1">
-            你坐到它的位置说
+            对峙记录
           </div>
-          <p className="text-body-sm text-ink-body italic">「{entry.roleReversal}」</p>
+          <p className="text-body-sm text-ink-body italic">「{entry.duel}」</p>
         </div>
       )}
     </Link>

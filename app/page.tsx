@@ -1,7 +1,7 @@
 "use client";
 
 // Home · ParallelMe / 我的声音
-// Starts a structured five-voice self-clarification session.
+// Starts a scribe-guided five-voice roundtable.
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
@@ -52,10 +52,10 @@ export default function Home() {
       () =>
         db.meetings
           .where("status")
-          .equals("signed")
+          .equals("settled")
           .filter(
             (m) =>
-              !!m.commitment24h &&
+              !!m.clarity?.commitment24h &&
               !m.commitmentFollowup &&
               (m.closedAt ?? 0) > Date.now() - 14 * 86_400_000,
           )
@@ -78,9 +78,9 @@ export default function Home() {
       router.push("/setup");
       return;
     }
-    const petition = text.trim();
-    if (!petition) return;
-    router.push(`/meeting?petition=${encodeURIComponent(petition)}`);
+    const rawInput = text.trim();
+    if (!rawInput) return;
+    router.push(`/meeting?petition=${encodeURIComponent(rawInput)}`);
   }
 
   function onSubmit(e: React.FormEvent) {
@@ -90,7 +90,10 @@ export default function Home() {
 
   const recentRecord: CardData | null = records[0]
     ? {
-        title: records[0].claritySentence || records[0].workingFocus || records[0].petition,
+        title:
+          records[0].clarity?.clarity_sentence ||
+          records[0].task_frame?.visible.problem_definition ||
+          records[0].raw_input,
         meta: timeAgo(records[0].createdAt),
         href: `/archive/${records[0].id}`,
       }
@@ -134,7 +137,7 @@ export default function Home() {
         </h1>
         <p className="text-body sm:text-body-long text-ink-body max-w-xl leading-relaxed">
           写下那份还没被说清楚的困惑。<br className="hidden sm:block" />
-          五声会替你把它慢慢摊开，不急着赢。
+          书记员先帮你定义议题，再让五声坐下来慢慢摊开。
         </p>
       </header>
 
@@ -163,7 +166,7 @@ export default function Home() {
               disabled={apiReady && !input.trim()}
               className="px-5 py-2.5 rounded-md bg-ink-core text-paper-base text-body-sm font-medium hover:bg-ink-body disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
             >
-              {apiReady ? "开始五声会谈 →" : "先配置 API →"}
+              {apiReady ? "开始五声圆桌 →" : "先配置 API →"}
             </button>
           </div>
         </DocketPaper>
@@ -195,7 +198,7 @@ export default function Home() {
         <SnapshotCard
           label="最近记录"
           data={recentRecord}
-          emptyHint="第一次五声会谈后，这里会显示纸页。"
+          emptyHint="第一次五声圆桌后，这里会显示纸页。"
         />
       </section>
 
@@ -226,7 +229,7 @@ export default function Home() {
 function FiveVoicesPrimer() {
   return (
     <section
-      aria-label="五声会谈的五个声音"
+      aria-label="五声圆桌的五个声音"
       className="mb-7 sm:mb-8 animate-fade-up"
     >
       <div className="flex items-center gap-3 mb-4">
@@ -316,7 +319,7 @@ function SnapshotCard({
 function PendingCommitmentCard({ meeting }: { meeting: Meeting | null }) {
   const [submitting, setSubmitting] = useState(false);
 
-  if (!meeting?.commitment24h) {
+  if (!meeting?.clarity?.commitment24h) {
     return (
       <SnapshotCard
         label="待复盘承诺"
@@ -338,7 +341,7 @@ function PendingCommitmentCard({ meeting }: { meeting: Meeting | null }) {
         待复盘承诺
       </div>
       <p className="text-body-sm text-ink-body italic font-serif leading-snug line-clamp-2 mb-1">
-        「{meeting.commitment24h}」
+        「{meeting.clarity.commitment24h}」
       </p>
       <p className="text-xs text-ink-mute mb-3">
         {timeAgo(meeting.closedAt ?? meeting.createdAt)} · 你说会做

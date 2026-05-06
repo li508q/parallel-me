@@ -5,10 +5,10 @@
 //   followup      · 声音被点名后的回答（同 seat 但有 "被点名" badge）
 //   user          · 用户的话（右对齐 italic 引号）
 //   scribe        · 书记中性侧记（居中 横线 灰小字）
-//   cross-question· 五声互问
+//   cross-question· 两声对峙
 //   cross-response· 被问到的声音回应
 //   user-mark     · 用户修正或阶段确认
-//   verdict       · NowMe 收束（surface-deep ritual block）
+//   verdict       · 清明落定（surface-deep ritual block）
 
 import * as React from "react";
 import type { SelfId } from "@/lib/selves";
@@ -36,7 +36,7 @@ export interface TurnEntryProps {
   text?: string;
   /** Top-right meta (timestamp, etc). */
   meta?: string;
-  /** Right-side badge ("最响", "被点名"). */
+  /** Right-side badge ("被提问", "回应"). */
   badge?: string;
   /** Insight or marginalia to render under verdict. */
   marginalia?: string;
