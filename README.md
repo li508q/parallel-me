@@ -19,16 +19,24 @@ ParallelMe 为正饱受重大选择撕扯的人搭建一间私密的内心圆桌
 
 <br />
 
-<table>
-  <tr>
-    <td><a href="https://parallel-me-olive.vercel.app/"><strong>在线体验</strong></a></td>
-    <td><a href="#core-philosophy"><strong>产品理念</strong></a></td>
-    <td><a href="#product-architecture"><strong>三大模块</strong></a></td>
-    <td><a href="#system-implementation"><strong>系统实现</strong></a></td>
-    <td><a href="#documentation"><strong>文档体系</strong></a></td>
-    <td><a href="#quick-start"><strong>快速开始</strong></a></td>
-  </tr>
-</table>
+<a href="https://parallel-me-olive.vercel.app/">
+  <img alt="Live demo" src="https://img.shields.io/badge/Live_Demo-8E3F32?style=for-the-badge&logo=vercel&logoColor=white" />
+</a>
+<a href="#core-philosophy">
+  <img alt="Product philosophy" src="https://img.shields.io/badge/Philosophy-191713?style=for-the-badge" />
+</a>
+<a href="#product-architecture">
+  <img alt="Product modules" src="https://img.shields.io/badge/Modules-191713?style=for-the-badge" />
+</a>
+<a href="#system-implementation">
+  <img alt="System implementation" src="https://img.shields.io/badge/System-191713?style=for-the-badge" />
+</a>
+<a href="#documentation">
+  <img alt="Documentation" src="https://img.shields.io/badge/Docs-191713?style=for-the-badge" />
+</a>
+<a href="#quick-start">
+  <img alt="Quick start" src="https://img.shields.io/badge/Quick_Start-191713?style=for-the-badge" />
+</a>
 
 </div>
 
