@@ -15,9 +15,11 @@ ParallelMe 为正饱受重大选择撕扯的人搭建一间私密的内心圆桌
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.8-3178C6?style=for-the-badge&logo=typescript&logoColor=white)
 ![Local First](https://img.shields.io/badge/Local--First-IndexedDB-536E5A?style=for-the-badge)
 ![AI SDK](https://img.shields.io/badge/AI-Vercel%20SDK-191713?style=for-the-badge)
+![Version](https://img.shields.io/badge/Version-v1.0-8E3F32?style=for-the-badge)
 
 <br />
 
+[在线体验](https://parallel-me-olive.vercel.app/) ·
 [产品理念](#core-philosophy) ·
 [三大模块](#product-architecture) ·
 [系统实现](#system-implementation) ·
@@ -35,6 +37,8 @@ ParallelMe 为正饱受重大选择撕扯的人搭建一间私密的内心圆桌
 **ParallelMe 是一个 local-first 的 AI 自我对齐工作台，面向那些不能只靠利弊表解决的重大人生选择。**
 
 它不是更快给建议的工具，而是一套把困惑定义清楚、让内在冲突有序发声、最终回到用户自主确认的产品系统。
+
+**V1.0 已部署：** [https://parallel-me-olive.vercel.app/](https://parallel-me-olive.vercel.app/)
 
 | 它不是 | 它是 |
 | --- | --- |

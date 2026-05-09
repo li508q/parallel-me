@@ -1,7 +1,8 @@
 {
   "name": "parallelme",
-  "version": "0.8.0",
+  "version": "1.0.0",
   "private": true,
+  "homepage": "https://parallel-me-olive.vercel.app/",
   "description": "🪞 平行的我 · ParallelMe — 书记员牵引的固定五声圆桌，帮你在重要困惑里听见自己。",
   "engines": {
     "node": "22.x",
