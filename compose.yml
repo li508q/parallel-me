@@ -1,0 +1,13 @@
+services:
+  web:
+    build:
+      context: .
+    image: parallelme:local
+    ports:
+      - "3000:3000"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      NODE_ENV: production
+      NEXT_TELEMETRY_DISABLED: "1"
