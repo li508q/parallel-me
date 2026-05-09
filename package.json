@@ -4,8 +4,8 @@
   "private": true,
   "description": "🪞 平行的我 · ParallelMe — 书记员牵引的固定五声圆桌，帮你在重要困惑里听见自己。",
   "engines": {
-    "node": ">=22",
-    "npm": ">=10"
+    "node": "22.x",
+    "npm": "10.x"
   },
   "scripts": {
     "dev": "next dev",
