@@ -9,9 +9,9 @@
 <p align="center">
   <a href="./LICENSE">MIT License</a>
   ·
-  <a href="./docs/design/V0.7-UPGRADE-PLAN.md">v0.7 Design Plan</a>
+  <a href="./docs/notes/README.md">Design & Engineering Notes</a>
   ·
-  <a href="./docs/research/README.md">Research Notes</a>
+  <a href="./docs/notes/requirements/backlog.md">Atomic Backlog</a>
 </p>
 
 ---
@@ -33,7 +33,7 @@ v0.7 的方向是从“流程化五声会谈”转向“书记员牵引的五声
 → 清明落定
 ```
 
-完整设计计划见 [docs/design/V0.7-UPGRADE-PLAN.md](./docs/design/V0.7-UPGRADE-PLAN.md)。
+完整设计、研究与工程计划见 [docs/notes/README.md](./docs/notes/README.md)。
 
 ## Core Objects
 
@@ -51,7 +51,7 @@ v0.7 的方向是从“流程化五声会谈”转向“书记员牵引的五声
 - 不使用“入席”“声浪最大/最小”等旧流程概念。
 - 用户只必须写一次原始输入，后续尽量通过选择、提问、对峙、补一句和原地改写推进。
 - 五声第一轮是结构化立论，后续进入自由圆桌。
-- 书记员不是第六声，不站队、不诊断、不替用户决定。
+- 书记员不是第六声；它不站队，用可观测事实把混乱照亮，让用户自己拍板。
 - 清明句从用户在圆桌中的选择和问询回答里长出来。
 
 ## Psychological Grounding
@@ -66,7 +66,7 @@ ParallelMe 借鉴心理学，但不是治疗、诊断或危机干预工具。
 | Motivational Interviewing | 书记员使用反映、总结和自主支持。 |
 | ACT | 最后落到价值澄清和 committed action。 |
 
-研究索引见 [docs/research/README.md](./docs/research/README.md)。
+研究索引见 [docs/notes/README.md](./docs/notes/README.md)。
 
 ## Repository Map
 
@@ -93,26 +93,31 @@ lib/
   voices.ts                # 我的声音派生统计
 
 docs/
-  design/V0.7-UPGRADE-PLAN.md
-  research/
+  notes/                   # 体验记录、设计构想、工程调研、需求 backlog
 ```
 
 ## Local Development
 
 ```bash
+nvm use
 npm install
 npm run dev
 ```
 
 首次使用需要在 `/setup` 配置真实模型。API Key 只保存在当前浏览器或当前会话中，服务端不持久化。
 
-## Safety Boundary
+## Container Runtime
 
-- 不诊断，不治疗承诺，不医学化命名用户。
-- 不替用户做重大决定。
-- 不鼓励自伤、断联、冲动辞职或重大财务行为。
-- 危机表达触发安全提示和真人资源，不继续普通会谈。
-- 用户内容默认本地优先。
+```bash
+cp .env.example .env
+docker compose up --build
+```
+
+The production image uses Node 22 Alpine and Next.js standalone output. The browser stores provider configuration locally, so `.env` is only needed for server-side fallback scripts or temporary development paths.
+
+## Product Boundary
+
+ParallelMe 不是治疗、诊断或危机干预工具；它的工作是把议题、价值冲突和可执行动作说清楚。用户内容默认本地优先，危机表达仍会触发真人支持提示。
 
 ## License
 

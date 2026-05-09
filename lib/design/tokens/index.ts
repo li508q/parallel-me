@@ -1,6 +1,5 @@
 // Design Tokens — single TS source of truth.
 // CSS variables in app/globals.css @theme mirror these values.
-// Product direction lives in docs/design/V0.7-UPGRADE-PLAN.md.
 
 export { colors, seatColorById } from "./colors";
 export type { ColorTokens } from "./colors";
