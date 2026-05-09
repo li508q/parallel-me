@@ -261,7 +261,7 @@ function StepRail({ step }: { step: Step }) {
         const active = step === i + 1;
         const done = step > i + 1;
         return (
-          <div key={label} className="flex items-center gap-2 flex-shrink-0">
+          <div key={label} className="flex items-center gap-2 shrink-0">
             <span
               className={[
                 "inline-flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs transition-colors",
@@ -480,7 +480,7 @@ function TestStep({
               )}
             </div>
           ) : (
-            <pre className="text-body-sm text-ink-body whitespace-pre-wrap break-words font-mono">
+            <pre className="text-body-sm text-ink-body whitespace-pre-wrap wrap-break-word font-mono">
               {result.error}
             </pre>
           )}

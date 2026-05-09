@@ -161,7 +161,7 @@ export function TurnEntry(props: TurnEntryProps) {
       <div className="flex items-baseline justify-between gap-3 mb-1.5">
         <div className="flex items-center gap-2 min-w-0">
           <span
-            className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+            className="w-1.5 h-1.5 rounded-full shrink-0"
             style={{ background: accent }}
           />
           <span className="font-medium text-ink-core truncate">
@@ -174,7 +174,7 @@ export function TurnEntry(props: TurnEntryProps) {
           )}
         </div>
         {props.meta && (
-          <span className="text-xs text-ink-faint flex-shrink-0">{props.meta}</span>
+          <span className="text-xs text-ink-faint shrink-0">{props.meta}</span>
         )}
       </div>
       <p className="text-body text-ink-body leading-relaxed whitespace-pre-line">

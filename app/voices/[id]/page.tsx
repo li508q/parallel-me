@@ -188,7 +188,7 @@ function ActivityCard({
         <h3 className="font-serif text-title-sm text-ink-core leading-snug min-w-0 flex-1">
           {entry.title}
         </h3>
-        <span className="text-xs text-ink-mute flex-shrink-0">
+        <span className="text-xs text-ink-mute shrink-0">
           {timeAgo(entry.at)}
         </span>
       </div>

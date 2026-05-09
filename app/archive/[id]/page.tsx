@@ -209,7 +209,7 @@ function RoundtableTab({ meeting }: { meeting: Meeting }) {
                   保护：{turn.protected_value} · 担心：{turn.concern}
                 </p>
                 <p className="text-body-sm text-ink-mute leading-relaxed">
-                  拉向：{turn.pull} · 代价：{turn.overreach_cost}
+                  拉向：{turn.pull}
                 </p>
               </article>
             );
@@ -279,6 +279,18 @@ function ScribeTab({ meeting }: { meeting: Meeting }) {
 }
 
 function RoundtableTurnView({ turn }: { turn: RoundtableTurn }) {
+  if (turn.trigger === "user_text") {
+    return (
+      <article className="ml-auto max-w-2xl border border-paper-edge bg-paper-base rounded-md px-4 py-3 text-right">
+        <div className="text-[10px] tracking-[0.18em] text-ink-mute uppercase mb-1">
+          我
+        </div>
+        <p className="font-serif italic text-body text-ink-core leading-relaxed whitespace-pre-line">
+          「{turn.user_text || turn.text}」
+        </p>
+      </article>
+    );
+  }
   if (turn.duel) {
     return (
       <article className="border-l-3 border-attention-copper pl-4">

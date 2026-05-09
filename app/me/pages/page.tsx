@@ -86,7 +86,7 @@ function RecordCard({ meeting }: { meeting: Meeting }) {
           <h3 className="font-serif text-title text-ink-core leading-snug line-clamp-2 flex-1 min-w-0">
             {display}
           </h3>
-          <span className="inline-flex items-center gap-1.5 text-xs text-ink-mute flex-shrink-0">
+          <span className="inline-flex items-center gap-1.5 text-xs text-ink-mute shrink-0">
             <span className={`w-1.5 h-1.5 rounded-full ${STATUS_DOT[meeting.status]}`} />
             {STATUS_LABEL[meeting.status]}
           </span>

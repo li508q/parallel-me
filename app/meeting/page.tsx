@@ -37,6 +37,7 @@ import {
   type VisibleTaskFrameKey,
   type VoiceId,
   type VoiceOpeningTurn,
+  type VoiceTurnTrigger,
 } from "@/lib/db";
 import {
   VOICE_IDS,
@@ -58,7 +59,10 @@ type RoundtableMode =
   | "continue_one"
   | "ask_voice"
   | "ask_table"
-  | "duel";
+  | "duel"
+  | "challenge"
+  | "name_avoidance"
+  | "cut_through";
 
 const BIG_STAGES = [
   { id: "defining", label: "本次议题" },
@@ -312,7 +316,16 @@ function MeetingInner() {
     if (!taskFrame || busy) return;
     setBusy(true);
     setError("");
-    const snapshot = roundtable;
+    const userTurn = createUserRoundtableTurn(moveType, payload.userText);
+    const snapshot = userTurn
+      ? { ...roundtable, turns: [...roundtable.turns, userTurn] }
+      : roundtable;
+    if (userTurn) {
+      setRoundtable((prev) => ({
+        ...prev,
+        turns: [...prev.turns, userTurn],
+      }));
+    }
     try {
       const json = await postJson("/api/roundtable", {
         action: "move",
@@ -322,13 +335,20 @@ function MeetingInner() {
         ...payload,
       });
       const move = json.move as RoundtableMove;
-      const turns = (json.turns ?? []) as RoundtableTurn[];
+      const turns = ((json.turns ?? []) as RoundtableTurn[]).map((turn) => ({
+        ...turn,
+        move_id: turn.move_id || move.id,
+      }));
+      const taggedUserTurn = userTurn ? { ...userTurn, move_id: move.id } : null;
       setRoundtable((prev) => ({
         opening_turns: prev.opening_turns,
         moves: [...prev.moves, move],
-        turns: [...prev.turns, ...turns],
+        turns: [
+          ...prev.turns.map((turn) => (taggedUserTurn && turn.id === taggedUserTurn.id ? taggedUserTurn : turn)),
+          ...turns,
+        ],
       }));
-      setScribeTrace((prev) => traceMove(prev, move, turns, json.scribeNote));
+      setScribeTrace((prev) => traceMove(prev, move, taggedUserTurn ? [taggedUserTurn, ...turns] : turns, json.scribeNote));
       setRoundtableMode("none");
       setRoundtableText("");
     } catch (e: any) {
@@ -518,11 +538,32 @@ function MeetingInner() {
           disabled: busy,
         },
         {
-          id: "scribe",
-          label: "书记员整理",
-          onClick: () => submitRoundtableMove("scribe_summary"),
-          variant: "secondary",
+          id: "challenge",
+          label: "定向反对",
+          onClick: () => setRoundtableMode("challenge"),
+          variant: roundtableMode === "challenge" ? "primary" : "muted",
           disabled: busy,
+        },
+        {
+          id: "name-avoidance",
+          label: "点破回避",
+          onClick: () => setRoundtableMode("name_avoidance"),
+          variant: roundtableMode === "name_avoidance" ? "primary" : "muted",
+          disabled: busy,
+        },
+        {
+          id: "cut-through",
+          label: "一句戳破",
+          onClick: () => setRoundtableMode("cut_through"),
+          variant: roundtableMode === "cut_through" ? "primary" : "muted",
+          disabled: busy,
+        },
+        {
+          id: "mirror-structure",
+          label: "书记员照一下",
+          onClick: () => submitRoundtableMove("mirror_structure"),
+          variant: "secondary",
+          disabled: busy || roundtable.opening_turns.length === 0,
         },
         {
           id: "inquiry",
@@ -612,38 +653,6 @@ function MeetingInner() {
           <>
             <TaskFrameSummary frame={taskFrame.visible} className="mb-5" />
             <RoundtableBoard roundtable={roundtable} busy={busy && stage === "roundtable"} />
-            {stage === "roundtable" && (
-              <RoundtableControl
-                mode={roundtableMode}
-                selectedVoiceId={selectedVoiceId}
-                duelFromId={duelFromId}
-                duelToId={duelToId}
-                text={roundtableText}
-                busy={busy}
-                onMode={setRoundtableMode}
-                onVoice={setSelectedVoiceId}
-                onDuelFrom={setDuelFromId}
-                onDuelTo={setDuelToId}
-                onText={setRoundtableText}
-                onSubmit={(mode) => {
-                  if (mode === "continue_one") {
-                    return submitRoundtableMove("continue_one", { targetVoiceId: selectedVoiceId });
-                  }
-                  if (mode === "ask_voice") {
-                    return submitRoundtableMove("user_to_voice", {
-                      targetVoiceId: selectedVoiceId,
-                      userText: roundtableText.trim(),
-                    });
-                  }
-                  if (mode === "ask_table") {
-                    return submitRoundtableMove("user_to_table", { userText: roundtableText.trim() });
-                  }
-                  if (mode === "duel") {
-                    return submitRoundtableMove("duel", { fromVoiceId: duelFromId, toVoiceId: duelToId });
-                  }
-                }}
-              />
-            )}
           </>
         )}
 
@@ -672,8 +681,54 @@ function MeetingInner() {
         )}
       </main>
 
+      {stage === "roundtable" && roundtableMode !== "none" && (
+        <div className="fixed left-0 right-0 bottom-[82px] sm:bottom-[90px] z-20 px-4 sm:px-6 pointer-events-none">
+          <div className="max-w-3xl mx-auto pointer-events-auto">
+            <RoundtableControl
+              mode={roundtableMode}
+              selectedVoiceId={selectedVoiceId}
+              duelFromId={duelFromId}
+              duelToId={duelToId}
+              text={roundtableText}
+              busy={busy}
+              onMode={setRoundtableMode}
+              onVoice={setSelectedVoiceId}
+              onDuelFrom={setDuelFromId}
+              onDuelTo={setDuelToId}
+              onText={setRoundtableText}
+              onSubmit={(mode) => {
+                if (mode === "continue_one") {
+                  return submitRoundtableMove("continue_one", { targetVoiceId: selectedVoiceId });
+                }
+                if (mode === "ask_voice") {
+                  return submitRoundtableMove("user_to_voice", {
+                    targetVoiceId: selectedVoiceId,
+                    userText: roundtableText.trim(),
+                  });
+                }
+                if (mode === "ask_table") {
+                  return submitRoundtableMove("user_to_table", { userText: roundtableText.trim() });
+                }
+                if (mode === "duel") {
+                  return submitRoundtableMove("duel", { fromVoiceId: duelFromId, toVoiceId: duelToId });
+                }
+                if (mode === "challenge") {
+                  return submitRoundtableMove("challenge", { fromVoiceId: duelFromId, toVoiceId: duelToId });
+                }
+                if (mode === "name_avoidance") {
+                  return submitRoundtableMove("name_avoidance", { fromVoiceId: duelFromId, toVoiceId: duelToId });
+                }
+                if (mode === "cut_through") {
+                  return submitRoundtableMove("cut_through", { targetVoiceId: selectedVoiceId });
+                }
+              }}
+            />
+          </div>
+        </div>
+      )}
+
       <HostConsole
-        stageLabel={stageLabel(stage, busy)}
+        stageLabel={stage === "roundtable" ? undefined : stageLabel(stage, busy)}
         actions={actions}
         inputDisabled
       />
@@ -740,11 +795,6 @@ function ChoiceCardBoard({
               <span className="font-serif text-body-long text-ink-core leading-snug">
                 {option.label}
               </span>
-              {option.derived_kv && (
-                <span className="block mt-1 text-xs text-ink-faint">
-                  {Object.entries(option.derived_kv).map(([k, v]) => `${k}: ${v}`).join(" · ")}
-                </span>
-              )}
             </button>
           );
         })}
@@ -800,36 +850,124 @@ function TaskFrameReview({
   sourceLabels: SourceLabelMap;
   onChange: (key: VisibleTaskFrameKey, value: string) => void;
 }) {
-  return (
-    <DocketPaper stage="本次议题" marginalia="哪一格不准，就直接在原地改。你的改写优先进入圆桌。">
-      <div className="grid gap-4">
-        {(Object.keys(FIELD_LABEL) as VisibleTaskFrameKey[]).map((key) => {
-          const value = visible[key];
-          const text = Array.isArray(value) ? value.join("\n") : value;
-          const multiline = key === "key_facts" || key === "main_choices" || key === "main_concerns";
-          return (
-            <label key={key} className="block">
-              <span className="flex items-center justify-between gap-3 mb-1.5">
-                <span className="text-[10px] tracking-[0.18em] text-ink-mute uppercase">
-                  {FIELD_LABEL[key]}
-                </span>
-                {sourceLabels[key] && (
-                  <span className="text-[10px] text-ink-faint border border-paper-edge rounded px-1.5 py-0.5">
-                    {sourceLabels[key]}
-                  </span>
-                )}
+  const clusters: Array<{
+    title: string;
+    keys: VisibleTaskFrameKey[];
+    render: React.ReactNode;
+  }> = [
+    {
+      title: "你在问的是",
+      keys: ["problem_definition", "central_question"],
+      render: (
+        <div className="space-y-3">
+          <BriefTextarea value={visible.problem_definition} onChange={(v) => onChange("problem_definition", v)} rows={2} />
+          <BriefTextarea value={visible.central_question} onChange={(v) => onChange("central_question", v)} rows={2} emphasis />
+        </div>
+      ),
+    },
+    {
+      title: "你现在的处境",
+      keys: ["current_state", "key_facts"],
+      render: (
+        <div className="space-y-3">
+          <BriefTextarea value={visible.current_state} onChange={(v) => onChange("current_state", v)} rows={2} />
+          <BriefTextarea value={visible.key_facts.join("\n")} onChange={(v) => onChange("key_facts", v)} rows={Math.max(2, visible.key_facts.length)} compact />
+        </div>
+      ),
+    },
+    {
+      title: "你正在被拉扯",
+      keys: ["main_choices", "core_conflict", "main_concerns"],
+      render: (
+        <div className="space-y-3">
+          <div className="grid gap-2 md:grid-cols-2">
+            {visible.main_choices.slice(0, 2).map((choice, index) => (
+              <div key={`${choice}-${index}`} className="rounded-md border border-paper-edge bg-paper-base p-3">
+                <span className="text-ink-faint mr-2">{index === 0 ? "↗" : "↙"}</span>
+                <span className="font-serif text-body text-ink-body leading-relaxed">{choice}</span>
+              </div>
+            ))}
+          </div>
+          <BriefTextarea value={visible.main_choices.join("\n")} onChange={(v) => onChange("main_choices", v)} rows={Math.max(2, visible.main_choices.length)} compact />
+          <BriefTextarea value={visible.core_conflict} onChange={(v) => onChange("core_conflict", v)} rows={2} emphasis />
+          <BriefTextarea value={visible.main_concerns.join("\n")} onChange={(v) => onChange("main_concerns", v)} rows={Math.max(2, visible.main_concerns.length)} compact />
+        </div>
+      ),
+    },
+    {
+      title: "我们待会儿要聊的",
+      keys: ["discussion_focus"],
+      render: (
+        <div className="space-y-3">
+          <BriefTextarea value={visible.discussion_focus} onChange={(v) => onChange("discussion_focus", v)} rows={2} emphasis />
+          <div className="flex flex-wrap gap-2 pt-1">
+            {VOICE_IDS.map((id) => (
+              <span
+                key={id}
+                className="inline-flex items-center gap-1.5 rounded-full border border-paper-edge bg-paper-lift px-2 py-1 text-xs text-ink-mute"
+              >
+                <span className="h-1.5 w-1.5 rounded-full" style={{ background: `var(--${VOICE_COLOR_VAR[id]})` }} />
+                {voiceName(id)}
               </span>
-              <textarea
-                value={text}
-                onChange={(e) => onChange(key, e.target.value)}
-                rows={multiline ? Math.max(2, String(text).split("\n").length) : 2}
-                className="w-full p-3 rounded-md bg-paper-base border border-paper-edge focus:border-ink-core focus:outline-none text-body text-ink-body font-serif resize-none"
-              />
-            </label>
-          );
-        })}
+            ))}
+          </div>
+        </div>
+      ),
+    },
+  ];
+
+  return (
+    <DocketPaper stage="本次议题" marginalia="点任意段落就能改。你的改写优先进入圆桌。">
+      <div className="space-y-6">
+        {clusters.map((cluster) => (
+          <section key={cluster.title} className="border-b border-paper-edge last:border-b-0 pb-5 last:pb-0">
+            <h2 className="text-[10px] tracking-[0.18em] text-ink-mute uppercase mb-3">
+              {cluster.title}
+            </h2>
+            {cluster.render}
+            <SourceWhisper labels={cluster.keys.map((key) => sourceLabels[key]).filter(Boolean) as string[]} />
+          </section>
+        ))}
       </div>
     </DocketPaper>
+  );
+}
+
+function BriefTextarea({
+  value,
+  onChange,
+  rows,
+  emphasis,
+  compact,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  rows: number;
+  emphasis?: boolean;
+  compact?: boolean;
+}) {
+  return (
+    <textarea
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      rows={rows}
+      className={[
+        "w-full rounded-md bg-transparent border border-transparent hover:border-paper-edge focus:border-ink-core focus:bg-paper-base focus:outline-none resize-none transition-colors",
+        "font-serif text-ink-body leading-relaxed",
+        emphasis ? "text-title-sm text-ink-core" : compact ? "text-body-sm" : "text-body",
+        compact ? "p-2" : "p-1.5",
+      ].join(" ")}
+    />
+  );
+}
+
+function SourceWhisper({ labels }: { labels: string[] }) {
+  const unique = Array.from(new Set(labels));
+  if (!unique.length) return null;
+  return (
+    <p className="mt-2 text-[10px] text-ink-faint leading-relaxed">
+      · {unique.join(" / ")}
+    </p>
   );
 }
 
@@ -858,15 +996,28 @@ function RoundtableBoard({
 }) {
   return (
     <section className="space-y-5">
+      <header className="flex items-end justify-between gap-3 border-b border-paper-edge pb-2">
+        <div>
+          <div className="text-[10px] tracking-[0.18em] text-ink-faint uppercase">
+            Opening Positions
+          </div>
+          <h2 className="font-serif text-title-sm text-ink-core leading-snug">
+            五声第一轮
+          </h2>
+        </div>
+        <div className="text-xs text-ink-mute tabular-nums">
+          {roundtable.opening_turns.length} / {VOICE_IDS.length}
+        </div>
+      </header>
+
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-3">
         {VOICE_IDS.map((vid) => {
           const opening = roundtable.opening_turns.find((t) => t.voice_id === vid);
-          const turns = roundtable.turns.filter((t) => t.voice_id === vid);
           const seat = SELVES[vid];
           return (
             <article
               key={vid}
-              className="bg-paper-lift border border-paper-edge rounded-md p-4 min-h-[260px]"
+              className="bg-paper-lift border border-paper-edge rounded-md p-4 min-h-[236px]"
               style={{ borderTop: `3px solid var(--${VOICE_COLOR_VAR[vid]})` }}
             >
               <header className="mb-3">
@@ -888,16 +1039,6 @@ function RoundtableBoard({
                   <OpeningLine label="我担心" body={opening.concern} />
                   <OpeningLine label="我抓住的依据" body={opening.task_evidence} />
                   <OpeningLine label="我会拉你去" body={opening.pull} />
-                  <OpeningLine label="只听我的代价" body={opening.overreach_cost} muted />
-                </div>
-              )}
-              {turns.length > 0 && (
-                <div className="mt-4 pt-3 border-t border-paper-edge space-y-3">
-                  {turns.map((turn) => (
-                    <p key={turn.id} className="text-body-sm text-ink-body leading-relaxed font-serif">
-                      {turn.text}
-                    </p>
-                  ))}
                 </div>
               )}
             </article>
@@ -905,40 +1046,270 @@ function RoundtableBoard({
         })}
       </div>
 
-      <DuelAndScribeTurns turns={roundtable.turns} />
+      <RoundtableTimeline roundtable={roundtable} busy={busy} />
     </section>
   );
 }
 
-function DuelAndScribeTurns({ turns }: { turns: RoundtableTurn[] }) {
-  const specials = turns.filter((t) => t.duel || t.trigger === "scribe_summary");
-  if (!specials.length) return null;
+type RoundtableTimelineGroup = {
+  key: string;
+  trigger: VoiceTurnTrigger;
+  at: number;
+  turns: RoundtableTurn[];
+};
+
+function RoundtableTimeline({
+  roundtable,
+  busy,
+}: {
+  roundtable: RoundtableRecord;
+  busy: boolean;
+}) {
+  const groups = groupRoundtableTurns(roundtable.turns);
   return (
-    <div className="grid md:grid-cols-2 gap-3">
-      {specials.map((turn) =>
-        turn.duel ? (
-          <DocketPaper key={turn.id} stage="两声对峙" dense>
-            <p className="text-xs text-ink-mute mb-2">
-              {turn.duel.from_name} → {turn.duel.to_name}
-            </p>
-            <p className="font-serif text-title-sm text-ink-core leading-snug mb-3">
-              「{turn.duel.question}」
-            </p>
-            <p className="text-body-sm text-ink-body leading-relaxed mb-3">
-              {turn.duel.to_name}：{turn.duel.response}
-            </p>
-            <p className="text-xs text-ink-mute border-t border-paper-edge pt-3">
-              未解开的点：{turn.duel.unresolved_point}
-            </p>
-          </DocketPaper>
-        ) : (
-          <DocketPaper key={turn.id} stage="书记员整理" dense>
-            <p className="text-body text-ink-body leading-relaxed">{turn.text}</p>
-          </DocketPaper>
-        ),
+    <section className="space-y-4">
+      <header className="flex items-end justify-between gap-3 border-b border-paper-edge pb-2">
+        <div>
+          <div className="text-[10px] tracking-[0.18em] text-ink-faint uppercase">
+            Chronological Stream
+          </div>
+          <h2 className="font-serif text-title-sm text-ink-core leading-snug">
+            自由圆桌 · 时间线
+          </h2>
+        </div>
+        <div className="text-xs text-ink-mute tabular-nums">
+          {groups.length ? `${groups.length} 轮 / ${roundtable.turns.length} 条` : "等待开始"}
+        </div>
+      </header>
+
+      {!groups.length ? (
+        <div className="rounded-md border border-dashed border-paper-edge bg-paper-lift px-4 py-6">
+          <p className="font-serif text-body text-ink-mute leading-relaxed">
+            {busy ? "圆桌正在组织下一句。" : "点击底部操作，让五声按时间进入同一条会议流。"}
+          </p>
+        </div>
+      ) : (
+        <div className="relative space-y-5 before:absolute before:left-4 sm:before:left-1/2 before:top-2 before:bottom-2 before:w-px before:bg-paper-edge">
+          {groups.map((group, index) => (
+            <section key={group.key} className="relative space-y-3">
+              <RoundMarker index={index + 2} group={group} />
+              <div className="space-y-3">
+                {group.turns.map((turn) => (
+                  <RoundtableTimelineTurn key={turn.id} turn={turn} />
+                ))}
+              </div>
+            </section>
+          ))}
+        </div>
       )}
+    </section>
+  );
+}
+
+function groupRoundtableTurns(turns: RoundtableTurn[]): RoundtableTimelineGroup[] {
+  const sorted = [...turns].sort((a, b) => a.at - b.at);
+  const groups: RoundtableTimelineGroup[] = [];
+  for (const turn of sorted) {
+    const key = turn.move_id || `${turn.trigger}-${turn.user_text || ""}-${turn.at}`;
+    const last = groups[groups.length - 1];
+    if (last?.key === key) {
+      last.turns.push(turn);
+      if (last.trigger === "user_text" && turn.trigger !== "user_text") {
+        last.trigger = turn.trigger;
+      }
+      last.at = Math.min(last.at, turn.at);
+      continue;
+    }
+    groups.push({
+      key,
+      trigger: turn.trigger,
+      at: turn.at,
+      turns: [turn],
+    });
+  }
+  return groups;
+}
+
+function RoundMarker({
+  index,
+  group,
+}: {
+  index: number;
+  group: RoundtableTimelineGroup;
+}) {
+  return (
+    <div className="relative flex items-center justify-center py-1">
+      <span className="relative z-10 rounded-full border border-paper-edge bg-paper-base px-3 py-1 text-[10px] tracking-[0.14em] uppercase text-ink-mute">
+        第 {index} 轮 · {roundtableTriggerLabel(group.trigger)} · {formatTurnTime(group.at)}
+      </span>
     </div>
   );
+}
+
+function RoundtableTimelineTurn({ turn }: { turn: RoundtableTurn }) {
+  if (turn.trigger === "user_text") {
+    return (
+      <article className="relative ml-auto max-w-2xl rounded-md border border-paper-edge bg-paper-base px-4 py-3 text-right shadow-[0_6px_18px_rgba(25,23,19,0.04)]">
+        <div className="text-[10px] tracking-[0.18em] text-ink-mute uppercase mb-1">
+          我 · {formatTurnTime(turn.at)}
+        </div>
+        <p className="font-serif italic text-body text-ink-core leading-relaxed whitespace-pre-line">
+          「{turn.user_text || turn.text}」
+        </p>
+      </article>
+    );
+  }
+  if (turn.duel) {
+    return <DuelTimelineCard turn={turn} />;
+  }
+  if (turn.trigger === "scribe_summary" || turn.trigger === "mirror_structure") {
+    return (
+      <article className={[
+        "relative mx-auto max-w-3xl rounded-md border border-paper-edge px-4 py-3",
+        turn.trigger === "mirror_structure" ? "bg-paper-base shadow-[0_6px_18px_rgba(25,23,19,0.04)]" : "bg-paper-lift",
+      ].join(" ")}>
+        <div className="text-[10px] tracking-[0.18em] text-ink-mute uppercase mb-1">
+          {turn.trigger === "mirror_structure" ? "书记员观察" : "书记员"} · {formatTurnTime(turn.at)}
+        </div>
+        <p className="text-body text-ink-body leading-relaxed whitespace-pre-line">{turn.text}</p>
+      </article>
+    );
+  }
+  const vid = turn.voice_id;
+  if (turn.trigger === "cut_through") {
+    return (
+      <article
+        className="relative mx-auto max-w-3xl rounded-md border border-ink-core bg-paper-base px-5 py-5 text-center shadow-[0_10px_30px_rgba(25,23,19,0.08)]"
+        style={vid ? { borderTop: `4px solid var(--${VOICE_COLOR_VAR[vid]})` } : undefined}
+      >
+        <div className="text-[10px] tracking-[0.18em] text-ink-mute uppercase mb-2">
+          {vid ? voiceName(vid) : "某一声"} · 一句戳破 · {formatTurnTime(turn.at)}
+        </div>
+        <p className="font-serif text-title-sm text-ink-core leading-relaxed whitespace-pre-line">
+          {turn.text}
+        </p>
+        <ReferencePills refs={turn.refers_to} />
+      </article>
+    );
+  }
+  return (
+    <article
+      className="relative max-w-3xl rounded-md border border-paper-edge bg-paper-lift px-4 py-3 shadow-[0_6px_18px_rgba(25,23,19,0.04)]"
+      style={vid ? { borderLeft: `4px solid var(--${VOICE_COLOR_VAR[vid]})` } : undefined}
+    >
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <div className="text-[10px] tracking-[0.18em] text-ink-mute uppercase">
+          {vid ? voiceName(vid) : "声音"} · {roundtableTriggerLabel(turn.trigger)} · {formatTurnTime(turn.at)}
+        </div>
+        <ReferencePills refs={turn.refers_to} />
+      </div>
+      <p className="font-serif text-body text-ink-body leading-relaxed whitespace-pre-line">
+        {turn.text}
+      </p>
+    </article>
+  );
+}
+
+function DuelTimelineCard({ turn }: { turn: RoundtableTurn }) {
+  const duel = turn.duel;
+  if (!duel) return null;
+  return (
+    <article className="relative mx-auto max-w-4xl rounded-md border border-paper-edge bg-paper-base px-4 py-4 shadow-[0_8px_22px_rgba(25,23,19,0.06)]">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div className="text-[10px] tracking-[0.18em] text-ink-mute uppercase">
+          两声对峙 · {formatTurnTime(turn.at)}
+        </div>
+        <div className="text-xs text-ink-mute">
+          {duel.from_name} ↔ {duel.to_name}
+        </div>
+      </div>
+      <div className="grid gap-3 md:grid-cols-[1fr_auto_1fr] md:items-stretch">
+        <div
+          className="rounded-md border border-paper-edge bg-paper-lift p-3"
+          style={{ borderTop: `4px solid var(--${VOICE_COLOR_VAR[duel.from_voice_id]})` }}
+        >
+          <div className="text-[10px] tracking-[0.18em] text-ink-mute uppercase mb-2">
+            {duel.from_name} 发问
+          </div>
+          <p className="font-serif text-body text-ink-core leading-relaxed">
+            「{duel.question}」
+          </p>
+        </div>
+        <div className="hidden md:flex items-center text-2xl text-ink-faint">↔</div>
+        <div
+          className="rounded-md border border-paper-edge bg-paper-lift p-3"
+          style={{ borderTop: `4px solid var(--${VOICE_COLOR_VAR[duel.to_voice_id]})` }}
+        >
+          <div className="text-[10px] tracking-[0.18em] text-ink-mute uppercase mb-2">
+            {duel.to_name} 回应
+          </div>
+          <p className="font-serif text-body text-ink-body leading-relaxed">
+            {duel.response}
+          </p>
+        </div>
+      </div>
+      <p className="mt-3 border-t border-paper-edge pt-3 text-xs text-ink-mute leading-relaxed">
+        未解开的点：{duel.unresolved_point}
+      </p>
+    </article>
+  );
+}
+
+function ReferencePills({ refs }: { refs?: VoiceId[] }) {
+  if (!refs?.length) return null;
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {refs.map((id) => (
+        <span
+          key={id}
+          className="rounded-full border border-paper-edge bg-paper-base px-2 py-0.5 text-[10px] text-ink-mute"
+          style={{ borderLeft: `2px solid var(--${VOICE_COLOR_VAR[id]})` }}
+        >
+          回应了 {voiceName(id)}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function roundtableTriggerLabel(trigger: VoiceTurnTrigger): string {
+  const labels: Partial<Record<VoiceTurnTrigger, string>> = {
+    continue_all: "自由发言",
+    continue_one: "单声续言",
+    user_to_voice: "你的追问",
+    user_to_table: "全桌追问",
+    user_text: "你的发言",
+    duel: "对峙",
+    challenge: "定向反对",
+    name_avoidance: "点破回避",
+    cut_through: "一句戳破",
+    mirror_structure: "书记员观察",
+    scribe_summary: "书记员侧记",
+  };
+  return labels[trigger] || "圆桌动作";
+}
+
+function formatTurnTime(at: number): string {
+  return new Date(at).toLocaleTimeString("zh-CN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
+
+function createUserRoundtableTurn(
+  moveType: RoundtableMove["type"],
+  userText?: string,
+): RoundtableTurn | null {
+  const text = userText?.trim();
+  if (!text || (moveType !== "user_to_voice" && moveType !== "user_to_table")) return null;
+  return {
+    id: `user_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
+    trigger: "user_text",
+    text,
+    user_text: text,
+    at: Date.now(),
+  };
 }
 
 function RoundtableControl({
@@ -973,19 +1344,32 @@ function RoundtableControl({
   const disabled =
     busy ||
     (needsText && !text.trim()) ||
-    (mode === "duel" && duelFromId === duelToId);
+    ((mode === "duel" || mode === "challenge" || mode === "name_avoidance") && duelFromId === duelToId);
+  const usesPair = mode === "duel" || mode === "challenge" || mode === "name_avoidance";
   return (
-    <DocketPaper stage="操作台" className="mt-5" dense>
+    <DocketPaper stage="就近操作台" dense>
       <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
         <div className="space-y-3">
-          {(mode === "continue_one" || mode === "ask_voice") && (
-            <VoiceSelect label={mode === "continue_one" ? "让谁继续" : "问谁"} value={selectedVoiceId} onChange={onVoice} />
+          {(mode === "continue_one" || mode === "ask_voice" || mode === "cut_through") && (
+            <VoiceSelect
+              label={mode === "continue_one" ? "让谁继续" : mode === "cut_through" ? "让谁戳破" : "问谁"}
+              value={selectedVoiceId}
+              onChange={onVoice}
+            />
           )}
-          {mode === "duel" && (
+          {usesPair && (
             <div className="grid sm:grid-cols-[1fr_auto_1fr] gap-2 items-end">
-              <VoiceSelect label="谁发问" value={duelFromId} onChange={onDuelFrom} />
+              <VoiceSelect
+                label={mode === "duel" ? "谁发问" : "谁开口"}
+                value={duelFromId}
+                onChange={onDuelFrom}
+              />
               <span className="hidden sm:block text-ink-mute pb-2">→</span>
-              <VoiceSelect label="问谁" value={duelToId} onChange={onDuelTo} />
+              <VoiceSelect
+                label={mode === "duel" ? "问谁" : "反对谁"}
+                value={duelToId}
+                onChange={onDuelTo}
+              />
             </div>
           )}
           {needsText && (
@@ -1339,7 +1723,28 @@ function traceMove(
       ],
     };
   }
-  if (move.type === "scribe_summary") {
+  if ((move.type === "challenge" || move.type === "name_avoidance") && move.from_voice_id && move.to_voice_id) {
+    return {
+      ...trace,
+      selected_conflicts: [
+        ...trace.selected_conflicts,
+        {
+          from_voice_id: move.from_voice_id,
+          to_voice_id: move.to_voice_id,
+          text: turns.find((t) => t.text)?.text || text,
+          evidence_status: "user_selected",
+          at: move.at,
+        },
+      ],
+    };
+  }
+  if (move.type === "cut_through") {
+    return {
+      ...trace,
+      requested_voices: [...trace.requested_voices, base],
+    };
+  }
+  if (move.type === "scribe_summary" || move.type === "mirror_structure") {
     return {
       ...trace,
       scribe_summaries: [

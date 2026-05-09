@@ -145,7 +145,7 @@ function StandingVoiceCard({ stats }: { stats: VoiceStats }) {
             </p>
           </div>
         </div>
-        <span className="text-xs text-ink-mute flex-shrink-0">最近 {lastSeenLabel}</span>
+        <span className="text-xs text-ink-mute shrink-0">最近 {lastSeenLabel}</span>
       </div>
 
       {soul && (

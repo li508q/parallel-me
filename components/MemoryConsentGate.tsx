@@ -75,7 +75,7 @@ export function MemoryConsentGate({
                   : "border-paper-edge bg-paper-base",
               ].join(" ")}
             >
-              <span className="text-body-sm text-ink-faint font-mono w-5 flex-shrink-0 mt-0.5">
+              <span className="text-body-sm text-ink-faint font-mono w-5 shrink-0 mt-0.5">
                 {i + 1}.
               </span>
               <div className="flex-1 min-w-0">
@@ -87,7 +87,7 @@ export function MemoryConsentGate({
                 </div>
               </div>
               {granular && (
-                <label className="flex-shrink-0 cursor-pointer">
+                <label className="shrink-0 cursor-pointer">
                   <input
                     type="checkbox"
                     checked={checked}

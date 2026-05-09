@@ -9,6 +9,10 @@ import { db } from "@/lib/db";
 
 const STANDING_IDS: SelfId[] = ["lay", "money", "roam", "filial", "future"];
 
+function isStandingId(value: unknown): value is SelfId {
+  return typeof value === "string" && STANDING_IDS.includes(value as SelfId);
+}
+
 const VOICE_TEXT_CLASS: Record<SelfId, string> = {
   lay: "text-lay",
   money: "text-money",
@@ -70,8 +74,7 @@ export default function InsightsPage() {
     };
     for (const record of records || []) {
       for (const move of record.roundtable.moves) {
-        const id = move.target_voice_id as SelfId | undefined;
-        if (asked[id] !== undefined) asked[id] += 1;
+        if (isStandingId(move.target_voice_id)) asked[move.target_voice_id] += 1;
       }
     }
     return STANDING_IDS.map((id) => ({ id, n: asked[id] })).sort((a, b) => a.n - b.n);

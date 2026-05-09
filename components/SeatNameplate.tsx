@@ -66,7 +66,7 @@ export function SeatNameplate({
       <div className="flex items-baseline justify-between gap-3 px-4 pt-3">
         <div className="flex items-center gap-2 min-w-0">
           <span
-            className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+            className={`w-1.5 h-1.5 rounded-full shrink-0 ${
               state === "speaking" ? "animate-soft-pulse" : ""
             }`}
             style={{ background: accent }}
