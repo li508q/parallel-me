@@ -10,21 +10,25 @@ ParallelMe 为正饱受重大选择撕扯的人搭建一间私密的内心圆桌
 
 <br />
 
-![Next.js](https://img.shields.io/badge/Next.js-16-000000?style=for-the-badge&logo=nextdotjs)
-![React](https://img.shields.io/badge/React-19-20232A?style=for-the-badge&logo=react)
-![TypeScript](https://img.shields.io/badge/TypeScript-5.8-3178C6?style=for-the-badge&logo=typescript&logoColor=white)
-![Local First](https://img.shields.io/badge/Local--First-IndexedDB-536E5A?style=for-the-badge)
-![AI SDK](https://img.shields.io/badge/AI-Vercel%20SDK-191713?style=for-the-badge)
-![Version](https://img.shields.io/badge/Version-v1.0-8E3F32?style=for-the-badge)
+![Next.js](https://img.shields.io/badge/Next.js-16-000000?style=flat-square&logo=nextdotjs)
+![React](https://img.shields.io/badge/React-19-20232A?style=flat-square&logo=react)
+![TypeScript](https://img.shields.io/badge/TypeScript-5.8-3178C6?style=flat-square&logo=typescript&logoColor=white)
+![Vercel AI SDK](https://img.shields.io/badge/Vercel%20AI%20SDK-6-191713?style=flat-square)
+![Local First](https://img.shields.io/badge/Local--First-IndexedDB-536E5A?style=flat-square)
+![Version](https://img.shields.io/badge/Release-v1.0-8E3F32?style=flat-square)
 
 <br />
 
-[在线体验](https://parallel-me-olive.vercel.app/) ·
-[产品理念](#core-philosophy) ·
-[三大模块](#product-architecture) ·
-[系统实现](#system-implementation) ·
-[文档体系](#documentation) ·
-[快速开始](#quick-start)
+<table>
+  <tr>
+    <td><a href="https://parallel-me-olive.vercel.app/"><strong>在线体验</strong></a></td>
+    <td><a href="#core-philosophy"><strong>产品理念</strong></a></td>
+    <td><a href="#product-architecture"><strong>三大模块</strong></a></td>
+    <td><a href="#system-implementation"><strong>系统实现</strong></a></td>
+    <td><a href="#documentation"><strong>文档体系</strong></a></td>
+    <td><a href="#quick-start"><strong>快速开始</strong></a></td>
+  </tr>
+</table>
 
 </div>
 
