@@ -1,12 +1,96 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss';
 
 /* =============================================================================
-   ParallelMe Design Tokens · CSS variables consumed by tailwind.config.ts.
-   Mirror of lib/design/tokens/*.ts. Active product direction lives in
-   docs/design/V0.7-UPGRADE-PLAN.md.
+   ParallelMe Design Tokens · Tailwind v4 CSS-first theme.
+   Mirror of lib/design/tokens/*.ts.
    ============================================================================= */
+
+@theme {
+  /* ===== Color · Paper ===== */
+  --color-paper-base: #F4F1EC;
+  --color-paper-lift: #FBF9F4;
+  --color-paper-sunk: #EDE2D0;
+  --color-paper-edge: #D8CBB8;
+
+  /* ===== Color · Surface ===== */
+  --color-surface-deep: #1A1816;
+
+  /* ===== Color · Ink ===== */
+  --color-ink-core: #191713;
+  --color-ink-body: #3C3932;
+  --color-ink-mute: #7C7568;
+  --color-ink-faint: #B7AC9B;
+
+  /* ===== Color · Voice ===== */
+  --color-seat-rest: #556F7A;
+  --color-seat-money: #8A6F3D;
+  --color-seat-roam: #3F6B5A;
+  --color-seat-filial: #8C5042;
+  --color-seat-future: #5E5369;
+  --color-seat-silent: #899199;
+  --color-seat-exiled: #6F3F35;
+
+  /* ===== Color · Status ===== */
+  --color-seal-action: #8E3F32;
+  --color-attention-copper: #A8844D;
+  --color-safe-green: #536E5A;
+  --color-trace-blue: #455F70;
+
+  /* ===== Compatibility aliases ===== */
+  --color-paper: #F4F1EC;
+  --color-ink: #191713;
+  --color-ink2: #3C3932;
+  --color-ink3: #7C7568;
+  --color-rule: #D8CBB8;
+  --color-accent: #8E3F32;
+  --color-gold: #A8844D;
+  --color-lay: #556F7A;
+  --color-money: #8A6F3D;
+  --color-roam: #3F6B5A;
+  --color-filial: #8C5042;
+  --color-future: #5E5369;
+  --color-now: #191713;
+
+  /* ===== Typography ===== */
+  --font-sans: var(--font-geist), "PingFang SC", "Noto Sans SC", "HarmonyOS Sans", system-ui, -apple-system, sans-serif;
+  --font-serif: "Source Han Serif SC", "Noto Serif SC", "Songti SC", ui-serif, Georgia, serif;
+  --font-mono: var(--font-geist-mono), "IBM Plex Mono", "SF Mono", ui-monospace, monospace;
+
+  --text-display: 44px;
+  --text-display--line-height: 52px;
+  --text-headline: 30px;
+  --text-headline--line-height: 38px;
+  --text-title: 22px;
+  --text-title--line-height: 30px;
+  --text-title-sm: 18px;
+  --text-title-sm--line-height: 26px;
+  --text-body: 16px;
+  --text-body--line-height: 26px;
+  --text-body-long: 16px;
+  --text-body-long--line-height: 28px;
+  --text-body-sm: 14px;
+  --text-body-sm--line-height: 22px;
+  --text-label: 12px;
+  --text-label--line-height: 16px;
+  --text-verdict: 24px;
+  --text-verdict--line-height: 36px;
+  --text-signature: 20px;
+  --text-signature--line-height: 32px;
+
+  /* ===== Radius ===== */
+  --radius-sm: 2px;
+  --radius-md: 4px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+
+  /* ===== Motion ===== */
+  --ease-paper: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --ease-ink: cubic-bezier(0.16, 0.84, 0.44, 1);
+  --animate-ink-in: inkIn 900ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  --animate-fade-up: fadeUp 700ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  --animate-type: typeIn 1400ms steps(40, end) both;
+  --animate-soft-pulse: softPulse 2400ms ease-in-out infinite;
+}
 
 :root {
   color-scheme: light;
