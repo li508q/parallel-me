@@ -1,9 +1,4 @@
 {
   "framework": "nextjs",
-  "buildCommand": "next build",
-  "functions": {
-    "app/api/**/*.ts": {
-      "runtime": "nodejs22.x"
-    }
-  }
+  "buildCommand": "next build"
 }
