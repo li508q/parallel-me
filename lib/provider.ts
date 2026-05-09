@@ -169,6 +169,28 @@ export interface ProviderStatusInfo {
   detail?: string;
 }
 
+export interface ServerProviderStatus {
+  configured: boolean;
+  label?: string;
+  model?: string;
+}
+
+export async function fetchServerProviderStatus(): Promise<ServerProviderStatus> {
+  try {
+    const response = await fetch("/api/provider/status", { cache: "no-store" });
+    if (!response.ok) return { configured: false };
+    return response.json();
+  } catch {
+    return { configured: false };
+  }
+}
+
+export async function hasUsableProvider(): Promise<boolean> {
+  if (toRuntimePayload(loadActiveProvider())) return true;
+  const status = await fetchServerProviderStatus();
+  return status.configured;
+}
+
 export function providerStatus(p: ProviderConfig | null): ProviderStatusInfo {
   if (!p)
     return { variant: "missing", label: "未配置 API", detail: "先放一把钥匙" };

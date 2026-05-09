@@ -200,7 +200,6 @@ export const useMeetingStore = create<MeetingStore>((set, get) => ({
 
   async streamRequest({ path, body, provider, context }) {
     const runtimePayload = toRuntimePayload(provider);
-    if (!runtimePayload) throw new Error("请先配置可用的 API Key");
 
     get().streamAbort?.abort();
     const controller = new AbortController();
@@ -215,7 +214,11 @@ export const useMeetingStore = create<MeetingStore>((set, get) => ({
       const response = await fetch(path, {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
-        body: JSON.stringify({ ...body, context: context(), provider: runtimePayload }),
+        body: JSON.stringify({
+          ...body,
+          context: context(),
+          ...(runtimePayload ? { provider: runtimePayload } : {}),
+        }),
         signal: controller.signal,
       });
 

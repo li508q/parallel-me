@@ -11,6 +11,7 @@ import {
   type RoundtableMoveInput,
 } from "@/lib/llm";
 import { scribeEventStream, SSE_HEADERS, type ScribeStreamEvent } from "@/lib/agents/events";
+import { runtimeFromProvider } from "@/lib/server-runtime";
 import type { IssueProposal } from "@/lib/v7";
 import { voiceName } from "@/lib/v7";
 
@@ -23,7 +24,7 @@ export async function POST(req: NextRequest) {
   const taskFrame = body.taskFrame;
   const issueProposal = body.issueProposal as IssueProposal | undefined;
   const context = body.context as ContextBundle | undefined;
-  const llmRuntime = toRuntime(body.provider);
+  const llmRuntime = runtimeFromProvider(body.provider);
 
   if (!llmRuntime) return NextResponse.json({ error: "provider required" }, { status: 400 });
   if (!taskFrame?.visible) {
@@ -96,11 +97,6 @@ export async function POST(req: NextRequest) {
   }
 
   return NextResponse.json({ error: "unknown action" }, { status: 400 });
-}
-
-function toRuntime(provider: any): LlmRuntime | undefined {
-  if (!provider || !provider.apiKey || !provider.baseUrl || !provider.model) return undefined;
-  return { baseUrl: provider.baseUrl, model: provider.model, apiKey: provider.apiKey };
 }
 
 function sleep(ms: number) {

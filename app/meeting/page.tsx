@@ -16,6 +16,7 @@ import { StageRail } from "@/components/StageRail";
 import type { ScribeStreamEvent } from "@/lib/agents/events";
 import { SELVES, type SelfId } from "@/lib/selves";
 import {
+  fetchServerProviderStatus,
   loadActiveProvider,
   toRuntimePayload,
   type ProviderConfig,
@@ -174,20 +175,32 @@ function MeetingInner() {
   }, []);
 
   useEffect(() => {
-    if (!rawParam) {
-      router.replace("/");
-      return;
-    }
-    if (initializedRef.current === rawParam) return;
-    const activeProvider = loadActiveProvider();
-    if (!toRuntimePayload(activeProvider)) {
-      router.replace("/setup");
-      return;
-    }
-    initializedRef.current = rawParam;
-    setProvider(activeProvider);
-    setRawInput(rawParam);
-    void loadTaskFrame(rawParam, activeProvider);
+    let cancelled = false;
+    const initialize = async () => {
+      if (!rawParam) {
+        router.replace("/");
+        return;
+      }
+      if (initializedRef.current === rawParam) return;
+      const activeProvider = loadActiveProvider();
+      const localRuntime = toRuntimePayload(activeProvider);
+      if (!localRuntime) {
+        const serverStatus = await fetchServerProviderStatus();
+        if (cancelled) return;
+        if (!serverStatus.configured) {
+          router.replace("/setup");
+          return;
+        }
+      }
+      initializedRef.current = rawParam;
+      setProvider(localRuntime ? activeProvider : null);
+      setRawInput(rawParam);
+      void loadTaskFrame(rawParam, localRuntime ? activeProvider : null);
+    };
+    void initialize();
+    return () => {
+      cancelled = true;
+    };
   }, [rawParam, router]);
 
   /**

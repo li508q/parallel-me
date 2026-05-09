@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { loadActiveProvider, toRuntimePayload } from "@/lib/provider";
+import { fetchServerProviderStatus, loadActiveProvider, toRuntimePayload } from "@/lib/provider";
 import { loadTaste, saveTaste, type Taste, type TasteItem } from "@/lib/profile";
 
 type Kind = "books" | "films" | "music";
@@ -129,7 +129,8 @@ export default function TastePage() {
       return;
     }
     const provider = toRuntimePayload(loadActiveProvider());
-    if (!provider) {
+    const serverStatus = provider ? null : await fetchServerProviderStatus();
+    if (!provider && !serverStatus?.configured) {
       alert("先去设置 API Key，再让 AI 生成品味判词。");
       return;
     }
@@ -138,7 +139,7 @@ export default function TastePage() {
       const r = await fetch("/api/taste", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...cleaned, provider }),
+        body: JSON.stringify({ ...cleaned, ...(provider ? { provider } : {}) }),
       });
       const j = await r.json();
       if (j.profile) {

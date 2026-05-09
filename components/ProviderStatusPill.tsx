@@ -7,9 +7,12 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import {
+  fetchServerProviderStatus,
   loadActiveProvider,
   providerStatus,
+  toRuntimePayload,
   type ProviderConfig,
+  type ServerProviderStatus,
   type ProviderStatusInfo,
 } from "@/lib/provider";
 
@@ -29,14 +32,39 @@ const HOVER_RING_COLOR: Record<ProviderStatusInfo["variant"], string> = {
 
 export function ProviderStatusPill() {
   const [p, setP] = useState<ProviderConfig | null>(null);
+  const [serverStatus, setServerStatus] = useState<ServerProviderStatus | null>(null);
+
   useEffect(() => {
-    setP(loadActiveProvider());
-    const onStorage = () => setP(loadActiveProvider());
+    let cancelled = false;
+    const refresh = async () => {
+      const active = loadActiveProvider();
+      if (cancelled) return;
+      setP(active);
+      if (toRuntimePayload(active)) {
+        setServerStatus(null);
+        return;
+      }
+      const status = await fetchServerProviderStatus();
+      if (!cancelled) setServerStatus(status);
+    };
+    void refresh();
+    const onStorage = () => void refresh();
     window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("storage", onStorage);
+    };
   }, []);
 
-  const status = providerStatus(p);
+  const localStatus = providerStatus(p);
+  const status: ProviderStatusInfo =
+    !toRuntimePayload(p) && serverStatus?.configured
+      ? {
+          variant: "ok",
+          label: serverStatus.label || "服务器 API",
+          detail: serverStatus.model,
+        }
+      : localStatus;
 
   return (
     <Link

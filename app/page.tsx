@@ -11,7 +11,12 @@ import { ProviderStatusPill } from "@/components/ProviderStatusPill";
 import { DocketPaper } from "@/components/DocketPaper";
 import { SelfAvatar } from "@/components/SelfAvatar";
 import { SELVES, type SelfId } from "@/lib/selves";
-import { loadActiveProvider, toRuntimePayload } from "@/lib/provider";
+import {
+  fetchServerProviderStatus,
+  hasUsableProvider,
+  loadActiveProvider,
+  toRuntimePayload,
+} from "@/lib/provider";
 import {
   db,
   recordCommitmentFollowup,
@@ -41,7 +46,7 @@ const VOICE_COLOR: Record<SelfId, string> = {
 export default function Home() {
   const router = useRouter();
   const [input, setInput] = useState("");
-  const [apiReady, setApiReady] = useState(false);
+  const [apiReady, setApiReady] = useState<boolean | null>(null);
 
   const records =
     useLiveQuery(
@@ -68,14 +73,23 @@ export default function Home() {
     ) ?? [];
 
   useEffect(() => {
-    const refresh = () => setApiReady(!!toRuntimePayload(loadActiveProvider()));
-    refresh();
-    window.addEventListener("storage", refresh);
-    return () => window.removeEventListener("storage", refresh);
+    let cancelled = false;
+    const refresh = async () => {
+      const localReady = !!toRuntimePayload(loadActiveProvider());
+      const serverStatus = localReady ? null : await fetchServerProviderStatus();
+      if (!cancelled) setApiReady(localReady || !!serverStatus?.configured);
+    };
+    void refresh();
+    const onStorage = () => void refresh();
+    window.addEventListener("storage", onStorage);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("storage", onStorage);
+    };
   }, []);
 
-  function startSession(text: string) {
-    if (!toRuntimePayload(loadActiveProvider())) {
+  async function startSession(text: string) {
+    if (!(await hasUsableProvider())) {
       router.push("/setup");
       return;
     }
@@ -86,7 +100,7 @@ export default function Home() {
 
   function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    startSession(input);
+    void startSession(input);
   }
 
   const recentRecord: CardData | null = records[0]
@@ -164,10 +178,14 @@ export default function Home() {
             </span>
             <button
               type="submit"
-              disabled={apiReady && !input.trim()}
+              disabled={apiReady === null || (!!apiReady && !input.trim())}
               className="px-5 py-2.5 rounded-md bg-ink-core text-paper-base text-body-sm font-medium hover:bg-ink-body disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
             >
-              {apiReady ? "开始五声圆桌 →" : "先配置 API →"}
+              {apiReady === null
+                ? "检查 API…"
+                : apiReady
+                  ? "开始五声圆桌 →"
+                  : "先配置 API →"}
             </button>
           </div>
         </DocketPaper>
@@ -180,7 +198,7 @@ export default function Home() {
             <button
               key={i}
               type="button"
-              onClick={() => startSession(p)}
+              onClick={() => void startSession(p)}
               className="text-xs px-3 py-1.5 rounded-full border border-paper-edge text-ink-body hover:border-ink-core hover:bg-paper-lift transition-colors"
             >
               {p.length > 22 ? p.slice(0, 22) + "…" : p}

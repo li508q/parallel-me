@@ -14,6 +14,7 @@ import {
   type LlmRuntime,
 } from "@/lib/llm";
 import { scribeEventStream, SSE_HEADERS, type ScribeStreamEvent } from "@/lib/agents/events";
+import { runtimeFromProvider } from "@/lib/server-runtime";
 import type { DefiningDialogue, IssueProposal } from "@/lib/v7";
 
 // ─── Agent Loop Guard (参考 smolagents max_steps + graceful degradation) ───
@@ -28,7 +29,7 @@ export async function POST(req: NextRequest) {
   const rawInput = String(body.rawInput || "").trim();
   const dialogue: DefiningDialogue = Array.isArray(body.dialogue) ? body.dialogue : [];
   const context = body.context as ContextBundle | undefined;
-  const llmRuntime = toRuntime(body.provider);
+  const llmRuntime = runtimeFromProvider(body.provider);
 
   if (!llmRuntime) return NextResponse.json({ error: "provider required" }, { status: 400 });
   if (!rawInput || rawInput.length > 2000) {
@@ -205,11 +206,6 @@ export async function POST(req: NextRequest) {
     emit({ type: "done" });
   });
   return new Response(stream, { headers: SSE_HEADERS });
-}
-
-function toRuntime(provider: any): LlmRuntime | undefined {
-  if (!provider || !provider.apiKey || !provider.baseUrl || !provider.model) return undefined;
-  return { baseUrl: provider.baseUrl, model: provider.model, apiKey: provider.apiKey };
 }
 
 function sleep(ms: number) {

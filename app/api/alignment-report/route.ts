@@ -9,6 +9,7 @@ import {
   type LlmRuntime,
 } from "@/lib/llm";
 import { scribeEventStream, SSE_HEADERS, type ScribeStreamEvent } from "@/lib/agents/events";
+import { runtimeFromProvider } from "@/lib/server-runtime";
 import type { AlignmentProfile, IssueProposal, ScribeObservationLedger } from "@/lib/v7";
 
 export const runtime = "nodejs";
@@ -22,7 +23,7 @@ export async function POST(req: NextRequest) {
   const inquiryAnswers = Array.isArray(body.inquiryAnswers) ? body.inquiryAnswers : [];
   const alignmentProfile = body.alignmentProfile as AlignmentProfile | undefined;
   const context = body.context as ContextBundle | undefined;
-  const llmRuntime = toRuntime(body.provider);
+  const llmRuntime = runtimeFromProvider(body.provider);
 
   if (!llmRuntime) return NextResponse.json({ error: "provider required" }, { status: 400 });
   if (!taskFrame?.visible || !ledger || !alignmentProfile) {
@@ -58,11 +59,6 @@ export async function POST(req: NextRequest) {
   });
 
   return new Response(stream, { headers: SSE_HEADERS });
-}
-
-function toRuntime(provider: any): LlmRuntime | undefined {
-  if (!provider || !provider.apiKey || !provider.baseUrl || !provider.model) return undefined;
-  return { baseUrl: provider.baseUrl, model: provider.model, apiKey: provider.apiKey };
 }
 
 function sleep(ms: number) {

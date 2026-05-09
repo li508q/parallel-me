@@ -1,6 +1,7 @@
 // /api/taste — extract identity hint from user's books/films/music
 import { NextRequest, NextResponse } from "next/server";
 import { extractTasteProfile, type LlmRuntime, type TasteInput } from "@/lib/llm";
+import { runtimeFromProvider } from "@/lib/server-runtime";
 
 export const runtime = "nodejs";
 
@@ -9,7 +10,7 @@ export async function POST(req: NextRequest) {
   if (!body || !body.books || !body.films || !body.music) {
     return NextResponse.json({ error: "missing fields" }, { status: 400 });
   }
-  const llmRuntime = toRuntime(body.provider);
+  const llmRuntime = runtimeFromProvider(body.provider);
   if (!llmRuntime) {
     return NextResponse.json({ error: "provider required" }, { status: 400 });
   }
@@ -28,9 +29,4 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "extraction failed" }, { status: 500 });
   }
   return NextResponse.json({ profile });
-}
-
-function toRuntime(provider: any): LlmRuntime | undefined {
-  if (!provider || !provider.apiKey || !provider.baseUrl || !provider.model) return undefined;
-  return { baseUrl: provider.baseUrl, model: provider.model, apiKey: provider.apiKey };
 }

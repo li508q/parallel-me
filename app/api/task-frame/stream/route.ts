@@ -8,6 +8,7 @@ import {
 } from "@/lib/llm";
 import { agentEventStream, type AgentStreamEvent } from "@/lib/agents/events";
 import { SCRIBE_DEFINING_MAX_STEPS, scribeDefiningAgentSpec } from "@/lib/agents/scribe-defining";
+import { runtimeFromProvider } from "@/lib/server-runtime";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,7 +18,7 @@ export async function POST(req: NextRequest) {
   const rawInput = String(body.rawInput || "");
   const choiceAnswers = Array.isArray(body.choiceAnswers) ? body.choiceAnswers : [];
   const context = body.context as ContextBundle | undefined;
-  const llmRuntime = toRuntime(body.provider);
+  const llmRuntime = runtimeFromProvider(body.provider);
 
   if (!llmRuntime) {
     return new Response(agentEventStream(singleError("provider required")), streamHeaders());
@@ -55,9 +56,4 @@ function streamHeaders(): ResponseInit {
 
 async function* singleError(message: string): AsyncIterable<AgentStreamEvent> {
   yield { type: "error", message };
-}
-
-function toRuntime(provider: any): LlmRuntime | undefined {
-  if (!provider || !provider.apiKey || !provider.baseUrl || !provider.model) return undefined;
-  return { baseUrl: provider.baseUrl, model: provider.model, apiKey: provider.apiKey };
 }
