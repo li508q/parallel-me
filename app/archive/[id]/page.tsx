@@ -1,6 +1,6 @@
 "use client";
 
-// 纸页 — saved v0.7 roundtable record.
+// 纸页 — saved v1 roundtable record.
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -14,14 +14,14 @@ import {
   type RoundtableTurn,
 } from "@/lib/db";
 import { DocketPaper } from "@/components/DocketPaper";
-import { VOICE_IDS, voiceName } from "@/lib/v7";
+import { VOICE_IDS, settlementCommitment, settlementHeadline, voiceName, type SettlementModule } from "@/lib/v7";
 import { SELVES } from "@/lib/selves";
 
 type Tab = "summary" | "roundtable" | "scribe";
 
 const TABS: { id: Tab; label: string; hint: string }[] = [
-  { id: "summary", label: "落定", hint: "清明句 / 承诺" },
-  { id: "roundtable", label: "圆桌", hint: "五声 / 对峙" },
+  { id: "summary", label: "落定", hint: "本心 / 契约" },
+  { id: "roundtable", label: "圆桌", hint: "五声 / 两声对话" },
   { id: "scribe", label: "书记员", hint: "议题 / 问询" },
 ];
 
@@ -66,7 +66,7 @@ export default function ArchivePage() {
   }
 
   const title =
-    meeting.clarity?.clarity_sentence ||
+    settlementHeadline(meeting.alignment_report) ||
     meeting.task_frame?.visible.problem_definition ||
     meeting.raw_input;
 
@@ -130,66 +130,78 @@ function BackLink() {
 }
 
 function SummaryTab({ meeting }: { meeting: Meeting }) {
-  const clarity = meeting.clarity;
+  const report = meeting.alignment_report;
+  const action = settlementCommitment(report);
   return (
     <div className="space-y-5">
-      {clarity && (
-        <DocketPaper stage="清明句">
-          <p className="font-serif text-verdict text-ink-core leading-relaxed whitespace-pre-line">
-            {clarity.clarity_sentence}
-          </p>
+      {report && (
+        <DocketPaper stage="本心落定">
+          <div className="space-y-5">
+            <ArchiveReportBlock module={report.creative_hopelessness} />
+            <ArchiveReportBlock module={report.core_value_axis} />
+            <ArchiveReportBlock module={report.cost_acceptance_contract} />
+            <ArchiveReportBlock module={report.minimum_viable_commitment} />
+            <section className="border-t border-paper-edge pt-4">
+              <h3 className="font-serif text-title text-ink-core leading-snug mb-3">正反合</h3>
+              <div className="grid md:grid-cols-3 gap-4">
+                <ArchiveField label="正" body={report.dialectic_synthesis.thesis} />
+                <ArchiveField label="反" body={report.dialectic_synthesis.antithesis} />
+                <ArchiveField label="合" body={report.dialectic_synthesis.user_revision || report.dialectic_synthesis.synthesis} />
+              </div>
+            </section>
+          </div>
         </DocketPaper>
       )}
 
-      {clarity && (
-        <div className="grid md:grid-cols-2 gap-4">
-          <DocketPaper stage="偏好读数" dense>
-            <p className="font-serif text-body-long text-ink-body leading-relaxed">
-              {clarity.preference_readout}
-            </p>
-          </DocketPaper>
-          <DocketPaper stage="代价承认" dense>
-            <p className="font-serif text-body-long text-ink-body leading-relaxed">
-              {clarity.tradeoff_acknowledgement}
-            </p>
-          </DocketPaper>
-        </div>
-      )}
-
-      {clarity && (
-        <DocketPaper stage="24h 承诺">
-          <p className="font-serif text-title text-ink-core leading-snug">
-            「{clarity.commitment24h}」
-          </p>
-          <p className="mt-3 text-body-sm text-ink-mute">
-            此刻落点：{postureLabel(clarity.settlement_posture)}
-          </p>
-          {meeting.closedAt && (
-            <p className="mt-2 text-body-sm text-ink-mute">
-              保存于 {formatDateTime(meeting.closedAt)}
-            </p>
-          )}
-        </DocketPaper>
-      )}
-
-      {clarity?.commitment24h && <CommitmentFollowupCard meeting={meeting} />}
+      {action && <CommitmentFollowupCard meeting={meeting} />}
     </div>
   );
 }
 
+function ArchiveReportBlock({ module }: { module: SettlementModule }) {
+  return (
+    <section className="border-b border-paper-edge last:border-0 pb-4 last:pb-0">
+      <h3 className="font-serif text-title text-ink-core leading-snug mb-2">{module.title}</h3>
+      <p className="font-serif text-body-long text-ink-body leading-relaxed whitespace-pre-line">{module.report}</p>
+      {module.evidence?.filter(Boolean).length ? (
+        <ul className="mt-3 space-y-1.5 text-body-sm text-ink-mute">
+          {module.evidence.filter(Boolean).map((detail, index) => (
+            <li key={`${module.title}-${index}`}>· {detail}</li>
+          ))}
+        </ul>
+      ) : null}
+      {module.user_feedback && (
+        <p className="mt-3 text-body-sm text-ink-mute">
+          用户反馈：{module.user_feedback.status === "agree" ? "同意" : module.user_feedback.user_text || "不同意"}
+        </p>
+      )}
+    </section>
+  );
+}
+
 function RoundtableTab({ meeting }: { meeting: Meeting }) {
+  const proposal = meeting.issue_proposal;
   return (
     <div className="space-y-5">
       <DocketPaper stage="本次议题">
         <p className="font-serif text-title text-ink-core leading-snug mb-4">
-          {meeting.task_frame?.visible.problem_definition}
+          {proposal?.issue_sentence || meeting.task_frame?.visible.problem_definition}
         </p>
-        <div className="grid sm:grid-cols-2 gap-3 text-body-sm">
-          <ArchiveField label="这件事问你的是" body={meeting.task_frame?.visible.central_question} />
-          <ArchiveField label="圆桌焦点" body={meeting.task_frame?.visible.discussion_focus} />
-          <ArchiveField label="核心冲突" body={meeting.task_frame?.visible.core_conflict} />
-          <ArchiveField label="主要牵动点" body={meeting.task_frame?.visible.main_concerns.join(" / ")} />
-        </div>
+        {proposal ? (
+          <div className="grid sm:grid-cols-2 gap-3 text-body-sm">
+            <ArchiveField label="当下的选择岔路是什么？" body={proposal.surface_dilemma.content} />
+            <ArchiveField label="限制选择的现实边界是什么？" body={proposal.current_constraints.content} />
+            <ArchiveField label="真正害怕失去的是什么？" body={proposal.core_fears.content} />
+            <ArchiveField label="这次圆桌要验证什么？" body={proposal.expected_resolution.content} />
+          </div>
+        ) : (
+          <div className="grid sm:grid-cols-2 gap-3 text-body-sm">
+            <ArchiveField label="这件事问你的是" body={meeting.task_frame?.visible.central_question} />
+            <ArchiveField label="圆桌焦点" body={meeting.task_frame?.visible.discussion_focus} />
+            <ArchiveField label="核心冲突" body={meeting.task_frame?.visible.core_conflict} />
+            <ArchiveField label="主要牵动点" body={meeting.task_frame?.visible.main_concerns.join(" / ")} />
+          </div>
+        )}
       </DocketPaper>
 
       <DocketPaper stage="五声第一轮">
@@ -231,7 +243,7 @@ function RoundtableTab({ meeting }: { meeting: Meeting }) {
 }
 
 function ScribeTab({ meeting }: { meeting: Meeting }) {
-  const profile = meeting.preference_profile;
+  const profile = meeting.alignment_profile;
   return (
     <div className="space-y-5">
       {meeting.choice_answers.length > 0 && (
@@ -265,11 +277,11 @@ function ScribeTab({ meeting }: { meeting: Meeting }) {
       )}
 
       {profile && (
-        <DocketPaper stage="偏好刻画">
+        <DocketPaper stage="本心画像">
           <div className="grid md:grid-cols-2 gap-4">
-            <ListField label="已验证倾向" items={profile.validated_leanings} />
-            <ListField label="被抗拒的位置" items={profile.resisted_positions} />
-            <ListField label="对峙判断" items={profile.conflict_judgments} />
+            <ListField label="被证伪的幻想" items={[profile.falsified_fantasy].filter(Boolean)} />
+            <ListField label="核心价值主轴" items={[profile.core_value_axis].filter(Boolean)} />
+            <ListField label="愿意承认的痛" items={profile.accepted_costs} />
             <ListField label="未解张力" items={profile.unresolved_tensions} />
           </div>
         </DocketPaper>
@@ -291,6 +303,24 @@ function RoundtableTurnView({ turn }: { turn: RoundtableTurn }) {
       </article>
     );
   }
+  if (turn.trigger === "user_reaction") {
+    const target = turn.reply_to_name || (turn.reply_to_voice_id ? voiceName(turn.reply_to_voice_id) : "");
+    return (
+      <article className="ml-auto max-w-2xl border border-paper-edge bg-paper-base rounded-md px-4 py-3 text-right">
+        <div className="text-[10px] tracking-[0.18em] text-ink-mute uppercase mb-1">
+          我 · 答复/反驳{target ? ` ${target}` : ""}
+        </div>
+        {turn.reply_to_text && (
+          <p className="mb-2 border-r-2 border-paper-edge pr-3 text-body-sm text-ink-mute leading-relaxed">
+            {turn.reply_to_text}
+          </p>
+        )}
+        <p className="font-serif italic text-body text-ink-core leading-relaxed whitespace-pre-line">
+          「{turn.user_text || turn.text}」
+        </p>
+      </article>
+    );
+  }
   if (turn.duel) {
     return (
       <article className="border-l-3 border-attention-copper pl-4">
@@ -302,9 +332,6 @@ function RoundtableTurnView({ turn }: { turn: RoundtableTurn }) {
         </p>
         <p className="text-body-sm text-ink-body leading-relaxed">
           {turn.duel.to_name}：{turn.duel.response}
-        </p>
-        <p className="mt-2 text-xs text-ink-mute">
-          未解开的点：{turn.duel.unresolved_point}
         </p>
       </article>
     );
@@ -403,17 +430,6 @@ function CommitmentFollowupCard({ meeting }: { meeting: Meeting }) {
       </div>
     </DocketPaper>
   );
-}
-
-function postureLabel(posture: string): string {
-  const labels: Record<string, string> = {
-    leaning: "已有倾向",
-    not_ready: "暂不决定",
-    testing: "先做验证",
-    boundary: "先立边界",
-    grieving: "先承认失去",
-  };
-  return labels[posture] || posture;
 }
 
 function formatDateTime(ts: number): string {

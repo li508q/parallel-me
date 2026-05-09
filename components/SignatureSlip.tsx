@@ -43,7 +43,7 @@ export function SignatureSlip({
     >
       <header className="px-6 sm:px-8 pt-6 pb-3 border-b border-paper-lift/10">
         <div className="text-[10px] tracking-[0.18em] text-paper-lift/50 uppercase">
-          清明落定
+          本心落定
         </div>
       </header>
 

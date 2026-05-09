@@ -1,11 +1,11 @@
 // P0 component · 纸面 (DocketPaper)
-// The paper-lift surface that holds raw inputs, task frames, settlements, and
+// The paper-lift surface that holds raw inputs, task frames, alignment reports, and
 // archives.
 
 import * as React from "react";
 
 interface DocketPaperProps {
-  /** Uppercase tracker label that floats top-left, e.g. "陈情" or "清明句". */
+  /** Uppercase tracker label that floats top-left, e.g. "陈情" or "本心落定". */
   stage?: string;
   /** Optional small node rendered top-right (e.g. issue number, timestamp). */
   meta?: React.ReactNode;

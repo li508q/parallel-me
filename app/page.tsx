@@ -18,6 +18,7 @@ import {
   type CommitmentFollowupResult,
   type Meeting,
 } from "@/lib/db";
+import { settlementCommitment, settlementHeadline } from "@/lib/v7";
 
 const PRESETS = [
   "我妈让我考公，我现在大厂月薪 2.5w，回老家月薪能到 6k。",
@@ -55,7 +56,7 @@ export default function Home() {
           .equals("settled")
           .filter(
             (m) =>
-              !!m.clarity?.commitment24h &&
+              !!settlementCommitment(m.alignment_report) &&
               !m.commitmentFollowup &&
               (m.closedAt ?? 0) > Date.now() - 14 * 86_400_000,
           )
@@ -91,7 +92,7 @@ export default function Home() {
   const recentRecord: CardData | null = records[0]
     ? {
         title:
-          records[0].clarity?.clarity_sentence ||
+          settlementHeadline(records[0].alignment_report) ||
           records[0].task_frame?.visible.problem_definition ||
           records[0].raw_input,
         meta: timeAgo(records[0].createdAt),
@@ -319,15 +320,17 @@ function SnapshotCard({
 function PendingCommitmentCard({ meeting }: { meeting: Meeting | null }) {
   const [submitting, setSubmitting] = useState(false);
 
-  if (!meeting?.clarity?.commitment24h) {
+  const action = settlementCommitment(meeting?.alignment_report);
+  if (!meeting || !action) {
     return (
       <SnapshotCard
         label="待复盘承诺"
         data={null}
-        emptyHint="写下 24h 承诺后，这里会提醒你回来看看。"
+        emptyHint="写下 24h 行动后，这里会提醒你回来看看。"
       />
     );
   }
+  const activeMeeting = meeting;
 
   async function record(result: CommitmentFollowupResult) {
     if (submitting || !meeting) return;
@@ -341,10 +344,10 @@ function PendingCommitmentCard({ meeting }: { meeting: Meeting | null }) {
         待复盘承诺
       </div>
       <p className="text-body-sm text-ink-body italic font-serif leading-snug line-clamp-2 mb-1">
-        「{meeting.clarity.commitment24h}」
+        「{action}」
       </p>
       <p className="text-xs text-ink-mute mb-3">
-        {timeAgo(meeting.closedAt ?? meeting.createdAt)} · 你说会做
+        {timeAgo(activeMeeting.closedAt ?? activeMeeting.createdAt)} · 你说会做
       </p>
       <div className="flex flex-wrap gap-1.5 text-xs">
         <button

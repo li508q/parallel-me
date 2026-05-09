@@ -31,10 +31,10 @@ export const ProposalKeySchema = z.object({
   title: z.string(),
   content: z.string(),
   details: z.array(z.string()).default([]),
-  confidence: z.enum(["high", "medium", "low"]).default("medium"),
 });
 
 export const IssueProposalSchema = z.object({
+  issue_sentence: z.string().default(""),
   surface_dilemma: ProposalKeySchema,
   current_constraints: ProposalKeySchema,
   core_fears: ProposalKeySchema,
@@ -78,12 +78,50 @@ export const RoundtableMoveResultSchema = z.object({
     at: z.number().optional(),
   }),
   turns: z.array(RoundtableTurnSchema).default([]),
-  scribeNote: z.string().default(""),
 });
 
 export type ValidatedRoundtableMove = z.infer<typeof RoundtableMoveResultSchema>;
 
-// ─── Scribe Inquiry (书记员问询) ───
+// ─── Scribe Observation + Alignment Inquiry (书记员问询 / 本心落定) ───
+
+export const ScribeObservationSchema = z.object({
+  id: z.string(),
+  round_index: z.number().optional(),
+  trigger: z.string().default("summary"),
+  observation: z.string(),
+  attribution: z.string().default(""),
+  module: z.enum(["creative_hopelessness", "core_values", "cost_acceptance", "minimum_action", "none"]).default("none"),
+  evidence: z.array(z.string()).default([]),
+  at: z.number().optional(),
+});
+
+export const UnansweredRoundtableQuestionSchema = z.object({
+  id: z.string(),
+  from_voice_id: z.string().optional(),
+  from_name: z.string().optional(),
+  question: z.string(),
+  why_it_matters: z.string().default(""),
+  at: z.number().optional(),
+});
+
+export const ScribeObservationLedgerSchema = z.object({
+  observations: z.array(ScribeObservationSchema).default([]),
+  unanswered_questions: z.array(UnansweredRoundtableQuestionSchema).default([]),
+  module_signals: z.object({
+    creative_hopelessness: z.array(z.string()).default([]),
+    core_values: z.array(z.string()).default([]),
+    cost_acceptance: z.array(z.string()).default([]),
+    minimum_action: z.array(z.string()).default([]),
+  }).default({
+    creative_hopelessness: [],
+    core_values: [],
+    cost_acceptance: [],
+    minimum_action: [],
+  }),
+  updated_at: z.number().optional(),
+});
+
+export type ValidatedScribeObservationLedger = z.infer<typeof ScribeObservationLedgerSchema>;
 
 export const InquiryOptionSchema = z.object({
   id: z.string(),
@@ -97,46 +135,64 @@ export const InquiryQuestionSchema = z.object({
   options: z.array(InquiryOptionSchema).min(1),
 });
 
-export const PreferenceProfileSchema = z.object({
-  hypotheses: z.array(z.string()).default([]),
-  validated_leanings: z.array(z.string()).default([]),
-  resisted_positions: z.array(z.string()).default([]),
-  requested_perspectives: z.array(z.string()).default([]),
-  conflict_judgments: z.array(z.string()).default([]),
-  accepted_tradeoffs: z.array(z.string()).default([]),
-  refused_tradeoffs: z.array(z.string()).default([]),
+export const AlignmentProfileSchema = z.object({
+  falsified_fantasy: z.string().default(""),
+  core_value_axis: z.string().default(""),
+  offended_voices: z.array(z.string()).default([]),
+  accepted_costs: z.array(z.string()).default([]),
+  refused_costs: z.array(z.string()).default([]),
   unresolved_tensions: z.array(z.string()).default([]),
+  hegelian_synthesis: z.object({
+    thesis: z.string().default(""),
+    antithesis: z.string().default(""),
+    synthesis: z.string().default(""),
+  }).default({ thesis: "", antithesis: "", synthesis: "" }),
   user_self_statements: z.array(z.string()).default([]),
 });
 
 export const InquiryResultSchema = z.object({
   questions: z.array(InquiryQuestionSchema).default([]),
-  preferenceProfile: PreferenceProfileSchema.default({
-    hypotheses: [],
-    validated_leanings: [],
-    resisted_positions: [],
-    requested_perspectives: [],
-    conflict_judgments: [],
-    accepted_tradeoffs: [],
-    refused_tradeoffs: [],
+  readyForReport: z.boolean().default(false),
+  alignmentProfile: AlignmentProfileSchema.default({
+    falsified_fantasy: "",
+    core_value_axis: "",
+    offended_voices: [],
+    accepted_costs: [],
+    refused_costs: [],
     unresolved_tensions: [],
+    hegelian_synthesis: { thesis: "", antithesis: "", synthesis: "" },
     user_self_statements: [],
   }),
 });
 
 export type ValidatedInquiry = z.infer<typeof InquiryResultSchema>;
 
-// ─── Clarity Settlement (清明落定) ───
+// ─── Heart Settlement (本心落定) ───
 
-export const ClarityResultSchema = z.object({
-  clarity_sentence: z.string(),
-  preference_readout: z.string().default(""),
-  tradeoff_acknowledgement: z.string().default(""),
-  settlement_posture: z.enum(["leaning", "not_ready", "testing", "boundary", "grieving"]).default("leaning"),
-  commitment24h: z.string().default(""),
+export const SettlementModuleSchema = z.object({
+  title: z.string().default(""),
+  report: z.string().default(""),
+  evidence: z.array(z.string()).optional().default([]),
+  user_feedback: z.object({
+    status: z.enum(["agree", "disagree"]),
+    user_text: z.string().optional(),
+  }).optional(),
 });
 
-export type ValidatedClarity = z.infer<typeof ClarityResultSchema>;
+export const AlignmentReportSchema = z.object({
+  creative_hopelessness: SettlementModuleSchema,
+  core_value_axis: SettlementModuleSchema,
+  cost_acceptance_contract: SettlementModuleSchema,
+  minimum_viable_commitment: SettlementModuleSchema,
+  dialectic_synthesis: z.object({
+    thesis: z.string().default(""),
+    antithesis: z.string().default(""),
+    synthesis: z.string().default(""),
+    user_revision: z.string().optional(),
+  }),
+});
+
+export type ValidatedAlignmentReport = z.infer<typeof AlignmentReportSchema>;
 
 // ─── TaskFrame (legacy choice-card path) ───
 
@@ -194,11 +250,6 @@ export const RefineResultSchema = z.object({
 export const RoundtableRawResultSchema = z.object({
   turns: z.array(z.record(z.string(), z.unknown())).optional().default([]),
   duel: z.record(z.string(), z.unknown()).optional(),
-  summary: z.string().optional(),
-  mirror: z.string().optional(),
-  observation: z.string().optional(),
-  scribeNote: z.string().optional(),
-  scribe_note: z.string().optional(),
 });
 
 export const TasteProfileSchema = z.object({

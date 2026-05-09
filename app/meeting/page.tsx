@@ -1,46 +1,39 @@
 "use client";
 
-// /meeting — v0.7 五声圆桌
+// /meeting — v1 五声圆桌
 // A scribe-guided path: raw input -> task frame -> fixed five-voice
-// roundtable -> scribe inquiry -> clarity settlement.
+// roundtable -> invisible scribe observation -> inquiry -> 本心落定.
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DocketPaper } from "@/components/DocketPaper";
-import { DefiningDialogueBoard } from "@/components/DefiningDialogueBoard";
+import { DefiningDialogueBoard, DefiningDialogueHistory } from "@/components/DefiningDialogueBoard";
 import { ErrorRecoveryBar } from "@/components/ErrorRecoveryBar";
 import { HostConsole, type ConsoleAction } from "@/components/HostConsole";
 import { IssueProposalBoard } from "@/components/IssueProposalBoard";
-import { ScribeStatusStrip } from "@/components/ScribeStatusStrip";
-import { ScribeTracePanel } from "@/components/ScribeTracePanel";
 import { StageRail } from "@/components/StageRail";
+import type { ScribeStreamEvent } from "@/lib/agents/events";
 import { SELVES, type SelfId } from "@/lib/selves";
 import {
   loadActiveProvider,
   toRuntimePayload,
   type ProviderConfig,
 } from "@/lib/provider";
-import { useMeetingStore, type DefiningSubStage, type MeetingStage, type RoundtableMode } from "@/lib/store/meeting-store";
+import { useMeetingStore, type DefiningSubStage, type MeetingStage } from "@/lib/store/meeting-store";
+import type { LlmErrorCode } from "@/lib/llm";
 import {
   newMeetingId,
   saveMeeting,
-  type ChoiceAnswer,
-  type ChoiceCard,
-  type ChoiceOption,
-  type ClarityResult,
+  type AlignmentReport,
   type Meeting,
-  type PreferenceProfile,
   type RoundtableMove,
   type RoundtableRecord,
   type RoundtableTurn,
   type ScribeInquiryAnswer,
   type ScribeInquiryQuestion,
-  type ScribeTrace,
-  type SourceLabelMap,
   type TaskFrame,
   type VisibleTaskFrame,
-  type VisibleTaskFrameKey,
   type VoiceId,
   type VoiceOpeningTurn,
   type VoiceTurnTrigger,
@@ -48,10 +41,15 @@ import {
 import {
   VOICE_IDS,
   emptyRoundtable,
-  emptyScribeTrace,
+  proposalToTaskFrame,
+  settlementCommitment,
+  settlementHeadline,
   voiceName,
+  type AlignmentProfile,
   type DefiningDialogueEntry,
   type IssueProposal,
+  type SettlementModule,
+  type ScribeObservationLedger,
   type ScribeAnswer,
   type ScribeQuestion,
 } from "@/lib/v7";
@@ -68,27 +66,10 @@ const BIG_STAGES = [
   { id: "defining", label: "本次议题" },
   { id: "roundtable", label: "五声圆桌" },
   { id: "inquiry", label: "书记员问询" },
-  { id: "settlement", label: "清明落定" },
+  { id: "settlement", label: "本心落定" },
 ];
 
-const FIELD_LABEL: Record<VisibleTaskFrameKey, string> = {
-  problem_definition: "问题定义",
-  current_state: "当前状态",
-  key_facts: "关键事实",
-  main_choices: "主要选择",
-  core_conflict: "核心冲突",
-  central_question: "这件事问你的是",
-  main_concerns: "主要牵动点",
-  discussion_focus: "圆桌焦点",
-};
-
-const POSTURE_LABEL: Record<string, string> = {
-  leaning: "已有倾向",
-  not_ready: "暂不决定",
-  testing: "先做验证",
-  boundary: "先立边界",
-  grieving: "先承认失去",
-};
+const MAX_ALIGNMENT_INQUIRY_QUESTIONS = 12;
 
 const VOICE_COLOR_VAR: Record<VoiceId, string> = {
   lay: "color-seat-rest",
@@ -106,6 +87,8 @@ function MeetingInner() {
   const meetingIdRef = useRef<string>(newMeetingId());
   const startedAtRef = useRef<number>(Date.now());
   const initializedRef = useRef<string | null>(null);
+  const [errorCode, setErrorCode] = useState<LlmErrorCode | undefined>();
+  const [errorRetryable, setErrorRetryable] = useState(true);
 
   const {
     provider,
@@ -114,14 +97,6 @@ function MeetingInner() {
     setStage,
     rawInput,
     setRawInput,
-    choiceCards,
-    setChoiceCards,
-    choiceAnswers,
-    setChoiceAnswers,
-    choiceIndex,
-    setChoiceIndex,
-    customChoiceText,
-    setCustomChoiceText,
     definingDialogue,
     setDefiningDialogue,
     currentQuestions,
@@ -132,12 +107,8 @@ function MeetingInner() {
     setDefiningSubStage,
     taskFrame,
     setTaskFrame,
-    frameDraft,
-    setFrameDraft,
     roundtable,
     setRoundtable,
-    scribeTrace,
-    setScribeTrace,
     roundtableMode,
     setRoundtableMode,
     selectedVoiceId,
@@ -146,22 +117,26 @@ function MeetingInner() {
     setDuelFromId,
     duelToId,
     setDuelToId,
-    roundtableText,
-    setRoundtableText,
     inquiryQuestions,
     setInquiryQuestions,
     inquiryAnswers,
     setInquiryAnswers,
+    inquiryDialogue,
+    setInquiryDialogue,
     inquiryIndex,
     setInquiryIndex,
     customInquiryText,
     setCustomInquiryText,
-    preferenceProfile,
-    setPreferenceProfile,
-    clarity,
-    setClarity,
+    alignmentProfile,
+    setAlignmentProfile,
+    scribeObservationLedger,
+    setScribeObservationLedger,
+    alignmentReport,
+    setAlignmentReport,
     clarityDraft,
     setClarityDraft,
+    contractDraft,
+    setContractDraft,
     commitmentDraft,
     setCommitmentDraft,
     busy,
@@ -169,15 +144,24 @@ function MeetingInner() {
     error,
     setError,
     crisis,
-    setCrisis,
     streamNarration,
     streamEvents,
     isStreaming,
-    traceOpen,
-    setTraceOpen,
     streamRequest,
-    interruptStream,
   } = useMeetingStore();
+
+  function clearError() {
+    setError("");
+    setErrorCode(undefined);
+    setErrorRetryable(true);
+  }
+
+  function captureRequestError(errorLike: any, fallback: string) {
+    if (errorLike?.message === "safety-offramp") return;
+    setError(errorLike?.message || fallback);
+    setErrorCode((errorLike?.code as LlmErrorCode | undefined) || "unknown");
+    setErrorRetryable(errorLike?.retryable ?? true);
+  }
 
   const context = useCallback(() => {
     const profile = loadProfile();
@@ -203,37 +187,12 @@ function MeetingInner() {
     initializedRef.current = rawParam;
     setProvider(activeProvider);
     setRawInput(rawParam);
-    void loadTaskFrame(rawParam, [], activeProvider);
+    void loadTaskFrame(rawParam, activeProvider);
   }, [rawParam, router]);
 
-  async function postJson(
-    path: string,
-    body: any,
-    runtimeProvider: ProviderConfig | null = provider,
-  ) {
-    const runtimePayload = toRuntimePayload(runtimeProvider);
-    if (!runtimePayload) throw new Error("请先配置可用的 API Key");
-    const response = await fetch(path, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        ...body,
-        context: context(),
-        provider: runtimePayload,
-      }),
-    });
-    const json = await response.json();
-    if (!response.ok) throw new Error(json.error || "请求失败");
-    if (json.crisis) {
-      setCrisis(json.message || "这件事需要真人支持。");
-      throw new Error("safety-offramp");
-    }
-    return json;
-  }
-
   /**
-   * SSE streaming variant of postJson. Drives Layer 1 narration and Layer 2 events.
-   * Returns the final `result.payload` just like postJson returns JSON.
+   * SSE streaming request. Drives in-flow narration and raw model output events,
+   * then returns the final `result.payload`.
    */
   async function streamJson(
     path: string,
@@ -248,6 +207,35 @@ function MeetingInner() {
     });
   }
 
+  async function updateScribeObservationLedger(
+    nextRoundtable: RoundtableRecord,
+    runtimeProvider: ProviderConfig | null = provider,
+  ) {
+    const runtimePayload = toRuntimePayload(runtimeProvider);
+    if (!runtimePayload || !taskFrame) return;
+    try {
+      const response = await fetch("/api/scribe-observation", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          taskFrame,
+          issueProposal,
+          roundtable: nextRoundtable,
+          scribeObservationLedger,
+          context: context(),
+          provider: runtimePayload,
+        }),
+      });
+      if (!response.ok) return;
+      const json = await response.json().catch(() => null);
+      if (json?.scribeObservationLedger) {
+        setScribeObservationLedger(json.scribeObservationLedger as ScribeObservationLedger);
+      }
+    } catch {
+      // This is intentionally invisible: observation failure must not disturb the meeting.
+    }
+  }
+
   // ─── Retry Last Action (useChat reload() pattern) ───
   const lastActionRef = useRef<{ fn: () => Promise<void> } | null>(null);
 
@@ -259,10 +247,8 @@ function MeetingInner() {
 
   async function loadTaskFrame(
     input: string,
-    answers: ChoiceAnswer[],
     runtimeProvider: ProviderConfig | null = provider,
   ) {
-    // Legacy path kept for backward compat but now uses probe-first approach
     await startDefiningProbe(input, [], runtimeProvider);
   }
 
@@ -275,7 +261,7 @@ function MeetingInner() {
     // Save for retry
     lastActionRef.current = { fn: () => startDefiningProbe(input, dialogue, runtimeProvider) };
     setBusy(true);
-    setError("");
+    clearError();
     try {
       const json = await streamJson(
         "/api/task-frame",
@@ -288,7 +274,6 @@ function MeetingInner() {
         // 信息足够，直接生成提案
         setIssueProposal(json.proposal);
         setTaskFrame(json.taskFrame ?? null);
-        setFrameDraft(json.taskFrame?.visible ?? null);
         setDefiningSubStage("showing_proposal");
       } else if (json.questions?.length) {
         // 需要追问
@@ -296,7 +281,7 @@ function MeetingInner() {
         setDefiningSubStage("probing");
       }
     } catch (e: any) {
-      if (e?.message !== "safety-offramp") setError(e?.message || "书记员整理失败");
+      captureRequestError(e, "书记员整理失败");
     } finally {
       setBusy(false);
     }
@@ -305,14 +290,24 @@ function MeetingInner() {
   /** Handle user answering probe questions */
   async function handleProbeAnswer(answers: ScribeAnswer[]) {
     // Add answers to dialogue
-    const newEntries: DefiningDialogueEntry[] = answers.map((a) => ({
-      role: "user" as const,
-      answer: a,
-    }));
+    const newEntries: DefiningDialogueEntry[] = answers.map((a) => {
+      const question = currentQuestions.find((q) => q.id === a.question_id);
+      const option = question?.options.find((o) => o.id === a.selected_option_id);
+      return {
+        role: "user" as const,
+        answer: {
+          ...a,
+          question_text: a.question_text || question?.text,
+          selected_option_label: a.selected_option_label || option?.label,
+        },
+      };
+    });
     // Also add the questions that were asked (for history)
-    const questionEntries: DefiningDialogueEntry[] = currentQuestions.map((q) => ({
+    const historicalThinkingEvents = streamEvents.length ? [...streamEvents] : undefined;
+    const questionEntries: DefiningDialogueEntry[] = currentQuestions.map((q, index) => ({
       role: "scribe" as const,
       question: q,
+      thinking_events: index === 0 ? historicalThinkingEvents : undefined,
     }));
     const updatedDialogue = [...definingDialogue, ...questionEntries, ...newEntries];
     setDefiningDialogue(updatedDialogue);
@@ -327,19 +322,21 @@ function MeetingInner() {
     if (!issueProposal || !taskFrame) return;
     lastActionRef.current = { fn: () => confirmProposal() };
     setBusy(true);
-    setError("");
+    clearError();
     try {
-      setFrameDraft(taskFrame.visible);
       setStage("roundtable");
       // Trigger opening turns
       const json = await streamJson("/api/roundtable", {
         action: "opening",
         taskFrame,
+        issueProposal,
       });
       if (json._interrupted) return;
-      setRoundtable((prev) => ({ ...prev, opening_turns: json.openingTurns ?? [] }));
+      const nextRoundtable = { opening_turns: json.openingTurns ?? [], turns: [], moves: [] };
+      setRoundtable(nextRoundtable);
+      void updateScribeObservationLedger(nextRoundtable);
     } catch (e: any) {
-      if (e?.message !== "safety-offramp") setError(e?.message || "生成五声开场失败");
+      captureRequestError(e, "生成五声开场失败");
     } finally {
       setBusy(false);
     }
@@ -349,7 +346,7 @@ function MeetingInner() {
   async function handleRefineProposal(feedback: string) {
     if (!issueProposal) return;
     setBusy(true);
-    setError("");
+    clearError();
     try {
       const json = await streamJson("/api/task-frame", {
         action: "refine",
@@ -368,101 +365,55 @@ function MeetingInner() {
         setIssueProposal(json.proposal);
         if (json.taskFrame) {
           setTaskFrame(json.taskFrame);
-          setFrameDraft(json.taskFrame.visible);
         }
         setDefiningSubStage("showing_proposal");
       }
     } catch (e: any) {
-      if (e?.message !== "safety-offramp") setError(e?.message || "修正失败");
+      captureRequestError(e, "修正失败");
     } finally {
       setBusy(false);
     }
   }
 
-  async function finalizeTaskFrame() {
-    if (busy || choiceAnswers.length < choiceCards.length) return;
-    setBusy(true);
-    setError("");
-    try {
-      const json = await streamJson("/api/task-frame", {
-        rawInput,
-        choiceAnswers,
-      });
-      setTaskFrame(json.taskFrame);
-      setFrameDraft(json.taskFrame.visible);
-      setStage("review");
-    } catch (e: any) {
-      if (e?.message !== "safety-offramp") setError(e?.message || "本次议题整理失败");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  function answerChoice(card: ChoiceCard, option: ChoiceOption, customText?: string) {
-    const answer: ChoiceAnswer = {
-      card_id: card.id,
-      question: card.question,
-      selected_option_id: option.id,
-      selected_label: option.label,
-      custom_text: customText?.trim() || undefined,
-      derived_kv: option.derived_kv,
-      at: Date.now(),
-    };
-    setChoiceAnswers((prev) => {
-      const rest = prev.filter((a) => a.card_id !== card.id);
-      return [...rest, answer];
-    });
-    setCustomChoiceText("");
-    if (choiceIndex < choiceCards.length - 1) setChoiceIndex((i) => i + 1);
-  }
-
-  function updateFrameField(key: VisibleTaskFrameKey, value: string) {
-    setFrameDraft((prev) => {
-      if (!prev) return prev;
-      if (key === "key_facts" || key === "main_choices" || key === "main_concerns") {
-        return { ...prev, [key]: splitLines(value) };
-      }
-      return { ...prev, [key]: value.slice(0, 320) };
-    });
-  }
-
-  async function confirmTaskFrame() {
-    if (!taskFrame || !frameDraft || busy) return;
-    const editedFields = diffVisibleFields(taskFrame.visible, frameDraft);
-    const confirmed: TaskFrame = {
-      ...taskFrame,
-      visible: frameDraft,
-      confirmed_at: Date.now(),
-      edited_fields: editedFields,
-      internal: {
-        ...taskFrame.internal,
-        facts: taskFrame.internal.facts.map((f) => ({
-          ...f,
-          evidence_status: f.evidence_status === "model_inferred" ? f.evidence_status : "user_confirmed",
-        })),
+  function handleUpdateProposal(nextProposal: IssueProposal) {
+    const visible = proposalToTaskFrame(nextProposal);
+    setIssueProposal(nextProposal);
+    setTaskFrame((prev) => prev ? {
+      ...prev,
+      visible,
+      edited_fields: {
+        ...prev.edited_fields,
+        problem_definition: true,
+        current_state: true,
+        key_facts: true,
+        main_choices: true,
+        core_conflict: true,
+        central_question: true,
+        main_concerns: true,
+        discussion_focus: true,
       },
-    };
-    setTaskFrame(confirmed);
-    setStage("roundtable");
-    await loadOpeningTurns(confirmed);
+    } : prev);
   }
 
   async function loadOpeningTurns(frame: TaskFrame) {
     setBusy(true);
-    setError("");
+    clearError();
     try {
       const json = await streamJson("/api/roundtable", {
         action: "opening",
         taskFrame: frame,
+        issueProposal,
       });
       const openingTurns = (json.openingTurns ?? []) as VoiceOpeningTurn[];
-      setRoundtable({
+      const nextRoundtable = {
         opening_turns: openingTurns,
         turns: [],
         moves: [],
-      });
+      };
+      setRoundtable(nextRoundtable);
+      void updateScribeObservationLedger(nextRoundtable);
     } catch (e: any) {
-      if (e?.message !== "safety-offramp") setError(e?.message || "五声第一轮失败");
+      captureRequestError(e, "五声第一轮失败");
     } finally {
       setBusy(false);
     }
@@ -479,15 +430,17 @@ function MeetingInner() {
   ) {
     if (!taskFrame || busy) return;
 
-    // Agent loop guard: max 12 roundtable moves
+    // Roundtable guard: max 12 moves
     const MAX_ROUNDTABLE_MOVES = 12;
     if (roundtable.moves.length >= MAX_ROUNDTABLE_MOVES) {
       setError("圆桌讨论已达上限，请进入下一阶段。");
+      setErrorCode("unknown");
+      setErrorRetryable(false);
       return;
     }
     lastActionRef.current = { fn: () => submitRoundtableMove(moveType, payload) };
     setBusy(true);
-    setError("");
+    clearError();
     const userTurn = createUserRoundtableTurn(moveType, payload.userText);
     const snapshot = userTurn
       ? { ...roundtable, turns: [...roundtable.turns, userTurn] }
@@ -503,6 +456,7 @@ function MeetingInner() {
         action: "move",
         moveType,
         taskFrame,
+        issueProposal,
         roundtable: snapshot,
         ...payload,
       });
@@ -512,19 +466,19 @@ function MeetingInner() {
         move_id: turn.move_id || move.id,
       }));
       const taggedUserTurn = userTurn ? { ...userTurn, move_id: move.id } : null;
-      setRoundtable((prev) => ({
-        opening_turns: prev.opening_turns,
-        moves: [...prev.moves, move],
+      const nextRoundtable: RoundtableRecord = {
+        opening_turns: snapshot.opening_turns,
+        moves: [...snapshot.moves, move],
         turns: [
-          ...prev.turns.map((turn) => (taggedUserTurn && turn.id === taggedUserTurn.id ? taggedUserTurn : turn)),
+          ...snapshot.turns.map((turn) => (taggedUserTurn && turn.id === taggedUserTurn.id ? taggedUserTurn : turn)),
           ...turns,
         ],
-      }));
-      setScribeTrace((prev) => traceMove(prev, move, taggedUserTurn ? [taggedUserTurn, ...turns] : turns, json.scribeNote));
+      };
+      setRoundtable(nextRoundtable);
+      void updateScribeObservationLedger(nextRoundtable);
       setRoundtableMode("none");
-      setRoundtableText("");
     } catch (e: any) {
-      if (e?.message !== "safety-offramp") setError(e?.message || "圆桌推进失败");
+      captureRequestError(e, "圆桌推进失败");
     } finally {
       setBusy(false);
     }
@@ -533,103 +487,163 @@ function MeetingInner() {
   async function startInquiry() {
     if (!taskFrame || busy) return;
     setStage("inquiry");
-    setBusy(true);
-    setError("");
-    try {
-      const json = await streamJson("/api/scribe-inquiry", {
-        taskFrame,
-        roundtable,
-        scribeTrace,
-        inquiryAnswers: [],
-      });
-      setInquiryQuestions(json.questions ?? []);
-      setPreferenceProfile(json.preferenceProfile ?? null);
-      setInquiryIndex(0);
-    } catch (e: any) {
-      if (e?.message !== "safety-offramp") setError(e?.message || "书记员问询失败");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  function answerInquiry(question: ScribeInquiryQuestion, optionId: string, customText?: string) {
-    const option = question.options.find((o) => o.id === optionId) ?? question.options[0];
-    if (!option) return;
-    const answer: ScribeInquiryAnswer = {
-      question_id: question.id,
-      question: question.question,
-      selected_option_id: option.id,
-      selected_label: option.label,
-      custom_text: customText?.trim() || undefined,
-      at: Date.now(),
-    };
-    setInquiryAnswers((prev) => {
-      const rest = prev.filter((a) => a.question_id !== question.id);
-      return [...rest, answer];
-    });
+    setInquiryQuestions([]);
+    setInquiryAnswers([]);
+    setInquiryDialogue([]);
+    setInquiryIndex(0);
     setCustomInquiryText("");
-    if (inquiryIndex < inquiryQuestions.length - 1) setInquiryIndex((i) => i + 1);
+    await continueAlignmentInquiry([], []);
   }
 
-  async function generateSettlement() {
-    if (!taskFrame || busy || inquiryAnswers.length < inquiryQuestions.length) return;
+  async function continueAlignmentInquiry(
+    questions: ScribeInquiryQuestion[],
+    answers: ScribeInquiryAnswer[],
+  ) {
+    if (!taskFrame) return;
+    lastActionRef.current = { fn: () => continueAlignmentInquiry(questions, answers) };
     setBusy(true);
-    setError("");
+    clearError();
     try {
-      const inquiry = await streamJson("/api/scribe-inquiry", {
+      const json = await streamJson("/api/alignment-inquiry", {
         taskFrame,
+        issueProposal,
         roundtable,
-        scribeTrace,
-        inquiryAnswers,
+        scribeObservationLedger,
+        inquiryQuestions: questions,
+        inquiryAnswers: answers,
       });
-      const profile = inquiry.preferenceProfile as PreferenceProfile;
-      setPreferenceProfile(profile);
+      if (json.scribeObservationLedger) {
+        setScribeObservationLedger(json.scribeObservationLedger as ScribeObservationLedger);
+      }
+      const nextProfile = (json.alignmentProfile ?? null) as AlignmentProfile | null;
+      setAlignmentProfile(nextProfile);
+      setInquiryIndex(0);
 
-      const settlement = await streamJson("/api/settlement", {
-        taskFrame,
-        roundtable,
-        scribeTrace,
-        inquiryAnswers,
-        preferenceProfile: profile,
-      });
-      const nextClarity = settlement.clarity as ClarityResult;
-      setClarity(nextClarity);
-      setClarityDraft(nextClarity.clarity_sentence);
-      setCommitmentDraft(nextClarity.commitment24h);
-      setStage("settlement");
+      if (json.readyForReport && nextProfile) {
+        await requestAlignmentReport(
+          nextProfile,
+          (json.scribeObservationLedger || scribeObservationLedger) as ScribeObservationLedger,
+          answers,
+        );
+        return;
+      }
+
+      const remaining = Math.max(0, MAX_ALIGNMENT_INQUIRY_QUESTIONS - answers.length);
+      const known = new Set(questions.map((q) => q.id));
+      const nextQuestions = ((json.questions ?? []) as ScribeInquiryQuestion[])
+        .filter((q) => !known.has(q.id))
+        .slice(0, remaining);
+      if (!nextQuestions.length && nextProfile) {
+        await requestAlignmentReport(
+          nextProfile,
+          (json.scribeObservationLedger || scribeObservationLedger) as ScribeObservationLedger,
+          answers,
+        );
+        return;
+      }
+      setInquiryQuestions([...questions, ...nextQuestions]);
     } catch (e: any) {
-      if (e?.message !== "safety-offramp") setError(e?.message || "清明落定失败");
+      captureRequestError(e, "书记员问询失败");
     } finally {
       setBusy(false);
     }
+  }
+
+  async function answerInquiry(answers: ScribeAnswer[]) {
+    if (!answers.length) return;
+    const thinkingEvents = streamEvents.length ? [...streamEvents] : undefined;
+    const questionEntries: DefiningDialogueEntry[] = activeInquiryQuestions.map((question, index) => ({
+      role: "scribe" as const,
+      question: inquiryQuestionToScribeQuestion(question),
+      thinking_events: index === 0 ? thinkingEvents : undefined,
+    }));
+    const nextInquiryAnswers: ScribeInquiryAnswer[] = answers.map((answer) => {
+      const question = activeInquiryQuestions.find((q) => q.id === answer.question_id);
+      const option = question?.options.find((o) => o.id === answer.selected_option_id);
+      return {
+        question_id: answer.question_id,
+        question: question?.question || answer.question_text || "",
+        selected_option_id: answer.selected_option_id || "custom",
+        selected_label: answer.free_text?.trim() || answer.selected_option_label || option?.label || "都不准，我自己说",
+        custom_text: answer.free_text?.trim() || undefined,
+        at: answer.at,
+      };
+    });
+    const userEntries: DefiningDialogueEntry[] = answers.map((answer) => {
+      const question = activeInquiryQuestions.find((q) => q.id === answer.question_id);
+      const option = question?.options.find((o) => o.id === answer.selected_option_id);
+      return {
+        role: "user" as const,
+        answer: {
+          ...answer,
+          question_text: answer.question_text || question?.question,
+          selected_option_label: answer.selected_option_label || option?.label,
+        },
+      };
+    });
+    const updatedDialogue = [...inquiryDialogue, ...questionEntries, ...userEntries];
+    const updatedQuestions = [...inquiryQuestions];
+    const updatedAnswers = [
+      ...inquiryAnswers.filter((existing) => !nextInquiryAnswers.some((a) => a.question_id === existing.question_id)),
+      ...nextInquiryAnswers,
+    ];
+    setInquiryDialogue(updatedDialogue);
+    setInquiryAnswers(updatedAnswers);
+    setInquiryQuestions(updatedQuestions);
+    setCustomInquiryText("");
+    await continueAlignmentInquiry(updatedQuestions, updatedAnswers);
+  }
+
+  function submitTurnReaction(targetTurn: RoundtableTurn, text: string) {
+    const reaction = createUserReactionTurn(targetTurn, text);
+    if (!reaction) return;
+    const nextRoundtable: RoundtableRecord = {
+      ...roundtable,
+      turns: [...roundtable.turns, reaction],
+    };
+    setRoundtable(nextRoundtable);
+    void updateScribeObservationLedger(nextRoundtable);
+  }
+
+  async function requestAlignmentReport(
+    profile: AlignmentProfile,
+    ledger: ScribeObservationLedger,
+    answers: ScribeInquiryAnswer[] = inquiryAnswers,
+  ) {
+    const settlement = await streamJson("/api/alignment-report", {
+      taskFrame,
+      issueProposal,
+      scribeObservationLedger: ledger,
+      inquiryAnswers: answers,
+      alignmentProfile: profile,
+    });
+    const nextReport = settlement.alignmentReport as AlignmentReport;
+    setAlignmentReport(nextReport);
+    setClarityDraft(settlementHeadline(nextReport));
+    setContractDraft(nextReport.cost_acceptance_contract.report);
+    setCommitmentDraft(settlementCommitment(nextReport));
+    setStage("settlement");
   }
 
   async function archiveMeeting() {
-    if (!taskFrame || !clarity || busy) return;
-    const finalClarity: ClarityResult = {
-      ...clarity,
-      clarity_sentence: clarityDraft.trim() || clarity.clarity_sentence,
-      commitment24h: commitmentDraft.trim() || clarity.commitment24h,
-      user_revision:
-        clarityDraft.trim() && clarityDraft.trim() !== clarity.clarity_sentence
-          ? clarityDraft.trim()
-          : clarity.user_revision,
-    };
+    if (!taskFrame || !alignmentReport || busy) return;
+    const finalReport: AlignmentReport = alignmentReport;
     const meeting: Meeting = {
       id: meetingIdRef.current,
       createdAt: startedAtRef.current,
       closedAt: Date.now(),
       status: "settled",
       raw_input: rawInput,
-      choice_cards: choiceCards,
-      choice_answers: choiceAnswers,
+      issue_proposal: issueProposal ?? undefined,
+      choice_cards: [],
+      choice_answers: [],
       task_frame: taskFrame,
       roundtable,
-      scribe_trace: scribeTrace,
+      scribe_observation_ledger: scribeObservationLedger ?? undefined,
       inquiry_questions: inquiryQuestions,
       inquiry_answers: inquiryAnswers,
-      preference_profile: preferenceProfile ?? undefined,
-      clarity: finalClarity,
+      alignment_profile: alignmentProfile ?? undefined,
+      alignment_report: finalReport,
     };
     setBusy(true);
     try {
@@ -637,97 +651,85 @@ function MeetingInner() {
       setStage("archived");
       router.push(`/archive/${meeting.id}`);
     } catch (e: any) {
-      setError(e?.message || "纸页保存失败");
+      captureRequestError(e, "纸页保存失败");
     } finally {
       setBusy(false);
     }
   }
 
-  const allChoicesAnswered = choiceCards.length > 0 && choiceAnswers.length >= choiceCards.length;
-  const allInquiryAnswered =
-    inquiryQuestions.length > 0 && inquiryAnswers.length >= inquiryQuestions.length;
+  const activeInquiryQuestions = inquiryQuestions.filter(
+    (q) => !inquiryAnswers.some((a) => a.question_id === q.id),
+  );
   const bigStage = toBigStage(stage);
   const actions = buildActions();
+  const consolePanel = buildConsolePanel();
+  const consoleSpeak = buildConsoleSpeak();
+  const consolePlaceholder =
+    roundtableMode === "ask_voice"
+      ? `问${voiceName(selectedVoiceId)}一句。`
+      : roundtableMode === "ask_table"
+        ? "把你要抛给全桌的问题写在这里。"
+        : undefined;
 
   function buildActions(): ConsoleAction[] {
     if (stage === "defining") {
       // IssueProposalBoard has its own confirm button, no need for HostConsole action
       return [];
     }
-    if (stage === "review") {
-      return [
-        {
-          id: "confirm-frame",
-          label: busy ? "生成五声中…" : "确认，进入五声圆桌 →",
-          onClick: confirmTaskFrame,
-          variant: "primary",
-          disabled: busy || !frameDraft,
-        },
-      ];
-    }
     if (stage === "roundtable") {
+      if (roundtableMode === "ask_voice" || roundtableMode === "ask_table") {
+        return [
+          {
+            id: "cancel-mode",
+            label: "取消",
+            onClick: () => setRoundtableMode("none"),
+            variant: "muted",
+            disabled: busy,
+          },
+        ];
+      }
+      if (roundtableMode === "duel") {
+        return [
+          {
+            id: "start-duel",
+            label: "开始对话",
+            onClick: () => submitRoundtableMove("duel", { fromVoiceId: duelFromId, toVoiceId: duelToId }),
+            variant: "primary",
+            disabled: busy || duelFromId === duelToId,
+          },
+          {
+            id: "cancel-mode",
+            label: "取消",
+            onClick: () => setRoundtableMode("none"),
+            variant: "muted",
+            disabled: busy,
+          },
+        ];
+      }
       return [
         {
           id: "continue-all",
-          label: "再来一轮",
+          label: "继续聊一轮",
           onClick: () => submitRoundtableMove("continue_all"),
           variant: "secondary",
           disabled: busy || roundtable.opening_turns.length === 0,
         },
         {
-          id: "one",
-          label: "让某声继续",
-          onClick: () => setRoundtableMode("continue_one"),
-          variant: roundtableMode === "continue_one" ? "primary" : "muted",
-          disabled: busy,
-        },
-        {
           id: "ask-voice",
-          label: "问某一声",
+          label: "问一声",
           onClick: () => setRoundtableMode("ask_voice"),
-          variant: roundtableMode === "ask_voice" ? "primary" : "muted",
           disabled: busy,
         },
         {
           id: "ask-table",
           label: "问全桌",
           onClick: () => setRoundtableMode("ask_table"),
-          variant: roundtableMode === "ask_table" ? "primary" : "muted",
           disabled: busy,
         },
         {
           id: "duel",
-          label: "两声对峙",
+          label: "让两声对话",
           onClick: () => setRoundtableMode("duel"),
-          variant: roundtableMode === "duel" ? "primary" : "muted",
-          disabled: busy,
-        },
-        {
-          id: "challenge",
-          label: "定向反对",
-          onClick: () => setRoundtableMode("challenge"),
-          variant: roundtableMode === "challenge" ? "primary" : "muted",
-          disabled: busy,
-        },
-        {
-          id: "name-avoidance",
-          label: "点破回避",
-          onClick: () => setRoundtableMode("name_avoidance"),
-          variant: roundtableMode === "name_avoidance" ? "primary" : "muted",
-          disabled: busy,
-        },
-        {
-          id: "cut-through",
-          label: "一句戳破",
-          onClick: () => setRoundtableMode("cut_through"),
-          variant: roundtableMode === "cut_through" ? "primary" : "muted",
-          disabled: busy,
-        },
-        {
-          id: "mirror-structure",
-          label: "书记员照一下",
-          onClick: () => submitRoundtableMove("mirror_structure"),
-          variant: "secondary",
           disabled: busy || roundtable.opening_turns.length === 0,
         },
         {
@@ -740,15 +742,7 @@ function MeetingInner() {
       ];
     }
     if (stage === "inquiry") {
-      return [
-        {
-          id: "settle",
-          label: busy ? "落定中…" : "生成清明落定 →",
-          onClick: generateSettlement,
-          variant: "primary",
-          disabled: busy || !allInquiryAnswered,
-        },
-      ];
+      return [];
     }
     if (stage === "settlement") {
       return [
@@ -757,11 +751,60 @@ function MeetingInner() {
           label: busy ? "保存中…" : "保存纸页",
           onClick: archiveMeeting,
           variant: "primary",
-          disabled: busy || !clarityDraft.trim() || !commitmentDraft.trim(),
+          disabled: busy || !alignmentReport || !settlementCommitment(alignmentReport),
         },
       ];
     }
     return [];
+  }
+
+  function buildConsolePanel() {
+    if (stage !== "roundtable") return null;
+    if (roundtableMode === "ask_voice") {
+      return (
+        <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+          <VoiceSelect label="问哪一声" value={selectedVoiceId} onChange={setSelectedVoiceId} />
+          <p className="text-xs text-ink-mute leading-relaxed sm:max-w-[260px]">
+            这一轮只请这一声说话；它仍看见完整圆桌历史。
+          </p>
+        </div>
+      );
+    }
+    if (roundtableMode === "ask_table") {
+      return (
+        <p className="text-body-sm text-ink-mute leading-relaxed">
+          全桌发问会把你的问题写入历史，再让五声基于同一份快照各自接住它。
+        </p>
+      );
+    }
+    if (roundtableMode === "duel") {
+      return (
+        <div className="grid gap-2 sm:grid-cols-[1fr_auto_1fr] sm:items-end">
+          <VoiceSelect label="谁发问" value={duelFromId} onChange={setDuelFromId} />
+          <span className="hidden pb-2 text-ink-mute sm:block">→</span>
+          <VoiceSelect label="问谁" value={duelToId} onChange={setDuelToId} />
+        </div>
+      );
+    }
+    return null;
+  }
+
+  function buildConsoleSpeak() {
+    if (stage !== "roundtable") return undefined;
+    if (roundtableMode === "ask_voice") {
+      return async (text: string) => {
+        await submitRoundtableMove("user_to_voice", {
+          targetVoiceId: selectedVoiceId,
+          userText: text,
+        });
+      };
+    }
+    if (roundtableMode === "ask_table") {
+      return async (text: string) => {
+        await submitRoundtableMove("user_to_table", { userText: text });
+      };
+    }
+    return undefined;
   }
 
   return (
@@ -786,11 +829,12 @@ function MeetingInner() {
       {error && !crisis && (
         <div className="max-w-6xl mx-auto w-full px-5 sm:px-10">
           <ErrorRecoveryBar
+            code={errorCode}
             message={error}
-            retryable={true}
-            onRetry={() => { setError(""); retryLastAction(); }}
-            onSkip={() => setError("")}
-            onDismiss={() => setError("")}
+            retryable={errorRetryable}
+            onRetry={() => { clearError(); retryLastAction(); }}
+            onSkip={clearError}
+            onDismiss={clearError}
           />
         </div>
       )}
@@ -813,396 +857,133 @@ function MeetingInner() {
         )}
 
         {stage === "defining" && definingSubStage === "showing_proposal" && issueProposal && (
-          <IssueProposalBoard
-            proposal={issueProposal}
-            onConfirm={confirmProposal}
-            onRefine={handleRefineProposal}
-            isLoading={busy}
-          />
-        )}
-
-        {stage === "review" && frameDraft && (
-          <TaskFrameReview
-            visible={frameDraft}
-            sourceLabels={taskFrame?.internal.source_labels ?? {}}
-            onChange={updateFrameField}
-          />
+          <>
+            <DefiningDialogueHistory
+              dialogue={definingDialogue}
+              thinkingEvents={streamEvents}
+              className="mb-5 px-1"
+            />
+            <IssueProposalBoard
+              proposal={issueProposal}
+              onConfirm={confirmProposal}
+              onRefine={handleRefineProposal}
+              onUpdate={handleUpdateProposal}
+              isLoading={busy}
+            />
+          </>
         )}
 
         {(stage === "roundtable" || stage === "inquiry" || stage === "settlement" || stage === "archived") && taskFrame && (
           <>
-            <TaskFrameSummary frame={taskFrame.visible} className="mb-5" />
-            <RoundtableBoard roundtable={roundtable} busy={busy && stage === "roundtable"} />
+            <TaskFrameSummary frame={taskFrame.visible} proposal={issueProposal} className="mb-5" />
+            <RoundtableBoard
+              roundtable={roundtable}
+              busy={busy && stage === "roundtable"}
+              onReact={stage === "roundtable" && !busy ? submitTurnReaction : undefined}
+            />
           </>
         )}
 
         {stage === "inquiry" && (
-          <InquiryBoard
-            questions={inquiryQuestions}
-            answers={inquiryAnswers}
-            index={inquiryIndex}
-            customText={customInquiryText}
-            busy={busy}
-            onCustomText={setCustomInquiryText}
-            onIndex={setInquiryIndex}
+          <AlignmentInquiryBoard
+            dialogue={inquiryDialogue}
+            questions={activeInquiryQuestions}
+            answeredCount={inquiryAnswers.length}
+            isLoading={busy}
+            thinkingText={isStreaming ? streamNarration : undefined}
+            streamEvents={streamEvents}
             onAnswer={answerInquiry}
           />
         )}
 
-        {stage === "settlement" && clarity && preferenceProfile && (
+        {stage === "settlement" && alignmentReport && (
           <SettlementPanel
-            clarity={clarity}
-            preferenceProfile={preferenceProfile}
-            clarityDraft={clarityDraft}
-            commitmentDraft={commitmentDraft}
-            onClarityDraft={setClarityDraft}
-            onCommitmentDraft={setCommitmentDraft}
+            alignmentReport={alignmentReport}
+            onChange={setAlignmentReport}
           />
         )}
       </main>
 
-      {stage === "roundtable" && roundtableMode !== "none" && (
-        <div className="fixed left-0 right-0 bottom-[82px] sm:bottom-[90px] z-20 px-4 sm:px-6 pointer-events-none">
-          <div className="max-w-3xl mx-auto pointer-events-auto">
-            <RoundtableControl
-              mode={roundtableMode}
-              selectedVoiceId={selectedVoiceId}
-              duelFromId={duelFromId}
-              duelToId={duelToId}
-              text={roundtableText}
-              busy={busy}
-              onMode={setRoundtableMode}
-              onVoice={setSelectedVoiceId}
-              onDuelFrom={setDuelFromId}
-              onDuelTo={setDuelToId}
-              onText={setRoundtableText}
-              onSubmit={(mode) => {
-                if (mode === "continue_one") {
-                  return submitRoundtableMove("continue_one", { targetVoiceId: selectedVoiceId });
-                }
-                if (mode === "ask_voice") {
-                  return submitRoundtableMove("user_to_voice", {
-                    targetVoiceId: selectedVoiceId,
-                    userText: roundtableText.trim(),
-                  });
-                }
-                if (mode === "ask_table") {
-                  return submitRoundtableMove("user_to_table", { userText: roundtableText.trim() });
-                }
-                if (mode === "duel") {
-                  return submitRoundtableMove("duel", { fromVoiceId: duelFromId, toVoiceId: duelToId });
-                }
-                if (mode === "challenge") {
-                  return submitRoundtableMove("challenge", { fromVoiceId: duelFromId, toVoiceId: duelToId });
-                }
-                if (mode === "name_avoidance") {
-                  return submitRoundtableMove("name_avoidance", { fromVoiceId: duelFromId, toVoiceId: duelToId });
-                }
-                if (mode === "cut_through") {
-                  return submitRoundtableMove("cut_through", { targetVoiceId: selectedVoiceId });
-                }
-              }}
-            />
-          </div>
-        </div>
-      )}
-
-      {/* Layer 2: Trace Panel */}
-      <div className="fixed left-0 right-0 bottom-[82px] sm:bottom-[90px] z-25 px-4 sm:px-6 pointer-events-none">
-        <div className="max-w-3xl mx-auto pointer-events-auto">
-          <ScribeTracePanel
-            events={streamEvents}
-            open={traceOpen}
-            onClose={() => setTraceOpen(false)}
-            onInterrupt={interruptStream}
-            isStreaming={isStreaming}
-          />
-        </div>
-      </div>
-
-      <div className="fixed left-0 right-0 bottom-[74px] sm:bottom-[82px] z-30 px-4 sm:px-6 pointer-events-none">
-        <div className="max-w-3xl mx-auto pointer-events-auto">
-          <ScribeStatusStrip
-            narration={streamNarration}
-            isStreaming={isStreaming}
-            fallbackLabel={stageLabel(stage, busy)}
-            onTraceClick={() => setTraceOpen(!traceOpen)}
-          />
-        </div>
-      </div>
-
       <HostConsole
-        stageLabel={stageLabel(stage, busy)}
+        stageLabel={isStreaming ? streamNarration : stageLabel(stage, busy)}
+        controlPanel={consolePanel}
         actions={actions}
-        inputDisabled
+        onSpeak={consoleSpeak}
+        inputDisabled={busy}
+        inputPlaceholder={consolePlaceholder}
       />
     </div>
   );
 }
 
-function ChoiceCardBoard({
-  cards,
-  answers,
-  index,
-  customText,
-  busy,
-  onCustomText,
-  onIndex,
-  onAnswer,
+function TaskFrameSummary({
+  frame,
+  proposal,
+  className = "",
 }: {
-  cards: ChoiceCard[];
-  answers: ChoiceAnswer[];
-  index: number;
-  customText: string;
-  busy: boolean;
-  onCustomText: (v: string) => void;
-  onIndex: (v: number) => void;
-  onAnswer: (card: ChoiceCard, option: ChoiceOption, customText?: string) => void;
+  frame: VisibleTaskFrame;
+  proposal?: IssueProposal | null;
+  className?: string;
 }) {
-  const [customExpanded, setCustomExpanded] = useState(false);
-  const card = cards[index];
-  const answer = card ? answers.find((a) => a.card_id === card.id) : undefined;
-  const customOption = card?.options.find((o) => isCustomOption(o));
-  if (busy && !cards.length) {
-    return (
-      <DocketPaper stage="书记员" marginalia="先把散乱内容压缩成少量高密度选择。">
-        <p className="font-serif text-title text-ink-core">书记员正在整理选择卡。</p>
-      </DocketPaper>
-    );
-  }
-  if (!card) return null;
-  return (
-    <DocketPaper
-      stage={`选择卡 ${index + 1} / ${cards.length}`}
-      marginalia="一个选择会同时更新多组 KV。点选之后可以返回上一题。"
-    >
-      <div className="mb-5">
-        <h1 className="font-serif text-headline text-ink-core leading-tight">
-          {card.question}
-        </h1>
-      </div>
-      <div className="grid gap-2">
-        {card.options.map((option) => {
-          const selected = answer?.selected_option_id === option.id;
-          const custom = isCustomOption(option);
-          if (custom && customExpanded) {
-            return (
-              <div
-                key={option.id}
-                className="p-4 rounded-md border border-ink-core bg-paper-base transition-all"
-              >
-                <textarea
-                  value={customText}
-                  onChange={(e) => onCustomText(e.target.value.slice(0, 180))}
-                  rows={3}
-                  autoFocus
-                  placeholder="用你自己的话补一句。"
-                  className="w-full bg-transparent outline-none resize-none text-body text-ink-body placeholder-ink-faint font-serif"
-                />
-                <div className="mt-3 flex items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={() => customText.trim() && onAnswer(card, option, customText)}
-                    disabled={!customText.trim()}
-                    className="px-3 py-1.5 rounded-md bg-ink-core text-paper-base text-body-sm disabled:opacity-30"
-                  >
-                    记下这句
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => { setCustomExpanded(false); onCustomText(""); }}
-                    className="text-body-sm text-ink-mute hover:text-ink-core"
-                  >
-                    收起
-                  </button>
-                </div>
-              </div>
-            );
-          }
-          return (
-            <button
-              key={option.id}
-              type="button"
-              onClick={() => {
-                if (custom) { setCustomExpanded(true); } else { onAnswer(card, option); }
-              }}
-              className={[
-                "text-left p-3 rounded-md border transition-colors",
-                selected ? "border-ink-core bg-paper-base" : "border-paper-edge bg-paper-lift hover:border-ink-mute",
-              ].join(" ")}
-            >
-              <span className="font-serif text-body-long text-ink-core leading-snug">
-                {option.label}
-              </span>
-            </button>
-          );
-        })}
-      </div>
-      <div className="mt-5 flex items-center justify-between gap-3 text-xs text-ink-mute">
-        <button
-          type="button"
-          onClick={() => onIndex(Math.max(0, index - 1))}
-          disabled={index === 0}
-          className="hover:text-ink-core disabled:opacity-30"
-        >
-          上一题
-        </button>
-        <span>{answers.length} / {cards.length} 已回答</span>
-        <button
-          type="button"
-          onClick={() => onIndex(Math.min(cards.length - 1, index + 1))}
-          disabled={index === cards.length - 1}
-          className="hover:text-ink-core disabled:opacity-30"
-        >
-          下一题
-        </button>
-      </div>
-    </DocketPaper>
-  );
-}
-
-function TaskFrameReview({
-  visible,
-  sourceLabels,
-  onChange,
-}: {
-  visible: VisibleTaskFrame;
-  sourceLabels: SourceLabelMap;
-  onChange: (key: VisibleTaskFrameKey, value: string) => void;
-}) {
-  const clusters: Array<{
-    title: string;
-    keys: VisibleTaskFrameKey[];
-    render: React.ReactNode;
-  }> = [
-    {
-      title: "你在问的是",
-      keys: ["problem_definition", "central_question"],
-      render: (
-        <div className="space-y-3">
-          <BriefTextarea value={visible.problem_definition} onChange={(v) => onChange("problem_definition", v)} rows={2} />
-          <BriefTextarea value={visible.central_question} onChange={(v) => onChange("central_question", v)} rows={2} emphasis />
-        </div>
-      ),
-    },
-    {
-      title: "你现在的处境",
-      keys: ["current_state", "key_facts"],
-      render: (
-        <div className="space-y-3">
-          <BriefTextarea value={visible.current_state} onChange={(v) => onChange("current_state", v)} rows={2} />
-          <BriefTextarea value={visible.key_facts.join("\n")} onChange={(v) => onChange("key_facts", v)} rows={Math.max(2, visible.key_facts.length)} compact />
-        </div>
-      ),
-    },
-    {
-      title: "你正在被拉扯",
-      keys: ["main_choices", "core_conflict", "main_concerns"],
-      render: (
-        <div className="space-y-3">
-          <div className="grid gap-2 md:grid-cols-2">
-            {visible.main_choices.slice(0, 2).map((choice, index) => (
-              <div key={`${choice}-${index}`} className="rounded-md border border-paper-edge bg-paper-base p-3">
-                <span className="text-ink-faint mr-2">{index === 0 ? "↗" : "↙"}</span>
-                <span className="font-serif text-body text-ink-body leading-relaxed">{choice}</span>
-              </div>
-            ))}
-          </div>
-          <BriefTextarea value={visible.main_choices.join("\n")} onChange={(v) => onChange("main_choices", v)} rows={Math.max(2, visible.main_choices.length)} compact />
-          <BriefTextarea value={visible.core_conflict} onChange={(v) => onChange("core_conflict", v)} rows={2} emphasis />
-          <BriefTextarea value={visible.main_concerns.join("\n")} onChange={(v) => onChange("main_concerns", v)} rows={Math.max(2, visible.main_concerns.length)} compact />
-        </div>
-      ),
-    },
-    {
-      title: "我们待会儿要聊的",
-      keys: ["discussion_focus"],
-      render: (
-        <div className="space-y-3">
-          <BriefTextarea value={visible.discussion_focus} onChange={(v) => onChange("discussion_focus", v)} rows={2} emphasis />
-          <div className="flex flex-wrap gap-2 pt-1">
-            {VOICE_IDS.map((id) => (
-              <span
-                key={id}
-                className="inline-flex items-center gap-1.5 rounded-full border border-paper-edge bg-paper-lift px-2 py-1 text-xs text-ink-mute"
-              >
-                <span className="h-1.5 w-1.5 rounded-full" style={{ background: `var(--${VOICE_COLOR_VAR[id]})` }} />
-                {voiceName(id)}
-              </span>
-            ))}
-          </div>
-        </div>
-      ),
-    },
-  ];
+  const proposalFields = proposal
+    ? [
+        {
+          label: "Key 1 · 具象化的困惑",
+          prompt: "用户面临的选择岔路口是什么？",
+          value: proposal.surface_dilemma,
+        },
+        {
+          label: "Key 2 · 真实的处境",
+          prompt: "限制用户做出选择的客观条件是什么？",
+          value: proposal.current_constraints,
+        },
+        {
+          label: "Key 3 · 隐秘的关切",
+          prompt: "用户潜意识里真正害怕失去的是什么？",
+          value: proposal.core_fears,
+        },
+        {
+          label: "Key 4 · 渴望的终局",
+          prompt: "用户希望这次圆桌讨论帮自己验证什么？",
+          value: proposal.expected_resolution,
+        },
+      ]
+    : null;
 
   return (
-    <DocketPaper stage="本次议题" marginalia="点任意段落就能改。你的改写优先进入圆桌。">
-      <div className="space-y-6">
-        {clusters.map((cluster) => (
-          <section key={cluster.title} className="border-b border-paper-edge last:border-b-0 pb-5 last:pb-0">
-            <h2 className="text-[10px] tracking-[0.18em] text-ink-mute uppercase mb-3">
-              {cluster.title}
-            </h2>
-            {cluster.render}
-            <SourceWhisper labels={cluster.keys.map((key) => sourceLabels[key]).filter(Boolean) as string[]} />
-          </section>
-        ))}
-      </div>
-    </DocketPaper>
-  );
-}
-
-function BriefTextarea({
-  value,
-  onChange,
-  rows,
-  emphasis,
-  compact,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  rows: number;
-  emphasis?: boolean;
-  compact?: boolean;
-}) {
-  return (
-    <textarea
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      rows={rows}
-      className={[
-        "w-full rounded-md bg-transparent border border-transparent hover:border-paper-edge focus:border-ink-core focus:bg-paper-base focus:outline-none resize-none transition-colors",
-        "font-serif text-ink-body leading-relaxed",
-        emphasis ? "text-title-sm text-ink-core" : compact ? "text-body-sm" : "text-body",
-        compact ? "p-2" : "p-1.5",
-      ].join(" ")}
-    />
-  );
-}
-
-function SourceWhisper({ labels }: { labels: string[] }) {
-  const unique = Array.from(new Set(labels));
-  if (!unique.length) return null;
-  return (
-    <p className="mt-2 text-[10px] text-ink-faint leading-relaxed">
-      · {unique.join(" / ")}
-    </p>
-  );
-}
-
-function TaskFrameSummary({ frame, className = "" }: { frame: VisibleTaskFrame; className?: string }) {
-  return (
-    <DocketPaper stage="本次议题" dense className={className}>
-      <p className="font-serif text-title text-ink-core leading-snug mb-3">
-        {frame.problem_definition}
+    <DocketPaper stage="本次议题 · 4 Key" dense className={className}>
+      <p className="mb-4 font-serif text-title text-ink-core leading-snug">
+        {proposal?.issue_sentence || frame.problem_definition}
       </p>
-      <div className="grid sm:grid-cols-2 gap-3 text-body-sm">
-        <MiniField label="这件事问你的是" body={frame.central_question} />
-        <MiniField label="圆桌焦点" body={frame.discussion_focus} />
-        <MiniField label="核心冲突" body={frame.core_conflict} />
-        <MiniField label="主要牵动点" body={frame.main_concerns.join(" / ")} />
-      </div>
+      {proposalFields ? (
+        <div className="grid gap-3 md:grid-cols-2">
+          {proposalFields.map((item) => (
+            <article key={item.label} className="rounded-md border border-paper-edge bg-paper-lift p-3">
+              <div className="text-[10px] tracking-[0.16em] text-ink-faint uppercase">
+                {item.label}
+              </div>
+              <p className="mt-1 text-xs text-ink-mute leading-relaxed">{item.prompt}</p>
+              <p className="mt-2 font-serif text-body text-ink-core leading-snug">
+                {item.value.content}
+              </p>
+              {item.value.details.length > 0 && (
+                <ul className="mt-2 space-y-1 text-xs leading-relaxed text-ink-mute">
+                  {item.value.details.slice(0, 3).map((detail) => (
+                    <li key={detail}>· {detail}</li>
+                  ))}
+                </ul>
+              )}
+            </article>
+          ))}
+        </div>
+      ) : (
+        <div className="grid gap-3 md:grid-cols-2 text-body-sm">
+          <MiniField label="具象化的困惑" body={frame.problem_definition} />
+          <MiniField label="真实的处境" body={[frame.current_state, ...frame.key_facts].filter(Boolean).join(" / ")} />
+          <MiniField label="隐秘的关切" body={[frame.core_conflict, ...frame.main_concerns].filter(Boolean).join(" / ")} />
+          <MiniField label="渴望的终局" body={[frame.central_question, frame.discussion_focus].filter(Boolean).join(" / ")} />
+        </div>
+      )}
     </DocketPaper>
   );
 }
@@ -1210,20 +991,25 @@ function TaskFrameSummary({ frame, className = "" }: { frame: VisibleTaskFrame; 
 function RoundtableBoard({
   roundtable,
   busy,
+  onReact,
 }: {
   roundtable: RoundtableRecord;
   busy: boolean;
+  onReact?: (turn: RoundtableTurn, text: string) => void;
 }) {
   return (
     <section className="space-y-5">
       <header className="flex items-end justify-between gap-3 border-b border-paper-edge pb-2">
         <div>
           <div className="text-[10px] tracking-[0.18em] text-ink-faint uppercase">
-            Opening Positions
+            Opening
           </div>
           <h2 className="font-serif text-title-sm text-ink-core leading-snug">
-            五声第一轮
+            五声立论
           </h2>
+          <p className="mt-1 text-xs text-ink-mute leading-relaxed">
+            每一声先回答四个同样的问题，形成一张可比较的开场立论。
+          </p>
         </div>
         <div className="text-xs text-ink-mute tabular-nums">
           {roundtable.opening_turns.length} / {VOICE_IDS.length}
@@ -1254,11 +1040,10 @@ function RoundtableBoard({
                 </p>
               ) : (
                 <div className="space-y-2">
-                  <OpeningLine label="我先站在" body={opening.thesis} />
-                  <OpeningLine label="我在保护" body={opening.protected_value} />
-                  <OpeningLine label="我担心" body={opening.concern} />
-                  <OpeningLine label="我抓住的依据" body={opening.task_evidence} />
-                  <OpeningLine label="我会拉你去" body={opening.pull} />
+                  <OpeningLine label="当下的痛苦本质是什么？" body={opening.thesis} />
+                  <OpeningLine label="第一步必须做什么？" body={opening.pull} />
+                  <OpeningLine label="需要承受什么无可挽回的代价？" body={opening.concern} />
+                  <OpeningLine label="我在为你守护什么底线？" body={opening.protected_value} />
                 </div>
               )}
             </article>
@@ -1266,7 +1051,7 @@ function RoundtableBoard({
         })}
       </div>
 
-      <RoundtableTimeline roundtable={roundtable} busy={busy} />
+      <RoundtableTimeline roundtable={roundtable} busy={busy} onReact={onReact} />
     </section>
   );
 }
@@ -1275,15 +1060,19 @@ type RoundtableTimelineGroup = {
   key: string;
   trigger: VoiceTurnTrigger;
   at: number;
+  roundIndex?: number;
+  isParallelBatch?: boolean;
   turns: RoundtableTurn[];
 };
 
 function RoundtableTimeline({
   roundtable,
   busy,
+  onReact,
 }: {
   roundtable: RoundtableRecord;
   busy: boolean;
+  onReact?: (turn: RoundtableTurn, text: string) => void;
 }) {
   const groups = groupRoundtableTurns(roundtable.turns);
   return (
@@ -1291,10 +1080,10 @@ function RoundtableTimeline({
       <header className="flex items-end justify-between gap-3 border-b border-paper-edge pb-2">
         <div>
           <div className="text-[10px] tracking-[0.18em] text-ink-faint uppercase">
-            Chronological Stream
+            Roundtable
           </div>
           <h2 className="font-serif text-title-sm text-ink-core leading-snug">
-            自由圆桌 · 时间线
+            圆桌记录
           </h2>
         </div>
         <div className="text-xs text-ink-mute tabular-nums">
@@ -1305,7 +1094,7 @@ function RoundtableTimeline({
       {!groups.length ? (
         <div className="rounded-md border border-dashed border-paper-edge bg-paper-lift px-4 py-6">
           <p className="font-serif text-body text-ink-mute leading-relaxed">
-            {busy ? "圆桌正在组织下一句。" : "点击底部操作，让五声按时间进入同一条会议流。"}
+            {busy ? "正在组织这一轮。" : "点击底部操作，继续这场圆桌。"}
           </p>
         </div>
       ) : (
@@ -1315,7 +1104,7 @@ function RoundtableTimeline({
               <RoundMarker index={index + 2} group={group} />
               <div className="space-y-3">
                 {group.turns.map((turn) => (
-                  <RoundtableTimelineTurn key={turn.id} turn={turn} />
+                  <RoundtableTimelineTurn key={turn.id} turn={turn} onReact={onReact} />
                 ))}
               </div>
             </section>
@@ -1337,6 +1126,8 @@ function groupRoundtableTurns(turns: RoundtableTurn[]): RoundtableTimelineGroup[
       if (last.trigger === "user_text" && turn.trigger !== "user_text") {
         last.trigger = turn.trigger;
       }
+      last.roundIndex = last.roundIndex || turn.round_index;
+      last.isParallelBatch = last.isParallelBatch || !!turn.is_parallel_batch;
       last.at = Math.min(last.at, turn.at);
       continue;
     }
@@ -1344,6 +1135,8 @@ function groupRoundtableTurns(turns: RoundtableTurn[]): RoundtableTimelineGroup[
       key,
       trigger: turn.trigger,
       at: turn.at,
+      roundIndex: turn.round_index,
+      isParallelBatch: !!turn.is_parallel_batch,
       turns: [turn],
     });
   }
@@ -1360,19 +1153,52 @@ function RoundMarker({
   return (
     <div className="relative flex items-center justify-center py-1">
       <span className="relative z-10 rounded-full border border-paper-edge bg-paper-base px-3 py-1 text-[10px] tracking-[0.14em] uppercase text-ink-mute">
-        第 {index} 轮 · {roundtableTriggerLabel(group.trigger)} · {formatTurnTime(group.at)}
+        第 {group.roundIndex || index} 轮 · {roundtableTriggerLabel(group.trigger)}
+        {group.isParallelBatch ? " · 并发" : ""} · {formatTurnTime(group.at)}
       </span>
     </div>
   );
 }
 
-function RoundtableTimelineTurn({ turn }: { turn: RoundtableTurn }) {
+function RoundtableTimelineTurn({
+  turn,
+  onReact,
+}: {
+  turn: RoundtableTurn;
+  onReact?: (turn: RoundtableTurn, text: string) => void;
+}) {
+  const [replyOpen, setReplyOpen] = useState(false);
+  const [replyText, setReplyText] = useState("");
   if (turn.trigger === "user_text") {
+    const target = turn.reply_to_name || (turn.reply_to_voice_id ? voiceName(turn.reply_to_voice_id) : "");
     return (
       <article className="relative ml-auto max-w-2xl rounded-md border border-paper-edge bg-paper-base px-4 py-3 text-right shadow-[0_6px_18px_rgba(25,23,19,0.04)]">
         <div className="text-[10px] tracking-[0.18em] text-ink-mute uppercase mb-1">
-          我 · {formatTurnTime(turn.at)}
+          我{target ? ` · 答复/反驳 ${target}` : ""} · {formatTurnTime(turn.at)}
         </div>
+        {turn.reply_to_text && (
+          <p className="mb-2 border-r-2 border-paper-edge pr-3 text-body-sm text-ink-mute leading-relaxed">
+            {turn.reply_to_text}
+          </p>
+        )}
+        <p className="font-serif italic text-body text-ink-core leading-relaxed whitespace-pre-line">
+          「{turn.user_text || turn.text}」
+        </p>
+      </article>
+    );
+  }
+  if (turn.trigger === "user_reaction") {
+    const target = turn.reply_to_name || (turn.reply_to_voice_id ? voiceName(turn.reply_to_voice_id) : "");
+    return (
+      <article className="relative ml-auto max-w-2xl rounded-md border border-paper-edge bg-paper-base px-4 py-3 text-right shadow-[0_6px_18px_rgba(25,23,19,0.04)]">
+        <div className="text-[10px] tracking-[0.18em] text-ink-mute uppercase mb-1">
+          我 · 答复/反驳{target ? ` ${target}` : ""} · {formatTurnTime(turn.at)}
+        </div>
+        {turn.reply_to_text && (
+          <p className="mb-2 border-r-2 border-paper-edge pr-3 text-body-sm text-ink-mute leading-relaxed">
+            {turn.reply_to_text}
+          </p>
+        )}
         <p className="font-serif italic text-body text-ink-core leading-relaxed whitespace-pre-line">
           「{turn.user_text || turn.text}」
         </p>
@@ -1382,35 +1208,14 @@ function RoundtableTimelineTurn({ turn }: { turn: RoundtableTurn }) {
   if (turn.duel) {
     return <DuelTimelineCard turn={turn} />;
   }
-  if (turn.trigger === "scribe_summary" || turn.trigger === "mirror_structure") {
-    return (
-      <article className={[
-        "relative mx-auto max-w-3xl rounded-md border border-paper-edge px-4 py-3",
-        turn.trigger === "mirror_structure" ? "bg-paper-base shadow-[0_6px_18px_rgba(25,23,19,0.04)]" : "bg-paper-lift",
-      ].join(" ")}>
-        <div className="text-[10px] tracking-[0.18em] text-ink-mute uppercase mb-1">
-          {turn.trigger === "mirror_structure" ? "书记员观察" : "书记员"} · {formatTurnTime(turn.at)}
-        </div>
-        <p className="text-body text-ink-body leading-relaxed whitespace-pre-line">{turn.text}</p>
-      </article>
-    );
-  }
   const vid = turn.voice_id;
-  if (turn.trigger === "cut_through") {
-    return (
-      <article
-        className="relative mx-auto max-w-3xl rounded-md border border-ink-core bg-paper-base px-5 py-5 text-center shadow-[0_10px_30px_rgba(25,23,19,0.08)]"
-        style={vid ? { borderTop: `4px solid var(--${VOICE_COLOR_VAR[vid]})` } : undefined}
-      >
-        <div className="text-[10px] tracking-[0.18em] text-ink-mute uppercase mb-2">
-          {vid ? voiceName(vid) : "某一声"} · 一句戳破 · {formatTurnTime(turn.at)}
-        </div>
-        <p className="font-serif text-title-sm text-ink-core leading-relaxed whitespace-pre-line">
-          {turn.text}
-        </p>
-        <ReferencePills refs={turn.refers_to} />
-      </article>
-    );
+  const canReact = !!onReact && !!turn.voice_id && !!turn.text;
+  function submitReaction() {
+    const text = replyText.trim();
+    if (!text || !onReact) return;
+    onReact(turn, text);
+    setReplyText("");
+    setReplyOpen(false);
   }
   return (
     <article
@@ -1426,6 +1231,50 @@ function RoundtableTimelineTurn({ turn }: { turn: RoundtableTurn }) {
       <p className="font-serif text-body text-ink-body leading-relaxed whitespace-pre-line">
         {turn.text}
       </p>
+      {canReact && (
+        <div className="mt-3 border-t border-paper-edge pt-3">
+          {replyOpen ? (
+            <div className="space-y-2">
+              <textarea
+                value={replyText}
+                onChange={(e) => setReplyText(e.target.value.slice(0, 360))}
+                rows={3}
+                autoFocus
+                placeholder="写下你对这一条的答复或反驳。它会进入后续圆桌历史，但不会让这一声立刻回复。"
+                className="w-full resize-none rounded-md border border-paper-edge bg-paper-base px-3 py-2 text-body-sm text-ink-body outline-none focus:border-ink-mute"
+              />
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={submitReaction}
+                  disabled={!replyText.trim()}
+                  className="rounded-md bg-ink-core px-3 py-1.5 text-body-sm text-paper-base disabled:opacity-30"
+                >
+                  记入圆桌历史
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setReplyOpen(false);
+                    setReplyText("");
+                  }}
+                  className="text-body-sm text-ink-mute hover:text-ink-core"
+                >
+                  取消
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setReplyOpen(true)}
+              className="text-body-sm text-ink-mute underline-offset-4 hover:text-ink-core hover:underline"
+            >
+              答复/反驳
+            </button>
+          )}
+        </div>
+      )}
     </article>
   );
 }
@@ -1437,7 +1286,7 @@ function DuelTimelineCard({ turn }: { turn: RoundtableTurn }) {
     <article className="relative mx-auto max-w-4xl rounded-md border border-paper-edge bg-paper-base px-4 py-4 shadow-[0_8px_22px_rgba(25,23,19,0.06)]">
       <div className="mb-3 flex items-center justify-between gap-3">
         <div className="text-[10px] tracking-[0.18em] text-ink-mute uppercase">
-          两声对峙 · {formatTurnTime(turn.at)}
+          两声对话 · {formatTurnTime(turn.at)}
         </div>
         <div className="text-xs text-ink-mute">
           {duel.from_name} ↔ {duel.to_name}
@@ -1468,9 +1317,6 @@ function DuelTimelineCard({ turn }: { turn: RoundtableTurn }) {
           </p>
         </div>
       </div>
-      <p className="mt-3 border-t border-paper-edge pt-3 text-xs text-ink-mute leading-relaxed">
-        未解开的点：{duel.unresolved_point}
-      </p>
     </article>
   );
 }
@@ -1494,17 +1340,12 @@ function ReferencePills({ refs }: { refs?: VoiceId[] }) {
 
 function roundtableTriggerLabel(trigger: VoiceTurnTrigger): string {
   const labels: Partial<Record<VoiceTurnTrigger, string>> = {
-    continue_all: "自由发言",
-    continue_one: "单声续言",
+    continue_all: "全员自由轮次",
     user_to_voice: "你的追问",
-    user_to_table: "全桌追问",
+    user_to_table: "全桌发问",
     user_text: "你的发言",
-    duel: "对峙",
-    challenge: "定向反对",
-    name_avoidance: "点破回避",
-    cut_through: "一句戳破",
-    mirror_structure: "书记员观察",
-    scribe_summary: "书记员侧记",
+    user_reaction: "你的答复/反驳",
+    duel: "两声对话",
   };
   return labels[trigger] || "圆桌动作";
 }
@@ -1532,281 +1373,261 @@ function createUserRoundtableTurn(
   };
 }
 
-function RoundtableControl({
-  mode,
-  selectedVoiceId,
-  duelFromId,
-  duelToId,
-  text,
-  busy,
-  onMode,
-  onVoice,
-  onDuelFrom,
-  onDuelTo,
-  onText,
-  onSubmit,
+function createUserReactionTurn(targetTurn: RoundtableTurn, userText: string): RoundtableTurn | null {
+  const text = userText.trim();
+  if (!text || !targetTurn.id) return null;
+  const targetText = targetTurn.text || targetTurn.duel?.question || "";
+  return {
+    id: `react_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
+    trigger: "user_reaction",
+    text,
+    user_text: text,
+    reply_to: targetTurn.id,
+    reply_to_voice_id: targetTurn.voice_id,
+    reply_to_name: targetTurn.name || (targetTurn.voice_id ? voiceName(targetTurn.voice_id) : undefined),
+    reply_to_text: targetText.slice(0, 220),
+    at: Date.now(),
+  };
+}
+
+function AlignmentInquiryBoard({
+  dialogue,
+  questions,
+  answeredCount,
+  isLoading,
+  thinkingText,
+  streamEvents,
+  onAnswer,
 }: {
-  mode: RoundtableMode;
-  selectedVoiceId: VoiceId;
-  duelFromId: VoiceId;
-  duelToId: VoiceId;
-  text: string;
-  busy: boolean;
-  onMode: (m: RoundtableMode) => void;
-  onVoice: (v: VoiceId) => void;
-  onDuelFrom: (v: VoiceId) => void;
-  onDuelTo: (v: VoiceId) => void;
-  onText: (v: string) => void;
-  onSubmit: (mode: Exclude<RoundtableMode, "none">) => void;
+  dialogue: DefiningDialogueEntry[];
+  questions: ScribeInquiryQuestion[];
+  answeredCount: number;
+  isLoading: boolean;
+  thinkingText?: string;
+  streamEvents: ScribeStreamEvent[];
+  onAnswer: (answers: ScribeAnswer[]) => void;
 }) {
-  if (mode === "none") return null;
-  const needsText = mode === "ask_voice" || mode === "ask_table";
-  const disabled =
-    busy ||
-    (needsText && !text.trim()) ||
-    ((mode === "duel" || mode === "challenge" || mode === "name_avoidance") && duelFromId === duelToId);
-  const usesPair = mode === "duel" || mode === "challenge" || mode === "name_avoidance";
   return (
-    <DocketPaper stage="就近操作台" dense>
-      <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
-        <div className="space-y-3">
-          {(mode === "continue_one" || mode === "ask_voice" || mode === "cut_through") && (
-            <VoiceSelect
-              label={mode === "continue_one" ? "让谁继续" : mode === "cut_through" ? "让谁戳破" : "问谁"}
-              value={selectedVoiceId}
-              onChange={onVoice}
-            />
-          )}
-          {usesPair && (
-            <div className="grid sm:grid-cols-[1fr_auto_1fr] gap-2 items-end">
-              <VoiceSelect
-                label={mode === "duel" ? "谁发问" : "谁开口"}
-                value={duelFromId}
-                onChange={onDuelFrom}
-              />
-              <span className="hidden sm:block text-ink-mute pb-2">→</span>
-              <VoiceSelect
-                label={mode === "duel" ? "问谁" : "反对谁"}
-                value={duelToId}
-                onChange={onDuelTo}
-              />
-            </div>
-          )}
-          {needsText && (
-            <textarea
-              value={text}
-              onChange={(e) => onText(e.target.value.slice(0, 320))}
-              rows={3}
-              placeholder={mode === "ask_table" ? "把你要问全桌的话写在这里。" : "把你要问这一声的话写在这里。"}
-              className="w-full p-3 rounded-md bg-paper-base border border-paper-edge focus:border-ink-core focus:outline-none text-body text-ink-body font-serif resize-none"
-            />
-          )}
-        </div>
-        <div className="flex gap-2 justify-end">
-          <button
-            type="button"
-            onClick={() => onMode("none")}
-            className="px-4 py-2 rounded-md text-body-sm text-ink-mute hover:text-ink-core"
-          >
-            收起
-          </button>
-          <button
-            type="button"
-            onClick={() => onSubmit(mode)}
-            disabled={disabled}
-            className="px-5 py-2 rounded-md bg-ink-core text-paper-base text-body-sm disabled:opacity-30"
-          >
-            发送
-          </button>
-        </div>
-      </div>
+    <DocketPaper
+      stage={`书记员问询 ${Math.min(answeredCount + questions.length, MAX_ALIGNMENT_INQUIRY_QUESTIONS)} / ${MAX_ALIGNMENT_INQUIRY_QUESTIONS}`}
+      className="mt-5"
+      marginalia="这里不是补背景，而是在确认本心落定前最后几处关键处。"
+    >
+      <DefiningDialogueBoard
+        dialogue={dialogue}
+        currentQuestions={questions.map(inquiryQuestionToScribeQuestion)}
+        isLoading={isLoading}
+        thinkingText={thinkingText}
+        streamEvents={streamEvents}
+        onAnswer={onAnswer}
+      />
     </DocketPaper>
   );
 }
 
-function InquiryBoard({
-  questions,
-  answers,
-  index,
-  customText,
-  busy,
-  onCustomText,
-  onIndex,
-  onAnswer,
-}: {
-  questions: ScribeInquiryQuestion[];
-  answers: ScribeInquiryAnswer[];
-  index: number;
-  customText: string;
-  busy: boolean;
-  onCustomText: (v: string) => void;
-  onIndex: (v: number) => void;
-  onAnswer: (question: ScribeInquiryQuestion, optionId: string, customText?: string) => void;
-}) {
-  const [customExpanded, setCustomExpanded] = useState(false);
-  const question = questions[index];
-  const answer = question ? answers.find((a) => a.question_id === question.id) : undefined;
-  if (busy && !questions.length) {
-    return (
-      <DocketPaper stage="书记员问询" className="mt-5">
-        <p className="font-serif text-title text-ink-core">书记员正在挑几个关键问题。</p>
-      </DocketPaper>
-    );
-  }
-  if (!question) return null;
-  const custom = question.options.find((o) => /不准|自己|补/.test(o.label));
-  return (
-    <DocketPaper stage={`书记员问询 ${index + 1} / ${questions.length}`} className="mt-5" marginalia="这里不是补背景，而是在验证你刚才更靠近什么。">
-      <h2 className="font-serif text-headline text-ink-core leading-tight mb-5">
-        {question.question}
-      </h2>
-      <div className="grid gap-2">
-        {question.options.map((option) => {
-          const selected = answer?.selected_option_id === option.id;
-          const isCustom = option.id === custom?.id;
-          if (isCustom && customExpanded) {
-            return (
-              <div
-                key={option.id}
-                className="p-4 rounded-md border border-ink-core bg-paper-base transition-all"
-              >
-                <textarea
-                  value={customText}
-                  onChange={(e) => onCustomText(e.target.value.slice(0, 180))}
-                  rows={3}
-                  autoFocus
-                  placeholder="用你自己的话说出更准确的倾向。"
-                  className="w-full bg-transparent outline-none resize-none text-body text-ink-body placeholder-ink-faint font-serif"
-                />
-                <div className="mt-3 flex items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={() => customText.trim() && onAnswer(question, custom!.id, customText)}
-                    disabled={!customText.trim()}
-                    className="px-3 py-1.5 rounded-md bg-ink-core text-paper-base text-body-sm disabled:opacity-30"
-                  >
-                    记下这句
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => { setCustomExpanded(false); onCustomText(""); }}
-                    className="text-body-sm text-ink-mute hover:text-ink-core"
-                  >
-                    收起
-                  </button>
-                </div>
-              </div>
-            );
-          }
-          return (
-            <button
-              key={option.id}
-              type="button"
-              onClick={() => {
-                if (isCustom) { setCustomExpanded(true); } else { onAnswer(question, option.id); }
-              }}
-              className={[
-                "text-left p-3 rounded-md border transition-colors",
-                selected ? "border-ink-core bg-paper-base" : "border-paper-edge bg-paper-lift hover:border-ink-mute",
-              ].join(" ")}
-            >
-              <span className="font-serif text-body-long text-ink-core leading-snug">
-                {option.label}
-              </span>
-              {option.meaning && (
-                <span className="block mt-1 text-xs text-ink-faint">
-                  {option.meaning}
-                </span>
-              )}
-            </button>
-          );
-        })}
-      </div>
-      <div className="mt-5 flex items-center justify-between gap-3 text-xs text-ink-mute">
-        <button
-          type="button"
-          onClick={() => onIndex(Math.max(0, index - 1))}
-          disabled={index === 0}
-          className="hover:text-ink-core disabled:opacity-30"
-        >
-          上一题
-        </button>
-        <span>{answers.length} / {questions.length} 已回答</span>
-        <button
-          type="button"
-          onClick={() => onIndex(Math.min(questions.length - 1, index + 1))}
-          disabled={index === questions.length - 1}
-          className="hover:text-ink-core disabled:opacity-30"
-        >
-          下一题
-        </button>
-      </div>
-    </DocketPaper>
-  );
+function inquiryQuestionToScribeQuestion(question: ScribeInquiryQuestion): ScribeQuestion {
+  return {
+    id: question.id,
+    text: question.question,
+    options: question.options.map((option) => ({ id: option.id, label: option.label })),
+    purpose: question.options.map((option) => option.meaning).filter(Boolean).join(" / "),
+  };
 }
 
 function SettlementPanel({
-  clarity,
-  preferenceProfile,
-  clarityDraft,
-  commitmentDraft,
-  onClarityDraft,
-  onCommitmentDraft,
+  alignmentReport,
+  onChange,
 }: {
-  clarity: ClarityResult;
-  preferenceProfile: PreferenceProfile;
-  clarityDraft: string;
-  commitmentDraft: string;
-  onClarityDraft: (v: string) => void;
-  onCommitmentDraft: (v: string) => void;
+  alignmentReport: AlignmentReport;
+  onChange: (next: AlignmentReport) => void;
 }) {
+  const synthesisText = alignmentReport.dialectic_synthesis.user_revision || alignmentReport.dialectic_synthesis.synthesis;
+
+  function updateModule(key: SettlementModuleKey, nextModule: SettlementModule) {
+    onChange({ ...alignmentReport, [key]: nextModule });
+  }
+
+  function updateSynthesis(value: string) {
+    onChange({
+      ...alignmentReport,
+      dialectic_synthesis: {
+        ...alignmentReport.dialectic_synthesis,
+        user_revision: value.slice(0, 420),
+      },
+    });
+  }
+
   return (
-    <section className="mt-5 space-y-4">
+    <section className="mt-5">
       <article className="rounded-lg overflow-hidden bg-surface-deep text-paper-lift shadow-[0_8px_16px_rgba(25,23,19,0.12),0_24px_48px_-16px_rgba(25,23,19,0.18)]">
-        <header className="px-6 sm:px-8 pt-6 pb-3 border-b border-paper-lift/10">
+        <header className="px-6 sm:px-8 pt-6 pb-5 border-b border-paper-lift/10">
           <div className="text-[10px] tracking-[0.18em] text-paper-lift/50 uppercase">
-            清明落定
+            本心落定
           </div>
+          <p className="mt-3 font-serif text-body text-paper-lift/70 leading-relaxed">
+            —— 我的建议或许有用，但你的确认更加重要
+          </p>
         </header>
-        <div className="px-6 sm:px-8 py-6 space-y-5">
-          <label className="block">
-            <span className="text-[10px] tracking-[0.18em] text-paper-lift/50 uppercase block mb-2">
-              清明句
-            </span>
-            <textarea
-              value={clarityDraft}
-              onChange={(e) => onClarityDraft(e.target.value.slice(0, 220))}
-              rows={3}
-              className="w-full bg-transparent border-b border-paper-lift/30 focus:border-paper-lift/70 outline-none py-2 font-serif text-verdict text-paper-lift resize-none"
-            />
-          </label>
-          <div className="grid md:grid-cols-3 gap-4 text-body-sm">
-            <DarkField label="偏好读数" body={clarity.preference_readout} />
-            <DarkField label="代价承认" body={clarity.tradeoff_acknowledgement} />
-            <DarkField label="此刻落点" body={POSTURE_LABEL[clarity.settlement_posture] || clarity.settlement_posture} />
-          </div>
-          <label className="block pt-4 border-t border-paper-lift/10">
-            <span className="text-[10px] tracking-[0.18em] text-paper-lift/50 uppercase block mb-2">
-              接下来 24 小时
-            </span>
-            <textarea
-              value={commitmentDraft}
-              onChange={(e) => onCommitmentDraft(e.target.value.slice(0, 160))}
-              rows={2}
-              className="w-full bg-transparent border-b border-paper-lift/30 focus:border-paper-lift/70 outline-none py-2 text-body text-paper-lift placeholder-paper-lift/30 font-serif resize-none"
-            />
-          </label>
+        <div className="px-6 sm:px-8 py-6">
+          <SettlementModuleSection
+            module={alignmentReport.creative_hopelessness}
+            onChange={(next) => updateModule("creative_hopelessness", next)}
+          />
+          <SettlementModuleSection
+            module={alignmentReport.core_value_axis}
+            onChange={(next) => updateModule("core_value_axis", next)}
+          />
+          <SettlementModuleSection
+            module={alignmentReport.cost_acceptance_contract}
+            onChange={(next) => updateModule("cost_acceptance_contract", next)}
+          />
+          <SettlementModuleSection
+            module={alignmentReport.minimum_viable_commitment}
+            onChange={(next) => updateModule("minimum_viable_commitment", next)}
+          />
+          <section className="border-t border-paper-lift/20 pt-6">
+            <div className="text-[10px] tracking-[0.18em] text-paper-lift/40 uppercase mb-4">
+              正反合
+            </div>
+            <div className="grid gap-4 md:grid-cols-3">
+              <DarkField label="正" body={alignmentReport.dialectic_synthesis.thesis} />
+              <DarkField label="反" body={alignmentReport.dialectic_synthesis.antithesis} />
+              <label className="block">
+                <span className="text-[10px] tracking-[0.18em] text-paper-lift/40 uppercase block mb-1">
+                  合
+                </span>
+                <textarea
+                  value={synthesisText}
+                  onChange={(event) => updateSynthesis(event.target.value)}
+                  rows={5}
+                  className="w-full bg-transparent border-b border-paper-lift/30 focus:border-paper-lift/70 outline-none py-2 font-serif text-body text-paper-lift resize-none"
+                />
+              </label>
+            </div>
+          </section>
         </div>
       </article>
+    </section>
+  );
+}
 
-      <DocketPaper stage="书记员偏好刻画" dense>
-        <div className="grid md:grid-cols-2 gap-4">
-          <ListField label="已验证倾向" items={preferenceProfile.validated_leanings} />
-          <ListField label="仍在摇摆" items={preferenceProfile.unresolved_tensions} />
-          <ListField label="愿意承认的代价" items={preferenceProfile.accepted_tradeoffs} />
-          <ListField label="用户亲口说过" items={preferenceProfile.user_self_statements} />
-        </div>
-      </DocketPaper>
+type SettlementModuleKey =
+  | "creative_hopelessness"
+  | "core_value_axis"
+  | "cost_acceptance_contract"
+  | "minimum_viable_commitment";
+
+function SettlementModuleSection({
+  module,
+  onChange,
+}: {
+  module: SettlementModule;
+  onChange: (next: SettlementModule) => void;
+}) {
+  const status = module.user_feedback?.status;
+  const userText = module.user_feedback?.user_text || "";
+
+  function setStatus(nextStatus: "agree" | "disagree") {
+    onChange({
+      ...module,
+      user_feedback: {
+        status: nextStatus,
+        user_text: nextStatus === "disagree" ? userText : undefined,
+      },
+    });
+  }
+
+  function setUserText(text: string) {
+    onChange({
+      ...module,
+      user_feedback: {
+        status: "disagree",
+        user_text: text.slice(0, 360),
+      },
+    });
+  }
+
+  return (
+    <section className="border-b border-paper-lift/20 py-6 first:pt-0">
+      <div className="text-[10px] tracking-[0.18em] text-paper-lift/40 uppercase mb-3">
+        {module.title}
+      </div>
+      <p className="font-serif text-body-long text-paper-lift/85 leading-relaxed whitespace-pre-line">
+        {module.report}
+      </p>
+      {module.evidence?.filter(Boolean).length ? (
+        <ul className="mt-3 space-y-1 text-body-sm text-paper-lift/50">
+          {module.evidence.filter(Boolean).map((item, index) => (
+            <li key={`${module.title}-${index}`}>· {item}</li>
+          ))}
+        </ul>
+      ) : null}
+      <div className="mt-5 flex flex-wrap items-center gap-2">
+        <FeedbackButton active={status === "agree"} onClick={() => setStatus("agree")}>
+          同意
+        </FeedbackButton>
+        <FeedbackButton active={status === "disagree"} onClick={() => setStatus("disagree")}>
+          不同意
+        </FeedbackButton>
+      </div>
+      {status === "disagree" && (
+        <textarea
+          value={userText}
+          onChange={(event) => setUserText(event.target.value)}
+          rows={3}
+          placeholder="写下你自己的看法。"
+          className="mt-3 w-full bg-transparent border border-paper-lift/20 focus:border-paper-lift/60 rounded-md outline-none px-3 py-2 font-serif text-body text-paper-lift placeholder-paper-lift/30 resize-none"
+        />
+      )}
+    </section>
+  );
+}
+
+function FeedbackButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={[
+        "px-3 py-1.5 rounded-md border text-body-sm transition-colors",
+        active
+          ? "border-paper-lift/70 bg-paper-lift text-ink-core"
+          : "border-paper-lift/20 text-paper-lift/60 hover:border-paper-lift/50 hover:text-paper-lift",
+      ].join(" ")}
+    >
+      {children}
+    </button>
+  );
+}
+
+function ReportBlock({
+  title,
+  body,
+  details,
+}: {
+  title: string;
+  body: string;
+  details: string[];
+}) {
+  return (
+    <section className="border-b border-paper-edge last:border-0 pb-4 last:pb-0">
+      <h3 className="font-serif text-title text-ink-core leading-snug mb-2">{title}</h3>
+      <p className="font-serif text-body-long text-ink-body leading-relaxed">{body}</p>
+      {details.filter(Boolean).length > 0 && (
+        <ul className="mt-3 space-y-1.5 text-body-sm text-ink-mute">
+          {details.filter(Boolean).map((detail, index) => (
+            <li key={`${title}-${index}`}>· {detail}</li>
+          ))}
+        </ul>
+      )}
     </section>
   );
 }
@@ -1906,114 +1727,8 @@ function Notice({ children, tone }: { children: React.ReactNode; tone: "error" }
   );
 }
 
-function traceMove(
-  trace: ScribeTrace,
-  move: RoundtableMove,
-  turns: RoundtableTurn[],
-  scribeNote?: string,
-): ScribeTrace {
-  const text = scribeNote || move.scribe_note || "书记员记录了一次圆桌动作。";
-  const base = {
-    source: "user_action" as const,
-    target_voice_id: move.target_voice_id,
-    text,
-    evidence_status: "user_selected" as const,
-    at: move.at,
-  };
-  if (move.type === "continue_all") {
-    return { ...trace, requested_rounds: [...trace.requested_rounds, base] };
-  }
-  if (move.type === "continue_one") {
-    return { ...trace, requested_voices: [...trace.requested_voices, base] };
-  }
-  if (move.type === "user_to_voice") {
-    return {
-      ...trace,
-      direct_questions: [
-        ...trace.direct_questions,
-        { ...base, text: move.user_text || text },
-      ],
-    };
-  }
-  if (move.type === "user_to_table") {
-    const item = { ...base, source: "user_text" as const, text: move.user_text || text };
-    return {
-      ...trace,
-      table_interventions: [...trace.table_interventions, item],
-      new_information: [...trace.new_information, item],
-    };
-  }
-  if (move.type === "duel" && move.from_voice_id && move.to_voice_id) {
-    const duelText = turns.find((t) => t.duel)?.duel?.unresolved_point || text;
-    return {
-      ...trace,
-      selected_conflicts: [
-        ...trace.selected_conflicts,
-        {
-          from_voice_id: move.from_voice_id,
-          to_voice_id: move.to_voice_id,
-          text: duelText,
-          evidence_status: "user_selected",
-          at: move.at,
-        },
-      ],
-    };
-  }
-  if ((move.type === "challenge" || move.type === "name_avoidance") && move.from_voice_id && move.to_voice_id) {
-    return {
-      ...trace,
-      selected_conflicts: [
-        ...trace.selected_conflicts,
-        {
-          from_voice_id: move.from_voice_id,
-          to_voice_id: move.to_voice_id,
-          text: turns.find((t) => t.text)?.text || text,
-          evidence_status: "user_selected",
-          at: move.at,
-        },
-      ],
-    };
-  }
-  if (move.type === "cut_through") {
-    return {
-      ...trace,
-      requested_voices: [...trace.requested_voices, base],
-    };
-  }
-  if (move.type === "scribe_summary" || move.type === "mirror_structure") {
-    return {
-      ...trace,
-      scribe_summaries: [
-        ...trace.scribe_summaries,
-        { ...base, source: "scribe_inferred", text },
-      ],
-    };
-  }
-  return trace;
-}
-
-function splitLines(value: string): string[] {
-  return value
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .slice(0, 8);
-}
-
-function diffVisibleFields(a: VisibleTaskFrame, b: VisibleTaskFrame) {
-  const out: Partial<Record<VisibleTaskFrameKey, boolean>> = {};
-  for (const key of Object.keys(FIELD_LABEL) as VisibleTaskFrameKey[]) {
-    if (JSON.stringify(a[key]) !== JSON.stringify(b[key])) out[key] = true;
-  }
-  return out;
-}
-
-function isCustomOption(option: ChoiceOption): boolean {
-  return option.id === "custom" || /不准|自己|补/.test(option.label);
-}
-
 function toBigStage(stage: Stage): string {
-  if (stage === "defining" || stage === "review") return "defining";
+  if (stage === "defining") return "defining";
   if (stage === "roundtable") return "roundtable";
   if (stage === "inquiry") return "inquiry";
   return "settlement";
@@ -2027,10 +1742,9 @@ function doneStages(current: string): string[] {
 
 function stageLabel(stage: Stage, busy: boolean): string {
   if (stage === "defining") return busy ? "本次议题 · 书记员正在思考" : "本次议题 · 对话中";
-  if (stage === "review") return "本次议题 · 确认提案";
-  if (stage === "roundtable") return busy ? "五声圆桌 · 正在回应" : "五声圆桌 · 自由讨论";
-  if (stage === "inquiry") return busy ? "书记员问询 · 正在分析" : "书记员问询 · 验证偏好";
-  if (stage === "settlement") return "清明落定 · 可改写";
+  if (stage === "roundtable") return busy ? "五声圆桌 · 正在组织这一轮" : "五声圆桌 · 自由讨论";
+  if (stage === "inquiry") return busy ? "书记员问询 · 正在分析" : "书记员问询 · 最终确认";
+  if (stage === "settlement") return "本心落定 · 可改写";
   return "已保存";
 }
 

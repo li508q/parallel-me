@@ -4,13 +4,15 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import {
   PRESETS,
   clearProvider,
   loadActiveProvider,
+  loadProviderSecret,
   maskKey,
   newProviderId,
+  removeProviderSecret,
   saveActiveProvider,
   saveProviderSecret,
   type ProviderConfig,
@@ -40,9 +42,10 @@ const PROVIDERS: ProviderType[] = [
 
 export default function SetupPage() {
   const router = useRouter();
-  const existing = typeof window !== "undefined" ? loadActiveProvider() : null;
 
   const [step, setStep] = useState<Step>(1);
+  const [existing, setExisting] = useState<ProviderConfig | null>(null);
+  const [editing, setEditing] = useState<ProviderConfig | null>(null);
   const [selected, setSelected] = useState<ProviderType>("deepseek");
   const [apiKey, setApiKey] = useState("");
   const [baseUrl, setBaseUrl] = useState(PRESETS.deepseek.baseUrl);
@@ -52,10 +55,15 @@ export default function SetupPage() {
   const [testResult, setTestResult] = useState<TestResult | null>(null);
 
   const preset = PRESETS[selected];
+  const editingCurrent = !!editing;
   const canContinue =
     step === 1 ||
     (step === 2 && !!apiKey.trim() && !!baseUrl.trim() && !!model.trim()) ||
     (step === 3 && !!testResult?.ok);
+
+  useEffect(() => {
+    setExisting(loadActiveProvider());
+  }, []);
 
   function selectProvider(provider: ProviderType) {
     setSelected(provider);
@@ -63,6 +71,33 @@ export default function SetupPage() {
     setModel(PRESETS[provider].model);
     setApiKey("");
     setTestResult(null);
+  }
+
+  function editExisting(config: ProviderConfig) {
+    const secret = loadProviderSecret(config.id, config.apiKeyRef) || "";
+    setEditing(config);
+    setSelected(config.provider);
+    setBaseUrl(config.baseUrl);
+    setModel(config.model);
+    setApiKey(secret);
+    setSaveMode(config.apiKeyRef);
+    setTestResult(
+      secret && config.lastStatus === "ok"
+        ? { ok: true, model: config.model, latencyMs: config.lastTestLatencyMs }
+        : null,
+    );
+    setStep(2);
+  }
+
+  function cancelEdit() {
+    setEditing(null);
+    setSelected("deepseek");
+    setBaseUrl(PRESETS.deepseek.baseUrl);
+    setModel(PRESETS.deepseek.model);
+    setApiKey("");
+    setSaveMode("browser");
+    setTestResult(null);
+    setStep(1);
   }
 
   async function runTest() {
@@ -96,7 +131,7 @@ export default function SetupPage() {
       setStep(3);
       return;
     }
-    const id = newProviderId();
+    const id = editing?.id || newProviderId();
     const config: ProviderConfig = {
       id,
       provider: selected,
@@ -105,11 +140,12 @@ export default function SetupPage() {
       model: model.trim(),
       apiKeyRef: saveMode,
       maskedKey: maskKey(apiKey.trim()),
-      createdAt: Date.now(),
+      createdAt: editing?.createdAt || Date.now(),
       lastTestedAt: Date.now(),
       lastStatus: "ok",
       lastTestLatencyMs: testResult.latencyMs,
     };
+    removeProviderSecret(id);
     saveActiveProvider(config);
     saveProviderSecret(id, apiKey.trim(), saveMode);
     router.push("/");
@@ -118,7 +154,8 @@ export default function SetupPage() {
   function deleteExisting() {
     if (!confirm("将删除当前 API Key 与连接配置。确认？")) return;
     clearProvider();
-    location.reload();
+    setExisting(null);
+    cancelEdit();
   }
 
   return (
@@ -161,12 +198,22 @@ export default function SetupPage() {
                 <div className="mt-1 text-body-sm text-ink-mute font-mono break-all">
                   {existing.model}
                 </div>
-                <button
-                  onClick={deleteExisting}
-                  className="mt-4 text-body-sm text-seal-action hover:underline"
-                >
-                  删除并重新配置
-                </button>
+                <div className="mt-4 flex flex-wrap gap-3">
+                  <button
+                    type="button"
+                    onClick={() => editExisting(existing)}
+                    className="rounded-md border border-paper-edge bg-paper-base px-3 py-1.5 text-body-sm text-ink-core hover:border-ink-core transition-colors"
+                  >
+                    修改当前配置
+                  </button>
+                  <button
+                    type="button"
+                    onClick={deleteExisting}
+                    className="px-1 py-1.5 text-body-sm text-seal-action hover:underline"
+                  >
+                    删除
+                  </button>
+                </div>
               </div>
             ) : (
               <p className="text-body-sm text-ink-mute leading-relaxed">
@@ -182,7 +229,7 @@ export default function SetupPage() {
       <section className="mt-8 grid lg:grid-cols-[minmax(0,1fr)_320px] gap-8 items-start">
         <div className="rounded-md border border-paper-edge bg-paper-lift p-5 sm:p-6 min-h-[460px]">
           {step === 1 && (
-            <ProviderStep selected={selected} onSelect={selectProvider} />
+            <ProviderStep selected={selected} onSelect={selectProvider} editingCurrent={editingCurrent} />
           )}
           {step === 2 && (
             <CredentialStep
@@ -190,7 +237,10 @@ export default function SetupPage() {
               apiKey={apiKey}
               baseUrl={baseUrl}
               model={model}
-              onApiKey={setApiKey}
+              onApiKey={(v) => {
+                setApiKey(v);
+                setTestResult(null);
+              }}
               onBaseUrl={(v) => {
                 setBaseUrl(v);
                 setTestResult(null);
@@ -225,13 +275,24 @@ export default function SetupPage() {
       </section>
 
       <nav className="mt-8 flex items-center justify-between gap-4 border-t border-paper-edge pt-6">
-        <button
-          onClick={() => setStep((Math.max(1, step - 1) as Step))}
-          disabled={step === 1}
-          className="text-body-sm text-ink-mute hover:text-ink-core disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-        >
-          ← 上一步
-        </button>
+        <div className="flex items-center gap-4">
+          <button
+            onClick={() => setStep((Math.max(1, step - 1) as Step))}
+            disabled={step === 1}
+            className="text-body-sm text-ink-mute hover:text-ink-core disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+          >
+            ← 上一步
+          </button>
+          {editingCurrent && (
+            <button
+              type="button"
+              onClick={cancelEdit}
+              className="text-body-sm text-ink-mute hover:text-ink-core transition-colors"
+            >
+              取消编辑
+            </button>
+          )}
+        </div>
         {step < 4 ? (
           <button
             onClick={() => setStep((Math.min(4, step + 1) as Step))}
@@ -245,7 +306,7 @@ export default function SetupPage() {
             onClick={saveAndFinish}
             className="px-5 py-2.5 rounded-md bg-ink-core text-paper-base text-body-sm font-medium hover:bg-ink-body transition-colors"
           >
-            保存钥匙，进入我的声音 →
+            {editingCurrent ? "保存修改，进入我的声音 →" : "保存钥匙，进入我的声音 →"}
           </button>
         )}
       </nav>
@@ -286,16 +347,20 @@ function StepRail({ step }: { step: Step }) {
 function ProviderStep({
   selected,
   onSelect,
+  editingCurrent,
 }: {
   selected: ProviderType;
   onSelect: (provider: ProviderType) => void;
+  editingCurrent?: boolean;
 }) {
   return (
     <section>
       <Kicker>Step 1</Kicker>
-      <h2 className="font-serif text-title text-ink-core mb-2">选择 API 服务商</h2>
+      <h2 className="font-serif text-title text-ink-core mb-2">
+        {editingCurrent ? "修改 API 服务商" : "选择 API 服务商"}
+      </h2>
       <p className="text-body-sm text-ink-mute mb-6">
-        默认推荐 DeepSeek。所有预设都走兼容 `/chat/completions` 的接口形态，后续可手动改 Base URL 和 Model。
+        默认推荐 DeepSeek Flash。所有预设都走兼容 `/chat/completions` 的接口形态，可手动改 Base URL 和 Model。
       </p>
 
       <div className="grid sm:grid-cols-2 gap-3">

@@ -17,6 +17,8 @@ export interface ConsoleAction {
 export interface HostConsoleProps {
   /** Short label in the upper-left, e.g. "困惑成形 · 等你确认". */
   stageLabel?: string;
+  /** Optional inline controls for the active action mode. */
+  controlPanel?: React.ReactNode;
   /** Stage-specific actions, rendered right-aligned. */
   actions: ConsoleAction[];
   /** Submit handler for free-text. Returns whether to clear input. */
@@ -28,6 +30,7 @@ export interface HostConsoleProps {
 
 export function HostConsole({
   stageLabel,
+  controlPanel,
   actions,
   onSpeak,
   inputDisabled,
@@ -56,6 +59,7 @@ export function HostConsole({
             {stageLabel}
           </div>
         )}
+        {controlPanel && <div className="mb-3">{controlPanel}</div>}
         <div className="flex items-end gap-2 sm:gap-3">
           {onSpeak && (
             <div className="flex-1 min-w-0 flex items-end gap-2">

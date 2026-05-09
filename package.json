@@ -15,11 +15,13 @@
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "^2.0.47",
+    "@radix-ui/react-collapsible": "^1.1.12",
     "ai": "^6.0.177",
     "dexie": "^4.4.2",
     "dexie-react-hooks": "^4.4.0",
     "geist": "^1.7.0",
     "js-tiktoken": "^1.0.21",
+    "lucide-react": "^1.14.0",
     "next": "^16.2.6",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",

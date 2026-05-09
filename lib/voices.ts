@@ -1,9 +1,9 @@
-// lib/voices.ts — v0.7 derived views for 我的声音.
-// Records are reduced from the ParallelMeV7 roundtable schema.
+// lib/voices.ts — v1 derived views for 我的声音.
+// Records are reduced from the local v1 roundtable schema.
 
 import { db, type Meeting, type VoiceId } from "./db";
 import { SELVES, type SelfId } from "./selves";
-import { VOICE_IDS } from "./v7";
+import { VOICE_IDS, settlementCommitment, settlementHeadline } from "./v7";
 
 export interface VoiceStats {
   voiceId: VoiceId;
@@ -97,7 +97,7 @@ export async function aggregateVoiceActivity(
     out.push({
       recordId: meeting.id,
       title:
-        meeting.clarity?.clarity_sentence ||
+        settlementHeadline(meeting.alignment_report) ||
         meeting.task_frame?.visible.problem_definition ||
         meeting.raw_input,
       at: meeting.createdAt,
@@ -107,7 +107,7 @@ export async function aggregateVoiceActivity(
       requested: meeting.roundtable.moves.some((m) => m.target_voice_id === voiceId),
       directQuestion: direct?.user_text,
       duel: duelTurn?.duel
-        ? `${duelTurn.duel.from_name} → ${duelTurn.duel.to_name}：${duelTurn.duel.unresolved_point}`
+        ? `${duelTurn.duel.from_name} → ${duelTurn.duel.to_name}：${duelTurn.duel.question}`
         : undefined,
     });
   }
@@ -132,7 +132,7 @@ export async function aggregateVoiceOverview(): Promise<VoiceOverview> {
     if (meeting.status === "settled") settled += 1;
     if (meeting.status === "abandoned") abandoned += 1;
     if (meeting.commitmentFollowup) followupDone += 1;
-    if (meeting.status === "settled" && meeting.clarity?.commitment24h && !meeting.commitmentFollowup) {
+    if (meeting.status === "settled" && settlementCommitment(meeting.alignment_report) && !meeting.commitmentFollowup) {
       pendingCommit += 1;
     }
   }

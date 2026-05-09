@@ -1,6 +1,6 @@
 "use client";
 
-// 声音详情 · /voices/[id] — one voice's activity feed across v0.7 records.
+// 声音详情 · /voices/[id] — one voice's activity feed across v1 records.
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -108,7 +108,7 @@ export default function VoiceDetailPage() {
             <Stat label="出现" value={stats.appearances} />
             <Stat label="被继续" value={stats.requestedCount} accent="warn" />
             <Stat label="被提问" value={stats.directQuestionCount} />
-            <Stat label="被对峙" value={stats.challengedCount} accent="safe" />
+            <Stat label="参与对话" value={stats.challengedCount} accent="safe" />
           </div>
         </DocketPaper>
       )}
@@ -196,7 +196,7 @@ function ActivityCard({
       <div className="flex flex-wrap gap-2 mb-3">
         {entry.requested && <Pill kind="warn">被继续听见</Pill>}
         {entry.directQuestion && <Pill kind="default">被直接提问</Pill>}
-        {entry.duel && <Pill kind="safe">参与对峙</Pill>}
+        {entry.duel && <Pill kind="safe">参与两声对话</Pill>}
         <Pill kind="muted">{entry.status === "settled" ? "已落定" : "未完成"}</Pill>
       </div>
 
@@ -215,7 +215,7 @@ function ActivityCard({
       {entry.duel && (
         <div className="mt-3 pt-3 border-t border-paper-edge">
           <div className="text-[10px] tracking-[0.18em] text-ink-mute uppercase mb-1">
-            对峙记录
+            两声对话
           </div>
           <p className="text-body-sm text-ink-body italic">「{entry.duel}」</p>
         </div>

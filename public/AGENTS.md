@@ -4,18 +4,17 @@
 
 ## What ParallelMe Is
 
-ParallelMe is a local-first, scribe-guided five-voice roundtable for life-sized dilemmas. It is not a chatbot, therapy, diagnosis, or crisis intervention. The user gives one raw input, the scribe turns it into a clear task frame, five fixed inner voices discuss it, the scribe validates preference patterns, and the session ends with a clarity sentence plus a 24-hour commitment.
+ParallelMe is a local-first, scribe-guided five-voice roundtable for life-sized dilemmas. It is not a chatbot, therapy, diagnosis, or crisis intervention. The user gives one raw input, the scribe turns it into a confirmed issue proposal, five fixed inner voices discuss it, and later stages confirm the last decisive points before producing one 本心落定 card.
 
 ## Core Objects
 
 - `raw_input`: the user's original concern.
-- `choice_cards`: high-density multiple-choice cards used to clarify the issue.
-- `task_frame`: the confirmed issue frame, with visible fields and internal evidence status.
+- `issue_proposal`: the confirmed issue sentence plus 4-Key proposal used to enter the roundtable.
+- `task_frame`: legacy-compatible issue frame, with visible fields and internal evidence status.
 - `roundtable`: fixed five-voice opening turns plus free roundtable moves.
-- `scribe_trace`: structured record of user actions such as continuing a voice, asking the table, or selecting a duel.
-- `inquiry_questions`: scribe questions that validate user preference patterns.
-- `preference_profile`: natural-language leaning, resistance, tradeoff, and unresolved-tension records.
-- `clarity`: clarity sentence, preference readout, tradeoff acknowledgement, posture, and 24-hour commitment.
+- `inquiry_questions`: scribe questions that confirm the final settlement gaps.
+- `alignment_profile`: natural-language fantasy, core-axis, cost, tension, and synthesis records.
+- `alignment_report`: the visible 本心落定 card with four report modules and dialectic synthesis.
 
 ## Fixed Five Voices
 
@@ -43,12 +42,15 @@ The client setup flow includes DeepSeek, 阿里云百炼, Kimi, MiniMax, 豆包 
 
 ### `POST /api/task-frame`
 
-Turns raw input and optional choice answers into high-density choice cards plus a reviewable task frame.
+Runs the scribe-led defining flow: probe, refine, or produce a confirmed issue proposal.
 
 ```ts
 {
+  action: "probe" | "refine",
   rawInput: string,
-  choiceAnswers?: ChoiceAnswer[],
+  dialogue?: DefiningDialogueEntry[],
+  currentProposal?: IssueProposal,
+  userFeedback?: string,
   context?: ContextBundle,
   provider: { baseUrl: string, model: string, apiKey: string }
 }
@@ -62,8 +64,9 @@ Generates the fixed five-voice opening or advances one free roundtable move.
 {
   action: "opening" | "move",
   taskFrame: TaskFrame,
+  issueProposal?: IssueProposal,
   roundtable?: RoundtableRecord,
-  moveType?: "continue_all" | "continue_one" | "duel" | "user_to_voice" | "user_to_table" | "scribe_summary",
+  moveType?: "continue_all" | "duel" | "user_to_voice" | "user_to_table",
   targetVoiceId?: "lay" | "money" | "roam" | "filial" | "future",
   fromVoiceId?: "lay" | "money" | "roam" | "filial" | "future",
   toVoiceId?: "lay" | "money" | "roam" | "filial" | "future",
@@ -73,32 +76,32 @@ Generates the fixed five-voice opening or advances one free roundtable move.
 }
 ```
 
-### `POST /api/scribe-inquiry`
+### `POST /api/alignment-inquiry`
 
-Creates or refreshes scribe questions and preference-profile observations after the free roundtable.
+Creates or refreshes the final scribe questions after the free roundtable.
 
 ```ts
 {
   taskFrame: TaskFrame,
   roundtable: RoundtableRecord,
-  scribeTrace: ScribeTrace,
+  scribeObservationLedger?: ScribeObservationLedger,
+  inquiryQuestions?: ScribeInquiryQuestion[],
   inquiryAnswers?: ScribeInquiryAnswer[],
   context?: ContextBundle,
   provider: { baseUrl: string, model: string, apiKey: string }
 }
 ```
 
-### `POST /api/settlement`
+### `POST /api/alignment-report`
 
-Produces the clarity settlement.
+Produces the visible 本心落定 card.
 
 ```ts
 {
   taskFrame: TaskFrame,
-  roundtable: RoundtableRecord,
-  scribeTrace: ScribeTrace,
+  scribeObservationLedger: ScribeObservationLedger,
   inquiryAnswers: ScribeInquiryAnswer[],
-  preferenceProfile: PreferenceProfile,
+  alignmentProfile: AlignmentProfile,
   context?: ContextBundle,
   provider: { baseUrl: string, model: string, apiKey: string }
 }

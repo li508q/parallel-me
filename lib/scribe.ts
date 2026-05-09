@@ -23,8 +23,7 @@ export const SCRIBE_SOUL = {
   modes: {
     brief: "议题卡复述时：温的理性，像饭桌上替用户把事情说清楚",
     inquiry: "问询时：简短、节奏快、带一点钩子",
-    settlement: "清明落定时：克制、有重量感，给一句用户认得出自己的话",
-    mirror: "结构化镜面时：只报事实、次数、缺席和对照，零判断",
+    settlement: "本心落定时：克制、有重量感，给一句用户认得出自己的话",
   },
 } as const;
 

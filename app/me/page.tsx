@@ -11,6 +11,7 @@ import {
 } from "@/lib/profile";
 import { aggregateVoiceOverview } from "@/lib/voices";
 import { db, recentMeetings } from "@/lib/db";
+import { settlementHeadline } from "@/lib/v7";
 
 export default function MePage() {
   const [profile, setProfile] = useState<MeProfile>({});
@@ -175,13 +176,13 @@ export default function MePage() {
             <div className="mt-4 pt-4 border-t rule">
               <div className="text-xs text-ink3 mb-1">最近一次</div>
               <div className="font-display text-lg text-ink2 italic">
-                「{latest.clarity?.clarity_sentence || latest.task_frame?.visible.problem_definition || latest.raw_input}」
+                「{settlementHeadline(latest.alignment_report) || latest.task_frame?.visible.problem_definition || latest.raw_input}」
               </div>
             </div>
           )}
           {!hasRecords && (
             <p className="mt-3 text-sm text-ink3 leading-relaxed">
-              每次五声圆桌结束后，清明句和 24h 承诺会留成一页 →
+              每次五声圆桌结束后，本心落定和 24h 行动会留成一页 →
             </p>
           )}
         </Link>

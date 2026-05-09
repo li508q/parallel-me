@@ -14,10 +14,10 @@ interface MemoryConsentGateProps {
 }
 
 const CATEGORY_LABEL: Record<MemoryCandidate["category"], string> = {
-  clarity: "清明句",
-  preference: "偏好读数",
-  tradeoff: "代价承认",
-  commitment: "24h 承诺",
+  alignment: "本心落定",
+  value_axis: "核心主轴",
+  cost: "痛苦契约",
+  commitment: "24h 行动",
 };
 
 export function MemoryConsentGate({

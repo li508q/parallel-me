@@ -1,6 +1,6 @@
 "use client";
 
-// 我的声音 · /voices — standing voice statistics derived from v0.7 roundtables.
+// 我的声音 · /voices — standing voice statistics derived from v1 roundtables.
 
 import Link from "next/link";
 import { useLiveQuery } from "dexie-react-hooks";
@@ -72,7 +72,7 @@ export default function VoicesPage() {
       {isEmpty && (
         <p className="mb-7 text-body-sm text-ink-mute leading-relaxed font-serif italic">
           五声已经在。第一次圆桌后，下面会逐渐显出哪些声音常出现、
-          哪一声经常被你继续追问，以及哪些声音常被拉去对峙。
+          哪一声经常被你继续追问，以及哪些声音常被拉去两声对话。
         </p>
       )}
 
@@ -168,7 +168,7 @@ function StandingVoiceCard({ stats }: { stats: VoiceStats }) {
           被提问 <span className="text-ink-core font-medium">{stats.directQuestionCount}</span>
         </span>
         <span>
-          被对峙 <span className="text-ink-core font-medium">{stats.challengedCount}</span>
+          参与对话 <span className="text-ink-core font-medium">{stats.challengedCount}</span>
         </span>
       </div>
 
@@ -199,7 +199,7 @@ function describeStanding(s: VoiceStats): string {
   if (s.directQuestionCount > 0)
     return `你直接问过它 ${s.directQuestionCount} 次，说明你在主动确认它背后的价值。`;
   if (s.challengedCount > 0)
-    return `它参与过 ${s.challengedCount} 次对峙，常站在冲突比较亮的地方。`;
+    return `它参与过 ${s.challengedCount} 次两声对话，常站在冲突比较亮的地方。`;
   return "稳定出现，也开始被你主动听见。";
 }
 

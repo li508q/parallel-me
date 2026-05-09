@@ -22,7 +22,7 @@ export const duration = {
   fast:   "150ms",
   base:   "200ms",
   slow:   "300ms",
-  ritual: "500ms", // 仅承诺 / 清明落定进入
+  ritual: "500ms", // 仅承诺 / 本心落定进入
 } as const;
 
 // Easing — single curve covers 99% of transitions.

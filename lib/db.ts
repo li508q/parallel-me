@@ -1,5 +1,5 @@
-// lib/db.ts — v0.7 local workspace · IndexedDB via Dexie
-// v0.7 intentionally starts a fresh local database. Old records are not
+// lib/db.ts — v1 local workspace · IndexedDB via Dexie
+// v1 intentionally starts a fresh local database. Old records are not
 // migrated or read; the product now follows one scribe-guided roundtable path.
 
 import Dexie, { type Table } from "dexie";
@@ -8,36 +8,40 @@ import type {
   CommitmentFollowupResult,
   Meeting,
 } from "./v7";
+import { settlementCommitment } from "./v7";
 
 export type {
   ChoiceAnswer,
   ChoiceCard,
   ChoiceOption,
-  ClarityResult,
+  AlignmentAction,
+  AlignmentCost,
+  AlignmentProfile,
+  AlignmentReport,
   CommitmentFollowup,
   CommitmentFollowupResult,
   ConcernNote,
   EvidenceStatus,
   FactKV,
   InternalTaskFrame,
+  IssueProposal,
   Meeting,
   MeetingStatus,
   MemoryCandidate,
   MemoryCategory,
   MemoryConsentRecord,
-  PreferenceProfile,
   RoundtableMove,
   RoundtableMoveType,
   RoundtableRecord,
   RoundtableTurn,
+  ScribeObservation,
+  ScribeObservationLedger,
   ScribeInquiryAnswer,
   ScribeInquiryOption,
   ScribeInquiryQuestion,
-  ScribeTrace,
-  SettlementPosture,
+  UnansweredRoundtableQuestion,
   SourceLabelMap,
   TaskFrame,
-  TraceItem,
   VisibleSourceLabel,
   VisibleTaskFrame,
   VisibleTaskFrameKey,
@@ -51,7 +55,7 @@ class ParallelMeDB extends Dexie {
   meetings!: Table<Meeting, string>;
 
   constructor() {
-    super("ParallelMeV7");
+    super("ParallelMeV10");
     this.version(1).stores({
       meetings: "id, createdAt, closedAt, status",
     });
@@ -79,7 +83,7 @@ export async function pendingCommitments(maxDays = 14): Promise<Meeting[]> {
     .equals("settled")
     .filter(
       (m) =>
-        !!m.clarity?.commitment24h &&
+        !!settlementCommitment(m.alignment_report) &&
         !m.commitmentFollowup &&
         (m.closedAt ?? 0) > cutoff,
     )

@@ -10,10 +10,19 @@ export type AgentStreamEvent =
 export type ScribeStreamEvent =
   | { type: "narration"; stage: string; key: string; payload?: Record<string, string | number> }
   | { type: "token"; text: string }
+  | { type: "reasoning_delta"; source: string; text: string; mode?: "native" | "public" }
+  | { type: "model_delta"; source: string; text: string }
+  | { type: "object_delta"; source: string; payload: unknown }
   | { type: "tool"; name: string; state: "called" | "completed"; detail?: string }
+  | { type: "llm_call_started"; operation: string; attempt: number; source?: string }
+  | { type: "validation_failed"; operation: string; attempt: number; errors: string[] }
+  | { type: "repair_started"; operation: string; attempt: number; errors: string[] }
+  | { type: "fallback_used"; operation: string; policy: string; reason: string; errors?: string[] }
+  | { type: "retry_scheduled"; operation: string; attempt: number; delayMs: number; reason: string }
+  | { type: "recoverable_error"; operation: string; code?: string; message: string; retryable?: boolean }
   | { type: "decision"; prompt: string; options: Array<{ id: string; label: string; subtitle?: string }> }
   | { type: "result"; payload: unknown }
-  | { type: "error"; message: string }
+  | { type: "error"; message: string; code?: string; retryable?: boolean }
   | { type: "done"; summary?: string };
 
 export function encodeEvent(event: ScribeStreamEvent | AgentStreamEvent): string {
@@ -35,7 +44,12 @@ export function scribeEventStream(
       try {
         await generate(emit);
       } catch (error: any) {
-        emit({ type: "error", message: error?.message || "stream failed" });
+        emit({
+          type: "error",
+          message: error?.message || "书记员这一步没整理好，请重试一次。",
+          code: error?.code,
+          retryable: error?.retryable,
+        });
       } finally {
         controller.close();
       }
@@ -53,7 +67,12 @@ export function agentEventStream(events: AsyncIterable<AgentStreamEvent>): Reada
           controller.enqueue(encoder.encode(encodeEvent(event)));
         }
       } catch (error: any) {
-        controller.enqueue(encoder.encode(encodeEvent({ type: "error", message: error?.message || "agent stream failed" })));
+        controller.enqueue(encoder.encode(encodeEvent({
+          type: "error",
+          message: error?.message || "书记员这一步没整理好，请重试一次。",
+          code: error?.code,
+          retryable: error?.retryable,
+        })));
       } finally {
         controller.close();
       }

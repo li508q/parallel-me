@@ -1,4 +1,4 @@
-// /api/roundtable — v0.7 fixed five-voice opening and free roundtable moves (SSE streaming).
+// /api/roundtable — v1 fixed five-voice opening and free roundtable moves (SSE streaming).
 
 import { NextRequest, NextResponse } from "next/server";
 import {
@@ -10,7 +10,8 @@ import {
   type LlmRuntime,
   type RoundtableMoveInput,
 } from "@/lib/llm";
-import { scribeEventStream, SSE_HEADERS } from "@/lib/agents/events";
+import { scribeEventStream, SSE_HEADERS, type ScribeStreamEvent } from "@/lib/agents/events";
+import type { IssueProposal } from "@/lib/v7";
 import { voiceName } from "@/lib/v7";
 
 export const runtime = "nodejs";
@@ -20,6 +21,7 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   const action = String(body.action || "");
   const taskFrame = body.taskFrame;
+  const issueProposal = body.issueProposal as IssueProposal | undefined;
   const context = body.context as ContextBundle | undefined;
   const llmRuntime = toRuntime(body.provider);
 
@@ -27,7 +29,7 @@ export async function POST(req: NextRequest) {
   if (!taskFrame?.visible) {
     return NextResponse.json({ error: "taskFrame required" }, { status: 400 });
   }
-  if (detectCrisis(JSON.stringify({ taskFrame, userText: body.userText }))) {
+  if (detectCrisis(JSON.stringify({ taskFrame, issueProposal, userText: body.userText }))) {
     return NextResponse.json({ crisis: true, message: crisisMessage() });
   }
 
@@ -36,21 +38,13 @@ export async function POST(req: NextRequest) {
       emit({ type: "narration", stage: "opening", key: "seating" });
       await sleep(300);
 
-      const openingTurns = await generateOpeningTurns(taskFrame, context, llmRuntime);
-
-      // Emit per-voice narration
-      for (let i = 0; i < openingTurns.length; i++) {
-        const turn = openingTurns[i];
-        const name = voiceName(turn.voice_id);
-        emit({ type: "narration", stage: "opening", key: "voiceSpeaking", payload: { "角色名": name } });
-        emit({ type: "token", text: `${name}：${turn.thesis}\n守护：${turn.protected_value}\n担心：${turn.concern}\n` });
-        await sleep(200);
-        if (i < openingTurns.length - 1) {
-          const nextName = voiceName(openingTurns[i + 1].voice_id);
-          emit({ type: "narration", stage: "opening", key: "voiceRotating", payload: { "角色名": name, "下一位": nextName } });
-          await sleep(100);
-        }
-      }
+      const openingTurns = await generateOpeningTurns(
+        taskFrame,
+        issueProposal,
+        context,
+        llmRuntime,
+        modelStream(emit, "opening"),
+      );
 
       emit({ type: "narration", stage: "opening", key: "done" });
       emit({ type: "result", payload: { crisis: false, openingTurns } });
@@ -61,42 +55,35 @@ export async function POST(req: NextRequest) {
 
   if (action === "move") {
     const stream = scribeEventStream(async (emit) => {
-      const moveType = body.moveType || "continue_one";
-      // Determine narration based on move type
+      const moveType = body.moveType || "continue_all";
       if (moveType === "duel") {
         emit({ type: "narration", stage: "roundtable", key: "duelPicking" });
       } else {
-        const targetName = body.targetVoiceId ? voiceName(body.targetVoiceId) : "";
-        emit({ type: "narration", stage: "roundtable", key: "voiceThinking", payload: { "角色名": targetName || "圆桌" } });
+        const targetName = body.targetVoiceId ? voiceName(body.targetVoiceId) : "五声";
+        emit({ type: "narration", stage: "roundtable", key: "voiceThinking", payload: { "角色名": targetName } });
       }
       await sleep(200);
 
       const input: RoundtableMoveInput = {
         moveType,
         taskFrame,
+        issueProposal,
         roundtable: body.roundtable,
         targetVoiceId: body.targetVoiceId,
         fromVoiceId: body.fromVoiceId,
         toVoiceId: body.toVoiceId,
         userText: body.userText,
       };
-      const result = await generateRoundtableMove(input, context, llmRuntime);
+      const result = await generateRoundtableMove(
+        input,
+        context,
+        llmRuntime,
+        modelStream(emit, "roundtable"),
+      );
 
-      for (const turn of result.turns) {
-        if (turn.duel) {
-          emit({
-            type: "token",
-            text: `${turn.duel.from_name} 问 ${turn.duel.to_name}：${turn.duel.question}\n${turn.duel.to_name}：${turn.duel.response}\n`,
-          });
-        } else if (turn.text) {
-          emit({ type: "token", text: `${turn.name || "书记员"}：${turn.text}\n` });
-        }
-      }
-
-      // Post-generation narration
-      if (moveType === "duel" && result.turns.length >= 2) {
-        const x = result.turns[0].voice_id ? voiceName(result.turns[0].voice_id) : "";
-        const y = result.turns[1].voice_id ? voiceName(result.turns[1].voice_id) : "";
+      if (moveType === "duel" && result.turns[0]?.duel) {
+        const x = result.turns[0].duel.from_name;
+        const y = result.turns[0].duel.to_name;
         emit({ type: "narration", stage: "roundtable", key: "duelOngoing", payload: { X: x, Y: y } });
         await sleep(300);
       }
@@ -118,4 +105,11 @@ function toRuntime(provider: any): LlmRuntime | undefined {
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function modelStream(emit: (event: ScribeStreamEvent) => void, source: string) {
+  return {
+    onToken: (text: string) => emit({ type: "model_delta", source, text }),
+    onPartial: (payload: unknown) => emit({ type: "object_delta", source, payload }),
+  };
 }

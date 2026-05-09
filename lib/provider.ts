@@ -42,8 +42,8 @@ export const PRESETS: Record<ProviderType, ProviderPreset> = {
     label: "DeepSeek",
     shortName: "DeepSeek",
     baseUrl: "https://api.deepseek.com",
-    model: "deepseek-v4-pro",
-    hint: "默认推荐。中文稳定、成本友好，适合五声圆桌；可手动改为 deepseek-v4-flash 降低延迟。",
+    model: "deepseek-v4-flash",
+    hint: "默认推荐。中文稳定、成本友好，适合五声圆桌；默认使用 deepseek-v4-flash 降低等待延迟，可手动改为其他模型。",
     keyHint: "在 DeepSeek 平台创建 API key。",
     docsUrl: "https://api-docs.deepseek.com/zh-cn/",
   },
@@ -130,12 +130,17 @@ export function saveProviderSecret(id: string, apiKey: string, ref: "browser" | 
   storage.setItem(KEY_SECRET_PREFIX + id, apiKey);
 }
 
+export function removeProviderSecret(id: string) {
+  if (typeof window === "undefined") return;
+  window.localStorage.removeItem(KEY_SECRET_PREFIX + id);
+  window.sessionStorage.removeItem(KEY_SECRET_PREFIX + id);
+}
+
 export function clearProvider() {
   if (typeof window === "undefined") return;
   const active = loadActiveProvider();
   if (active) {
-    window.localStorage.removeItem(KEY_SECRET_PREFIX + active.id);
-    window.sessionStorage.removeItem(KEY_SECRET_PREFIX + active.id);
+    removeProviderSecret(active.id);
   }
   window.localStorage.removeItem(KEY_ACTIVE);
 }

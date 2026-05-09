@@ -1,181 +1,329 @@
 "use client";
 
-/**
- * IssueProposalBoard — 4-Key 议题提案看板
- * 书记员完成追问后，向用户展示如同诊断书般清晰的结构化看板。
- * 四个维度通过金字塔原理的 MECE 原则呈现。
- */
-
 import * as React from "react";
-import type { IssueProposal, ProposalKey } from "@/lib/v7";
+import { Check, Pencil, X } from "lucide-react";
+import type { IssueProposal } from "@/lib/v7";
 
 export interface IssueProposalBoardProps {
   proposal: IssueProposal;
-  /** 用户确认提案 */
   onConfirm: () => void;
-  /** 用户想补充 */
   onRefine: (feedback: string) => void;
-  /** 是否正在处理中 */
+  onUpdate?: (proposal: IssueProposal) => void;
   isLoading?: boolean;
 }
 
+type ProposalField =
+  | "surface_dilemma"
+  | "current_constraints"
+  | "core_fears"
+  | "expected_resolution";
+type EditableField = "issue_sentence" | ProposalField;
+
 const KEY_META: Array<{
-  field: keyof IssueProposal;
-  icon: string;
+  field: ProposalField;
+  label: string;
   fallbackTitle: string;
 }> = [
-  { field: "surface_dilemma", icon: "◇", fallbackTitle: "你面临的选择岔路口" },
-  { field: "current_constraints", icon: "◇", fallbackTitle: "限制你的客观条件" },
-  { field: "core_fears", icon: "◇", fallbackTitle: "你真正害怕的" },
-  { field: "expected_resolution", icon: "◇", fallbackTitle: "你想让圆桌帮你验证的" },
+  {
+    field: "surface_dilemma",
+    label: "Key 1 · 具象化的困惑",
+    fallbackTitle: "具象化的困惑",
+  },
+  {
+    field: "current_constraints",
+    label: "Key 2 · 真实的处境",
+    fallbackTitle: "真实的处境",
+  },
+  {
+    field: "core_fears",
+    label: "Key 3 · 隐秘的关切",
+    fallbackTitle: "隐秘的关切",
+  },
+  {
+    field: "expected_resolution",
+    label: "Key 4 · 渴望的终局",
+    fallbackTitle: "渴望的终局",
+  },
 ];
 
 export function IssueProposalBoard({
   proposal,
   onConfirm,
   onRefine,
+  onUpdate,
   isLoading,
 }: IssueProposalBoardProps) {
-  const [refineMode, setRefineMode] = React.useState(false);
+  const [editing, setEditing] = React.useState<EditableField | null>(null);
+  const [draftText, setDraftText] = React.useState("");
+  const [refineKind, setRefineKind] = React.useState<"boundary" | null>(null);
   const [feedbackText, setFeedbackText] = React.useState("");
 
-  function handleRefineSubmit() {
-    const text = feedbackText.trim();
-    if (text) {
-      onRefine(text);
-      setFeedbackText("");
-      setRefineMode(false);
+  const issueSentence = proposal.issue_sentence || proposal.surface_dilemma.content;
+
+  function beginEdit(field: EditableField, current: string) {
+    if (isLoading) return;
+    setEditing(field);
+    setDraftText(current);
+    setRefineKind(null);
+  }
+
+  function cancelEdit() {
+    setEditing(null);
+    setDraftText("");
+  }
+
+  function saveEdit() {
+    const text = draftText.trim();
+    if (!editing || !text) return;
+    if (!onUpdate) {
+      onRefine(`请把${editing === "issue_sentence" ? "本次议题主句" : keyLabel(editing)}改成：${text}`);
+      cancelEdit();
+      return;
     }
+
+    if (editing === "issue_sentence") {
+      onUpdate({ ...proposal, issue_sentence: text });
+    } else {
+      onUpdate({
+        ...proposal,
+        [editing]: {
+          ...proposal[editing],
+          content: text,
+        },
+      });
+    }
+    cancelEdit();
+  }
+
+  function submitBoundary() {
+    const text = feedbackText.trim();
+    if (!text) return;
+    onRefine(text);
+    setFeedbackText("");
+    setRefineKind(null);
   }
 
   return (
-    <div className="space-y-0">
-      {/* 4-Key Cards */}
-      <div className="rounded-xl overflow-hidden border" style={{ borderColor: "#e8e4df" }}>
-        {KEY_META.map(({ field, icon, fallbackTitle }, idx) => {
-          const key: ProposalKey = proposal[field];
-          return (
-            <div
-              key={field}
-              className={idx < KEY_META.length - 1 ? "border-b" : ""}
-              style={{ borderColor: "#e8e4df" }}
-            >
-              <ProposalKeyCard
-                icon={icon}
-                proposalKey={key}
-                fallbackTitle={fallbackTitle}
-              />
-            </div>
-          );
-        })}
+    <section className="space-y-5">
+      <div className="overflow-hidden rounded-lg border border-paper-edge bg-paper-lift">
+        <ProposalSection
+          title="本次议题"
+          content={issueSentence}
+          details={[]}
+          ariaLabel="本次议题：校对这一句"
+          editLabel="校对这一句"
+          isEditing={editing === "issue_sentence"}
+          draftText={draftText}
+          isLoading={isLoading}
+          onBeginEdit={() => beginEdit("issue_sentence", issueSentence)}
+          onDraftChange={setDraftText}
+          onSave={saveEdit}
+          onCancel={cancelEdit}
+        />
+        {KEY_META.map((item) => (
+          <ProposalSection
+            key={item.field}
+            title={proposal[item.field].title || item.fallbackTitle}
+            content={proposal[item.field].content}
+            details={proposal[item.field].details}
+            ariaLabel={`${item.label}：校对这段`}
+            editLabel="校对这段"
+            isEditing={editing === item.field}
+            draftText={draftText}
+            isLoading={isLoading}
+            onBeginEdit={() => beginEdit(item.field, proposal[item.field].content)}
+            onDraftChange={setDraftText}
+            onSave={saveEdit}
+            onCancel={cancelEdit}
+          />
+        ))}
       </div>
 
-      {/* Actions */}
-      <div className="pt-4 space-y-2">
-        {!refineMode ? (
+      {refineKind === "boundary" ? (
+        <div className="space-y-3">
+          <textarea
+            value={feedbackText}
+            onChange={(e) => setFeedbackText(e.target.value)}
+            placeholder="告诉书记员你觉得哪里不准确、想补充什么..."
+            rows={3}
+            className="w-full resize-none rounded-xl border border-ink-core bg-paper-base px-4 py-3 text-sm leading-relaxed text-ink-core outline-none shadow-sm focus:ring-1 focus:ring-ink-core/20"
+            autoFocus
+          />
           <div className="flex gap-3">
             <button
-              onClick={onConfirm}
-              disabled={isLoading}
-              className="flex-1 py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
-              style={{ backgroundColor: "#4a3f35", color: "#faf8f5" }}
+              type="button"
+              onClick={submitBoundary}
+              disabled={!feedbackText.trim() || isLoading}
+              className="inline-flex flex-1 items-center justify-center rounded-lg bg-ink-core px-4 py-2.5 text-sm font-medium text-paper-base transition-opacity disabled:bg-ink-faint disabled:opacity-70"
             >
-              确认，进入五声圆桌 →
+              提交修改意见
             </button>
             <button
-              onClick={() => setRefineMode(true)}
-              disabled={isLoading}
-              className="px-4 py-2.5 rounded-lg text-sm border transition-colors disabled:opacity-50"
-              style={{ borderColor: "#d4cfc8", color: "#4a3f35" }}
+              type="button"
+              onClick={() => { setRefineKind(null); setFeedbackText(""); }}
+              className="inline-flex items-center justify-center rounded-lg border border-paper-edge bg-paper-base px-5 py-2.5 text-sm text-ink-mute transition-colors hover:border-ink-mute"
             >
-              我想补充…
+              取消
             </button>
           </div>
-        ) : (
-          <div className="space-y-2">
-            <textarea
-              value={feedbackText}
-              onChange={(e) => setFeedbackText(e.target.value)}
-              placeholder="告诉书记员你觉得哪里不准确、想补充什么..."
-              rows={3}
-              className="w-full px-4 py-3 rounded-xl text-sm border resize-none focus:outline-none focus:ring-1"
-              style={{ borderColor: "#d4cfc8", color: "#4a3f35" }}
-              autoFocus
-            />
-            <div className="flex gap-2">
-              <button
-                onClick={handleRefineSubmit}
-                disabled={!feedbackText.trim() || isLoading}
-                className="flex-1 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-40"
-                style={{ backgroundColor: "#4a3f35", color: "#faf8f5" }}
-              >
-                提交修改意见
-              </button>
-              <button
-                onClick={() => { setRefineMode(false); setFeedbackText(""); }}
-                className="px-4 py-2 rounded-lg text-sm border"
-                style={{ borderColor: "#d4cfc8", color: "#8c7e6f" }}
-              >
-                取消
-              </button>
-            </div>
+        </div>
+      ) : (
+        <footer className="flex flex-col gap-3 sm:flex-row">
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={isLoading || !!editing}
+            className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg bg-ink-core px-4 py-2.5 text-sm font-medium text-paper-base transition-opacity disabled:opacity-50"
+          >
+            <Check className="h-4 w-4" />
+            确认，进入五声圆桌 →
+          </button>
+          <button
+            type="button"
+            onClick={() => { setRefineKind("boundary"); setEditing(null); setDraftText(""); }}
+            disabled={isLoading}
+            className="inline-flex items-center justify-center rounded-lg border border-paper-edge px-4 py-2.5 text-sm text-ink-body transition-colors hover:border-ink-mute disabled:opacity-50"
+          >
+            我想补充...
+          </button>
+        </footer>
+      )}
+    </section>
+  );
+}
+
+function ProposalSection({
+  title,
+  content,
+  details,
+  ariaLabel,
+  editLabel,
+  isEditing,
+  draftText,
+  isLoading,
+  onBeginEdit,
+  onDraftChange,
+  onSave,
+  onCancel,
+}: {
+  title: string;
+  content: string;
+  details: string[];
+  ariaLabel: string;
+  editLabel: string;
+  isEditing: boolean;
+  draftText: string;
+  isLoading?: boolean;
+  onBeginEdit: () => void;
+  onDraftChange: (value: string) => void;
+  onSave: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <article className="relative border-b border-paper-edge last:border-b-0">
+      <span
+        aria-hidden="true"
+        className="absolute right-4 top-5 h-2 w-2 rounded-full bg-safe-green sm:right-5"
+      />
+      {isEditing ? (
+        <div className="px-4 py-4 pr-9 sm:px-5 sm:py-4">
+          <div className="mb-2 flex items-center gap-2 text-[13px] font-semibold leading-5 text-ink-mute">
+            <span className="text-ink-faint">◇</span>
+            <span>{title}</span>
           </div>
-        )}
+          <InlineEditor
+            value={draftText}
+            rows={4}
+            onChange={onDraftChange}
+            onSave={onSave}
+            onCancel={onCancel}
+            disabled={isLoading}
+            autoFocus
+          />
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={onBeginEdit}
+          disabled={isLoading}
+          aria-label={ariaLabel}
+          className="group block w-full px-4 py-4 pr-9 text-left transition-colors hover:bg-paper-base/40 focus:outline-none focus-visible:bg-paper-base/60 disabled:cursor-not-allowed sm:px-5 sm:py-4"
+        >
+          <div className="mb-2 flex items-center gap-2 text-[13px] font-semibold leading-5 text-ink-mute">
+            <span className="text-ink-faint">◇</span>
+            <span>{title}</span>
+          </div>
+          <p className="font-serif text-[15px] leading-7 text-ink-core sm:text-body">
+            {content}
+          </p>
+          {details.length > 0 && (
+            <ul className="mt-3 space-y-1 text-[13px] leading-6 text-ink-mute sm:text-body-sm">
+              {details.map((detail) => (
+                <li key={detail}>· {detail}</li>
+              ))}
+            </ul>
+          )}
+          <span className="mt-3 inline-flex items-center gap-1 text-xs text-ink-faint opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
+            <Pencil className="h-3 w-3" />
+            {editLabel}
+          </span>
+        </button>
+      )}
+    </article>
+  );
+}
+
+function InlineEditor({
+  value,
+  rows,
+  autoFocus,
+  disabled,
+  onChange,
+  onSave,
+  onCancel,
+}: {
+  value: string;
+  rows: number;
+  autoFocus?: boolean;
+  disabled?: boolean;
+  onChange: (value: string) => void;
+  onSave: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="space-y-2">
+      <textarea
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        rows={rows}
+        autoFocus={autoFocus}
+        disabled={disabled}
+        className="w-full resize-none rounded-lg border border-paper-edge bg-paper-base px-3 py-2 font-serif text-body text-ink-core outline-none focus:border-ink-mute disabled:opacity-50"
+      />
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={onSave}
+          disabled={!value.trim() || disabled}
+          className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-ink-core px-3 py-2 text-sm font-medium text-paper-base transition-opacity disabled:opacity-40"
+        >
+          <Check className="h-4 w-4" />
+          保存
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={disabled}
+          className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-paper-edge px-3 py-2 text-sm text-ink-mute disabled:opacity-50"
+        >
+          <X className="h-4 w-4" />
+          取消
+        </button>
       </div>
     </div>
   );
 }
 
-// ─── Sub-component ───
-
-function ProposalKeyCard({
-  icon,
-  proposalKey,
-  fallbackTitle,
-}: {
-  icon: string;
-  proposalKey: ProposalKey;
-  fallbackTitle: string;
-}) {
-  const confidenceColor = {
-    high: "#4a7c59",
-    medium: "#b8860b",
-    low: "#c45a3f",
-  }[proposalKey.confidence];
-
-  return (
-    <div className="px-4 py-3.5" style={{ backgroundColor: "#fdfcfb" }}>
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex-1 min-w-0">
-          {/* Title */}
-          <div className="flex items-center gap-1.5 mb-1">
-            <span className="text-xs opacity-60">{icon}</span>
-            <span className="text-xs font-medium" style={{ color: "#8c7e6f" }}>
-              {proposalKey.title || fallbackTitle}
-            </span>
-          </div>
-          {/* Content */}
-          <p className="text-sm leading-relaxed" style={{ color: "#4a3f35" }}>
-            {proposalKey.content}
-          </p>
-          {/* Details */}
-          {proposalKey.details.length > 0 && (
-            <ul className="mt-1.5 space-y-0.5">
-              {proposalKey.details.map((d, i) => (
-                <li key={i} className="text-xs leading-relaxed" style={{ color: "#6b5e50" }}>
-                  · {d}
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-        {/* Confidence dot */}
-        <span
-          className="mt-1 w-2 h-2 rounded-full flex-shrink-0"
-          style={{ backgroundColor: confidenceColor }}
-          title={`把握度: ${proposalKey.confidence}`}
-        />
-      </div>
-    </div>
-  );
+function keyLabel(field: ProposalField) {
+  return KEY_META.find((item) => item.field === field)?.label || "这一段";
 }

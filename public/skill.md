@@ -11,11 +11,11 @@ ParallelMe is not therapy, diagnosis, or crisis intervention. Crisis language sh
 ## Session Shape
 
 1. `原始输入`: the user writes one raw concern.
-2. `本次议题`: the scribe asks high-density choice questions and proposes a task frame.
+2. `本次议题`: the scribe asks focused questions and proposes an issue sentence plus 4 Key.
 3. `五声圆桌`: the fixed five voices give structured opening arguments.
-4. `自由圆桌`: the user can continue all voices, continue one voice, ask one voice, ask the table, or select two voices for a duel.
-5. `书记员问询`: the scribe validates preference patterns with targeted choice questions.
-6. `清明落定`: the scribe produces a clarity sentence, preference readout, tradeoff acknowledgement, posture, and one concrete 24-hour commitment.
+4. `自由圆桌`: the user can continue all voices, ask one voice, ask the table, or let two voices talk directly.
+5. `书记员问询`: the scribe confirms the last key gaps with a visible thinking-and-question loop.
+6. `本心落定`: the scribe produces one settlement card with creative hopelessness, core value axis, cost acceptance, minimum action, and dialectic synthesis.
 
 ## Fixed Five Voices
 

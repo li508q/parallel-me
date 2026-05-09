@@ -4,7 +4,7 @@ export async function POST() {
   return NextResponse.json(
     {
       error:
-        "This endpoint has been retired in v0.7. Use /api/roundtable.",
+        "This endpoint has been retired in v1.0. Use /api/roundtable.",
     },
     { status: 410 }
   );

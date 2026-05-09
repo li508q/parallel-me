@@ -9,6 +9,7 @@
 import * as React from "react";
 import type { DefiningDialogueEntry, ScribeQuestion, ScribeAnswer } from "@/lib/v7";
 import type { ScribeStreamEvent } from "@/lib/agents/events";
+import { ScribeStreamDisclosure } from "@/components/ScribeStreamDisclosure";
 
 export interface DefiningDialogueBoardProps {
   /** 完整对话记录 */
@@ -19,7 +20,7 @@ export interface DefiningDialogueBoardProps {
   isLoading: boolean;
   /** 当前思考状态文案（内联显示，类似 Claude 的 thinking indicator） */
   thinkingText?: string;
-  /** 流式事件（用户可展开查看大模型原始输出） */
+  /** 流式事件（用户可展开查看书记员过程输出） */
   streamEvents?: ScribeStreamEvent[];
   /** 用户提交回答 */
   onAnswer: (answers: ScribeAnswer[]) => void;
@@ -36,7 +37,7 @@ export function DefiningDialogueBoard({
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const [pendingAnswers, setPendingAnswers] = React.useState<Record<string, { optionId?: string; text?: string }>>({});
   const [expandedFreeInput, setExpandedFreeInput] = React.useState<string | null>(null);
-  const [showStreamDetail, setShowStreamDetail] = React.useState(false);
+  const [showStreamDetail, setShowStreamDetail] = React.useState(true);
 
   // Auto-scroll to bottom
   React.useEffect(() => {
@@ -57,12 +58,18 @@ export function DefiningDialogueBoard({
   function handleSubmit() {
     const answers: ScribeAnswer[] = currentQuestions
       .filter((q) => pendingAnswers[q.id])
-      .map((q) => ({
-        question_id: q.id,
-        selected_option_id: pendingAnswers[q.id]?.optionId,
-        free_text: pendingAnswers[q.id]?.text?.trim() || undefined,
-        at: Date.now(),
-      }));
+      .map((q) => {
+        const optionId = pendingAnswers[q.id]?.optionId;
+        const selectedOption = q.options.find((option) => option.id === optionId);
+        return {
+          question_id: q.id,
+          question_text: q.text,
+          selected_option_id: optionId,
+          selected_option_label: selectedOption?.label,
+          free_text: pendingAnswers[q.id]?.text?.trim() || undefined,
+          at: Date.now(),
+        };
+      });
     if (answers.length > 0) {
       onAnswer(answers);
       setPendingAnswers({});
@@ -81,9 +88,11 @@ export function DefiningDialogueBoard({
     <div className="flex flex-col h-full">
       {/* Scrollable dialogue history */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto space-y-4 px-1 pb-4">
-        {dialogue.map((entry, i) => (
-          <DialogueEntry key={i} entry={entry} dialogue={dialogue} />
-        ))}
+        <DefiningDialogueHistory dialogue={dialogue} />
+
+        {!isLoading && currentQuestions.length > 0 && streamEvents?.length ? (
+          <HistoricalThinking events={streamEvents} />
+        ) : null}
 
         {/* Current questions (awaiting user answer) */}
         {currentQuestions.map((q) => (
@@ -99,36 +108,14 @@ export function DefiningDialogueBoard({
           />
         ))}
 
-        {/* Inline thinking indicator (like Claude's "深度思考 · Ns") */}
         {isLoading && (
-          <div className="flex flex-col items-start gap-1.5">
-            <button
-              type="button"
-              onClick={() => setShowStreamDetail((v) => !v)}
-              className="rounded-2xl rounded-tl-sm px-4 py-2.5 max-w-[85%] flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity"
-              style={{ backgroundColor: "#faf8f5" }}
-            >
-              <span className="inline-block w-3.5 h-3.5 border-2 border-stone-300 border-t-stone-500 rounded-full animate-spin" />
-              <span className="text-sm" style={{ color: "#8c7e6f" }}>
-                {thinkingText || "书记员正在思考…"}
-              </span>
-              <span className="text-[10px] ml-1" style={{ color: "#b5a99a" }}>
-                {showStreamDetail ? "▴" : "▾"}
-              </span>
-            </button>
-
-            {/* Expandable stream detail panel */}
-            {showStreamDetail && streamEvents && streamEvents.length > 0 && (
-              <div
-                className="rounded-xl px-4 py-3 w-full max-w-[90%] max-h-[200px] overflow-y-auto text-xs font-mono space-y-1"
-                style={{ backgroundColor: "#f5f2ee", color: "#7a6e60" }}
-              >
-                {streamEvents.map((evt, i) => (
-                  <StreamEventLine key={i} event={evt} />
-                ))}
-              </div>
-            )}
-          </div>
+          <ScribeStreamDisclosure
+            compact
+            narration={thinkingText}
+            events={streamEvents}
+            open={showStreamDetail}
+            onOpenChange={setShowStreamDetail}
+          />
         )}
       </div>
 
@@ -154,27 +141,27 @@ export function DefiningDialogueBoard({
 
 // ─── Sub-components ───
 
-function StreamEventLine({ event }: { event: ScribeStreamEvent }) {
-  switch (event.type) {
-    case "narration":
-      return <div className="text-stone-500">📝 {event.key}</div>;
-    case "token":
-      return <span className="text-stone-600 whitespace-pre-wrap">{event.text}</span>;
-    case "tool":
-      return (
-        <div className="text-stone-500">
-          🔧 {event.name} — {event.state}{event.detail ? `: ${event.detail}` : ""}
-        </div>
-      );
-    case "decision":
-      return <div className="text-stone-500">❓ {event.prompt}</div>;
-    case "error":
-      return <div className="text-red-600">⚠️ {event.message}</div>;
-    case "done":
-      return <div className="text-green-700">✓ {event.summary || "完成"}</div>;
-    default:
-      return <div className="text-stone-400">{JSON.stringify(event)}</div>;
-  }
+export function DefiningDialogueHistory({
+  dialogue,
+  thinkingEvents,
+  className,
+}: {
+  dialogue: DefiningDialogueEntry[];
+  thinkingEvents?: ScribeStreamEvent[];
+  className?: string;
+}) {
+  if (dialogue.length === 0 && !thinkingEvents?.length) return null;
+
+  return (
+    <div className={["space-y-4", className].filter(Boolean).join(" ")}>
+      {dialogue.map((entry, i) => (
+        <DialogueEntry key={i} entry={entry} dialogue={dialogue} />
+      ))}
+      {thinkingEvents?.length ? (
+        <HistoricalThinking events={thinkingEvents} />
+      ) : null}
+    </div>
+  );
 }
 
 function DialogueEntry({ entry, dialogue }: { entry: DefiningDialogueEntry; dialogue: DefiningDialogueEntry[] }) {
@@ -203,6 +190,9 @@ function DialogueEntry({ entry, dialogue }: { entry: DefiningDialogueEntry; dial
     return (
       <div className="flex items-start gap-2">
         <div className="max-w-[85%] space-y-1.5">
+          {entry.thinking_events?.length ? (
+            <HistoricalThinking events={entry.thinking_events} />
+          ) : null}
           <div
             className="rounded-2xl rounded-tl-sm px-4 py-3"
             style={{ backgroundColor: "#faf8f5" }}
@@ -230,6 +220,41 @@ function DialogueEntry({ entry, dialogue }: { entry: DefiningDialogueEntry; dial
   return null;
 }
 
+function HistoricalThinking({ events }: { events: ScribeStreamEvent[] }) {
+  const [open, setOpen] = React.useState(false);
+  const text = React.useMemo(() => extractThinkingText(events), [events]);
+  if (!text) return null;
+
+  return (
+    <div className="pl-1">
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        className="text-[11px] leading-none text-ink-faint underline-offset-2 transition-colors hover:text-ink-mute hover:underline"
+      >
+        {open ? "收起思考" : "展示思考"}
+      </button>
+      {open ? (
+        <div className="mt-2 max-h-[180px] max-w-[560px] overflow-y-auto rounded-lg border border-paper-edge bg-paper-lift px-3 py-2 text-xs leading-relaxed text-ink-mute">
+          <p className="whitespace-pre-wrap">{text}</p>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function extractThinkingText(events: ScribeStreamEvent[]) {
+  const deltas: string[] = [];
+  for (const event of events) {
+    if (event.type === "reasoning_delta") {
+      deltas.push(event.text);
+    } else if (event.type === "token") {
+      deltas.push(event.text);
+    }
+  }
+  return deltas.join("").trim();
+}
+
 function QuestionBubble({
   question,
   selectedOptionId,
@@ -247,6 +272,7 @@ function QuestionBubble({
   onFreeTextChange: (text: string) => void;
   onExpandFreeInput: () => void;
 }) {
+  const customOption = question.options.find(isCustomFreeTextOption);
   return (
     <div className="flex items-start gap-2">
       <div className="max-w-[90%] space-y-2.5">
@@ -262,23 +288,27 @@ function QuestionBubble({
 
         {/* Option pills */}
         <div className="flex flex-wrap gap-2 pl-1">
-          {question.options.map((opt) => (
-            <button
-              key={opt.id}
-              onClick={() => onOptionSelect(opt.id)}
-              className="px-3.5 py-1.5 rounded-full text-sm transition-all border"
-              style={{
-                backgroundColor: selectedOptionId === opt.id ? "#4a3f35" : "#ffffff",
-                color: selectedOptionId === opt.id ? "#faf8f5" : "#4a3f35",
-                borderColor: selectedOptionId === opt.id ? "#4a3f35" : "#d4cfc8",
-              }}
-            >
-              {opt.label}
-            </button>
-          ))}
+          {question.options.map((opt) => {
+            const isCustom = opt.id === customOption?.id;
+            return (
+              <button
+                key={opt.id}
+                onClick={() => (isCustom ? onExpandFreeInput() : onOptionSelect(opt.id))}
+                className="px-3.5 py-1.5 rounded-full text-sm transition-all border"
+                style={{
+                  backgroundColor: selectedOptionId === opt.id ? "#4a3f35" : "#ffffff",
+                  color: selectedOptionId === opt.id ? "#faf8f5" : "#4a3f35",
+                  borderColor: selectedOptionId === opt.id ? "#4a3f35" : isCustom ? "#c4bdb4" : "#d4cfc8",
+                  borderStyle: isCustom ? "dashed" : "solid",
+                }}
+              >
+                {opt.label}
+              </button>
+            );
+          })}
 
           {/* "我想自己说" button */}
-          {!isFreeInputExpanded && (
+          {!customOption && !isFreeInputExpanded && (
             <button
               onClick={onExpandFreeInput}
               className="px-3.5 py-1.5 rounded-full text-sm border border-dashed transition-colors"
@@ -310,4 +340,11 @@ function QuestionBubble({
       </div>
     </div>
   );
+}
+
+function isCustomFreeTextOption(option: { id: string; label: string }): boolean {
+  const id = option.id.trim().toLowerCase();
+  const label = option.label.trim();
+  if (id === "custom" || id === "other" || id === "free_text") return true;
+  return /^(都不准|都不对|不准确|我想自己说|我自己说|自己补一句|我自己补一句)/.test(label);
 }

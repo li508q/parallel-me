@@ -1,7 +1,6 @@
-// lib/llm.ts — v0.7 provider-aware orchestration.
-// The product path is now: task frame -> fixed five-voice roundtable ->
-// scribe inquiry -> clarity settlement. Old staged voice-flow contracts are
-// not used here.
+// lib/llm.ts — v1 provider-aware orchestration.
+// The product path is now: issue proposal -> five-voice roundtable ->
+// invisible scribe observation -> scribe inquiry -> alignment report.
 //
 // Production patterns applied:
 // - Vercel AI SDK (generateText / generateObject) for LLM calls
@@ -9,17 +8,16 @@
 // - Exponential backoff retry with rate-limit header respect
 // - Schema validation via AI SDK generateObject (auto-repair built-in)
 
-import { generateText, generateObject } from "ai";
+import { generateText, generateObject, streamObject, streamText } from "ai";
 import { createProvider } from "./ai-provider";
 
 import {
+  AlignmentReportSchema,
   ProbeResultSchema,
   ProposalResultSchema,
-  OpeningTurnsResultSchema,
   RefineResultSchema,
   InquiryResultSchema,
-  ClarityResultSchema,
-  RoundtableRawResultSchema,
+  ScribeObservationLedgerSchema,
   TaskFrameResultSchema,
   TasteProfileSchema,
 } from "./schema";
@@ -28,28 +26,25 @@ import { SELVES, type SelfId, SELVES_META } from "./selves";
 import { scribePersonaBlock } from "./scribe";
 import {
   VOICE_IDS,
-  emptyRoundtable,
-  emptyScribeTrace,
   isVoiceId,
   voiceName,
   proposalToTaskFrame,
+  type AlignmentProfile,
+  type AlignmentReport,
   type ChoiceAnswer,
   type ChoiceCard,
-  type ClarityResult,
   type DefiningDialogue,
   type IssueProposal,
-  type PreferenceProfile,
   type ProposalKey,
   type RoundtableMove,
   type RoundtableMoveType,
   type RoundtableRecord,
   type RoundtableTurn,
+  type ScribeObservationLedger,
   type ScribeAnswer,
   type ScribeInquiryAnswer,
   type ScribeInquiryQuestion,
   type ScribeQuestion,
-  type ScribeTrace,
-  type SettlementPosture,
   type TaskFrame,
   type VisibleTaskFrame,
   type VoiceId,
@@ -158,6 +153,7 @@ export interface TaskFrameResult {
 export interface RoundtableMoveInput {
   moveType: RoundtableMoveType;
   taskFrame: TaskFrame;
+  issueProposal?: IssueProposal;
   roundtable: RoundtableRecord;
   targetVoiceId?: VoiceId;
   fromVoiceId?: VoiceId;
@@ -168,13 +164,16 @@ export interface RoundtableMoveInput {
 export interface RoundtableMoveResult {
   move: RoundtableMove;
   turns: RoundtableTurn[];
-  scribeNote: string;
 }
 
 export interface InquiryResult {
   questions: ScribeInquiryQuestion[];
-  preferenceProfile: PreferenceProfile;
+  readyForReport: boolean;
+  alignmentProfile: AlignmentProfile;
+  ledger: ScribeObservationLedger;
 }
+
+const MAX_ALIGNMENT_INQUIRY_QUESTIONS = 12;
 
 function resolveRuntime(rt?: LlmRuntime) {
   return {
@@ -202,6 +201,22 @@ export interface ChatOpts {
   runtime?: LlmRuntime;
   maxRetries?: number;
   timeoutMs?: number;
+  onPartial?: (partial: unknown) => void;
+  onToken?: (delta: string) => void;
+}
+
+export interface LlmStreamHandlers {
+  onPartial?: (partial: unknown) => void;
+  onToken?: (delta: string) => void;
+  onReasoning?: (delta: string, meta?: { source?: string; mode?: "native" | "public" }) => void;
+}
+
+type StreamHandlerArg = ((partial: unknown) => void) | LlmStreamHandlers | undefined;
+
+function streamOpts(stream?: StreamHandlerArg): LlmStreamHandlers {
+  if (!stream) return {};
+  if (typeof stream === "function") return { onPartial: stream };
+  return stream;
 }
 
 /**
@@ -279,6 +294,27 @@ export async function chat(
 
 import { z } from "zod";
 
+const VoiceOpeningPayloadResultSchema = z.object({
+  thesis: z.string().default(""),
+  pull: z.string().default(""),
+  concern: z.string().default(""),
+  protected_value: z.string().default(""),
+  task_evidence: z.string().default(""),
+});
+
+const VoiceTurnTextResultSchema = z.object({
+  text: z.string().default(""),
+  refers_to: z.array(z.string()).optional().default([]),
+});
+
+const DuelQuestionResultSchema = z.object({
+  question: z.string().default(""),
+});
+
+const DuelResponseResultSchema = z.object({
+  response: z.string().default(""),
+});
+
 /**
  * Generate LLM output with Zod schema validation via AI SDK generateObject.
  * AI SDK handles JSON parsing, validation, and auto-repair internally.
@@ -301,6 +337,29 @@ export async function generateValidated<T>(
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
+      if (opts.onPartial || opts.onToken) {
+        const result = streamObject({
+          model,
+          messages: messages.map((m) => ({ role: m.role, content: m.content })),
+          schema,
+          temperature: opts?.temperature ?? 0.75,
+          maxOutputTokens: opts?.max_tokens ?? 600,
+          abortSignal: AbortSignal.timeout(timeoutMs),
+        });
+
+        for await (const part of result.fullStream) {
+          if (part.type === "text-delta") {
+            opts.onToken?.(part.textDelta);
+          } else if (part.type === "object") {
+            opts.onPartial?.(part.object);
+          } else if (part.type === "error") {
+            throw part.error instanceof Error ? part.error : new Error(String(part.error));
+          }
+        }
+
+        return (await result.object) as T;
+      }
+
       const result = await generateObject({
         model,
         messages: messages.map((m) => ({ role: m.role, content: m.content })),
@@ -371,23 +430,45 @@ function compactTaskFrame(frame: TaskFrame): string {
   ].join("\n");
 }
 
+function compactIssueProposal(proposal: IssueProposal): string {
+  const keyPairs: Array<[string, ProposalKey]> = [
+    ["当下的选择岔路是什么？", proposal.surface_dilemma],
+    ["限制选择的现实边界是什么？", proposal.current_constraints],
+    ["真正害怕失去的是什么？", proposal.core_fears],
+    ["这次圆桌要验证什么？", proposal.expected_resolution],
+  ];
+  const keyLines = keyPairs.map(([question, key]) => {
+    const details = key.details.length ? `\n  线索：${key.details.join("；")}` : "";
+    return `- ${question}\n  ${key.content}${details}`;
+  });
+  return [`本次议题：${proposal.issue_sentence}`, "4 Key：", ...keyLines].join("\n");
+}
+
+function compactRoundtableBrief(taskFrame: TaskFrame, proposal?: IssueProposal): string {
+  if (proposal) return compactIssueProposal(proposal);
+  return compactTaskFrame(taskFrame);
+}
+
 function serializeRoundtable(roundtable: RoundtableRecord): string {
   const openings = roundtable.opening_turns
     .map(
       (t) =>
-        `[${t.name}] ${t.thesis} / 保护：${t.protected_value} / 担心：${t.concern} / 拉向：${t.pull}`,
+        `[${t.name}] 痛苦本质：${t.thesis} / 第一步：${t.pull} / 苦果：${t.concern} / 守护底线：${t.protected_value}`,
     )
     .join("\n");
   const turns = roundtable.turns
-    .slice(-14)
     .map((t) => {
       if (t.duel) {
-        return `[对峙] ${t.duel.from_name} 问 ${t.duel.to_name}: ${t.duel.question} / ${t.duel.to_name}: ${t.duel.response}`;
+        return `[两声对话] ${t.duel.from_name} 问 ${t.duel.to_name}: ${t.duel.question} / ${t.duel.to_name}: ${t.duel.response}`;
+      }
+      if (t.trigger === "user_reaction") {
+        const target = t.reply_to_name || (t.reply_to_voice_id ? voiceName(t.reply_to_voice_id) : "这条发言");
+        const quoted = t.reply_to_text ? `（原话：${t.reply_to_text}）` : "";
+        return `[用户答复/反驳 ${target}] ${t.user_text || t.text}${quoted}`;
       }
       if (t.trigger === "user_text") return `[用户] ${t.user_text || t.text}`;
-      if (t.trigger === "mirror_structure") return `[书记员观察] ${t.text}`;
       if (t.voice_id) return `[${t.name}] ${t.text}`;
-      return `[书记员] ${t.text}`;
+      return `[圆桌记录] ${t.text}`;
     })
     .join("\n");
   return `第一轮：\n${openings || "（还没有）"}\n\n后续：\n${turns || "（还没有）"}`;
@@ -402,6 +483,7 @@ export async function generateTaskFrame(
   choiceAnswers: ChoiceAnswer[] = [],
   ctx?: ContextBundle,
   runtime?: LlmRuntime,
+  onPartial?: StreamHandlerArg,
 ): Promise<TaskFrameResult> {
   const fallback = fallbackTaskFrame(rawInput, choiceAnswers);
   const answersText = choiceAnswers.length
@@ -413,7 +495,7 @@ export async function generateTaskFrame(
         .join("\n\n")
     : "（还没有选择卡答案）";
 
-  const sys = `你是 ParallelMe v0.7 的书记员。你的任务是把用户原始输入整理成“本次议题”，并设计少量高密度选择卡。
+  const sys = `你是 ParallelMe v1.0 的书记员。你的任务是把用户原始输入整理成“本次议题”，并设计少量高密度选择卡。
 
 ${scribePersonaBlock("brief")}
 
@@ -473,7 +555,7 @@ ${scribePersonaBlock("brief")}
         { role: "user", content: `原始输入：\n${rawInput}\n\n选择卡答案：\n${answersText}` },
       ],
       TaskFrameResultSchema,
-      { temperature: 0.45, max_tokens: 1800, json: true, runtime, fallback: fallback as any },
+      { temperature: 0.45, max_tokens: 1800, json: true, runtime, fallback: fallback as any, ...streamOpts(onPartial) },
     );
     return normalizeTaskFrameResult(validated, rawInput, choiceAnswers, fallback);
   } catch (e) {
@@ -488,6 +570,99 @@ export interface ProbeResult {
   questions: ScribeQuestion[];
   readyToPropose: boolean;
   thinking: string;
+}
+
+function safeProbeFallback(rawInput: string): ProbeResult {
+  const careerFamily = /(妈|母亲|父母|老家|考公|大厂|月薪|工资|稳定)/.test(rawInput);
+  return {
+    readyToPropose: false,
+    thinking: "当前信息还不足以稳妥形成 4-Key，先补一轮关键追问。",
+    questions: careerFamily
+      ? [
+          {
+            id: "q_real_pull",
+            text: "如果暂时不看收入差距，你内心真正犹豫的是哪一层？",
+            purpose: "core_fears",
+            options: [
+              { id: "family_pressure", label: "我主要是不想让家里失望，也怕关系一直被这件事消耗。" },
+              { id: "future_risk", label: "我其实也担心大厂的不确定性，只是不确定是否值得用收入去换稳定。" },
+              { id: "self_choice", label: "我不想回去，但又怕自己只是短期被高薪和城市惯性推着走。" },
+              { id: "custom", label: "都不准，我自己说" },
+            ],
+          },
+          {
+            id: "q_expected_resolution",
+            text: "你希望这次圆桌最终帮你验证什么？",
+            purpose: "expected_resolution",
+            options: [
+              { id: "boundary", label: "我想确认自己能承受多大程度地违背母亲期待。" },
+              { id: "tradeoff", label: "我想算清楚高收入、稳定、陪伴家人之间到底哪一个是底线。" },
+              { id: "timeline", label: "我想知道这是不是一个现在必须做的决定，还是可以先设观察期。" },
+              { id: "custom", label: "都不准，我自己说" },
+            ],
+          },
+        ]
+      : [
+          {
+            id: "q_missing_key",
+            text: "这件事真正卡住你的地方，更接近哪一种？",
+            purpose: "core_fears",
+            options: [
+              { id: "fear_loss", label: "我怕选错以后，会失去某个对我很重要的东西。" },
+              { id: "pressure", label: "我更像是被外部期待推着走，还没听清自己的声音。" },
+              { id: "unclear_goal", label: "我知道表面选项，但不知道自己到底想验证什么。" },
+              { id: "custom", label: "都不准，我自己说" },
+            ],
+          },
+        ],
+  };
+}
+
+function normalizeProbeQuestions(questions: ScribeQuestion[] = []): ScribeQuestion[] {
+  return questions.map((question) => {
+    const options = question.options
+      .map((option, index) => ({
+        id: String(option.id || "").trim() || `option_${index + 1}`,
+        label: String(option.label || "").trim(),
+      }))
+      .filter((option) => option.label);
+
+    if (!options.some(isCustomFreeTextOption)) {
+      options.push({ id: "custom", label: "都不准，我自己说" });
+    }
+
+    return { ...question, options };
+  });
+}
+
+function isCustomFreeTextOption(option: { id: string; label: string }): boolean {
+  const id = option.id.trim().toLowerCase();
+  const label = option.label.trim();
+  if (id === "custom" || id === "other" || id === "free_text") return true;
+  return /^(都不准|都不对|不准确|我想自己说|我自己说|自己补一句|我自己补一句)/.test(label);
+}
+
+function shouldForceProbe(rawInput: string, dialogue: DefiningDialogue, result: ProbeResult): boolean {
+  if (!result.readyToPropose) return false;
+  const combined = [
+    rawInput,
+    ...dialogue.map((entry) => {
+      if (entry.role === "scribe") return entry.question?.text || "";
+      return [
+        entry.answer?.question_text,
+        entry.answer?.selected_option_label,
+        entry.answer?.free_text,
+      ].filter(Boolean).join(" ");
+    }),
+  ].join("\n");
+  const userAnswerCount = dialogue.filter((entry) => entry.role === "user").length;
+  const hasSurfaceChoice = /(还是|要不要|该不该|留在|回|考公|辞职|选择|一边|另一边|vs|VS|还是说)/.test(combined);
+  const hasConcreteConstraint = /(\d|月薪|年薪|收入|房|钱|父母|妈妈|母亲|老家|大厂|稳定|压力|年龄|时间|健康|婚|孩子|债|存款)/.test(combined);
+  const hasHiddenConcern = /(害怕|担心|怕|焦虑|愧疚|不甘心|后悔|自由|体面|安全感|价值|身份|尊严|掌控|亏欠|内疚|想证明|不想失去)/.test(combined);
+  const hasExpectedResolution = /(希望|想让|想知道|验证|确认|看清|圆桌|讨论|帮我|到底|边界|底线|决定什么|怎么选)/.test(combined);
+
+  if (userAnswerCount >= 2 && hasSurfaceChoice && hasConcreteConstraint) return false;
+  return !(hasSurfaceChoice && hasConcreteConstraint && hasHiddenConcern && hasExpectedResolution);
 }
 
 export interface ProposalResult {
@@ -505,43 +680,178 @@ export interface RefineResult {
 
 function serializeDialogue(dialogue: DefiningDialogue): string {
   if (dialogue.length === 0) return "（还没有对话）";
+  const questions = new Map<string, ScribeQuestion>();
+  for (const entry of dialogue) {
+    if (entry.role === "scribe" && entry.question) {
+      questions.set(entry.question.id, entry.question);
+    }
+  }
   return dialogue.map((entry) => {
     if (entry.role === "scribe" && entry.question) {
-      const opts = entry.question.options.map((o) => o.label).join(" / ");
-      return `[书记员] ${entry.question.text}\n  猜测选项：${opts}`;
+      const thinking = extractDialogueThinking(entry.thinking_events);
+      const opts = entry.question.options
+        .map((o, index) => `${index + 1}. ${o.label}`)
+        .join("\n");
+      return [
+        thinking ? `书记员上一轮思考：${thinking}` : "",
+        `书记员问：${entry.question.text}`,
+        `可选回应：\n${opts}`,
+      ].filter(Boolean).join("\n");
     }
     if (entry.role === "user" && entry.answer) {
-      const selected = entry.answer.selected_option_id ? `选择了「${entry.answer.selected_option_id}」` : "";
+      const question = questions.get(entry.answer.question_id);
+      const selectedLabel = entry.answer.selected_option_label
+        || question?.options.find((o) => o.id === entry.answer?.selected_option_id)?.label
+        || "";
+      const questionText = entry.answer.question_text || question?.text || "";
+      const selected = selectedLabel ? `用户选择：${selectedLabel}` : "";
       const free = entry.answer.free_text ? entry.answer.free_text : "";
-      return `[用户] ${selected}${selected && free ? " + " : ""}${free}`;
+      return [
+        questionText ? `对应问题：${questionText}` : "",
+        selected,
+        free ? `用户补充：${free}` : "",
+      ].filter(Boolean).join("\n");
     }
     return "";
   }).filter(Boolean).join("\n\n");
 }
 
-const SCRIBE_PROBE_SYSTEM = `你是 ParallelMe 的书记员，深豙金字塔原理（Barbara Minto）的问题定义方法论。
+function extractDialogueThinking(events: DefiningDialogue[number]["thinking_events"]) {
+  if (!events?.length) return "";
+  return events
+    .filter((event) => event.type === "reasoning_delta")
+    .map((event) => event.text)
+    .join("")
+    .trim();
+}
 
-你的身份：不是记录者，不是引导者，而是「挖掘者」。你不引导用户思考什么，而是知道怎么提问才能挖出用户真实想讨论的内容和处境背景。
+type ScribeReasoningMode = "probe" | "proposal" | "refine" | "taskFrame";
+
+interface ScribeReasoningInput {
+  mode: ScribeReasoningMode;
+  source: string;
+  rawInput: string;
+  dialogueText?: string;
+  currentProposal?: IssueProposal;
+  userFeedback?: string;
+  ctx?: ContextBundle;
+  runtime?: LlmRuntime;
+  onReasoning?: LlmStreamHandlers["onReasoning"];
+}
+
+const STAGE_ONE_SCRIBE_SYSTEM = `你是 ParallelMe 阶段一的问题定义者：一位深谙金字塔原理的架构师。
+
+面对用户模糊、情绪化、甚至自相矛盾的初始输入，你的任务是自下而上地收集信息，自上而下地构建逻辑，最终输出一份结构化的《议题提案》。
+
+核心交互策略：
+- 剥洋葱法：拒绝表面叙事。当用户只说焦虑、纠结、委屈或想逃开时，不提供建议，而是追问那股感受背后具体是哪类担忧。
+- 边界测试：通过极端假设逼近真实想法。例如把钱、时间、失败成本、家庭期待、关系后果推到边界，观察用户真正不能失去什么。
+
+阶段一只做一件事：完成问题定义。你不替用户做决定，不给建议，不做临床判断，不安慰，也不进入五声圆桌。
+
+你需要在对话中反复判断：
+1. 具象化的困惑是否清楚。
+2. 真实的处境是否足够。
+3. 隐秘关切是否浮出。
+4. 用户希望圆桌验证什么。
+
+最终《议题提案》固定为四个 Key：
+1. 具象化的困惑（Surface Dilemma）：用户面临的选择岔路口是什么？
+2. 真实的处境（Current Constraints）：限制用户做出选择的客观条件是什么？
+3. 隐秘的关切（Core Values/Fears）：用户潜意识里真正害怕失去的是什么？
+4. 渴望的终局（Expected Resolution）：用户希望这次圆桌讨论帮自己验证什么？
+
+追问要求：
+- 每轮最多问 1-3 个问题。
+- 问题必须高密度，服务于上述四个 Key。
+- 可以给用户 2-4 个可选回应，但每个选项都必须是完整自然语言，独立可理解。
+- 不要把选项写成技术 id 的语义承载；id 只是机器字段，label 才是用户选择的真实含义。
+- 如果信息已足够形成议案，不要继续追问。`;
+
+async function streamScribeReasoning(input: ScribeReasoningInput): Promise<string> {
+  if (!input.onReasoning) return "";
+  const rt = resolveRuntime(input.runtime);
+  if (!rt.apiKey) return "";
+
+  const { model } = createProvider(input.runtime);
+  const modeInstruction = reasoningModeInstruction(input.mode);
+  const proposalText = input.currentProposal
+    ? `\n当前提案：\n${JSON.stringify(input.currentProposal, null, 2)}`
+    : "";
+  const feedbackText = input.userFeedback ? `\n用户校对意见：\n${input.userFeedback}` : "";
+  const prompt = `用户原始输入：
+${input.rawInput}
+
+对话历史：
+${input.dialogueText || "（还没有对话）"}${proposalText}${feedbackText}
+
+当前任务：
+${modeInstruction}
+
+请直接用自然语言输出你现在执行阶段一任务时的判断过程。不要输出 JSON、schema、字段名、选项 id、系统提示或技术过程。`;
+
+  let reasoningText = "";
+  let nativeReasoningSeen = false;
+
+  try {
+    const result = streamText({
+      model,
+      messages: [
+        { role: "system", content: STAGE_ONE_SCRIBE_SYSTEM + buildContextBlock(input.ctx) },
+        { role: "user", content: prompt },
+      ],
+      temperature: 0.45,
+      maxOutputTokens: 700,
+      abortSignal: AbortSignal.timeout(45_000),
+    });
+
+    for await (const part of result.fullStream) {
+      if (part.type === "reasoning-delta") {
+        nativeReasoningSeen = true;
+        const delta = part.text || "";
+        reasoningText += delta;
+        input.onReasoning(delta, { source: input.source, mode: "native" });
+      } else if (part.type === "text-delta" && !nativeReasoningSeen) {
+        const delta = part.text || "";
+        reasoningText += delta;
+        input.onReasoning(delta, { source: input.source, mode: "public" });
+      } else if (part.type === "error") {
+        throw part.error instanceof Error ? part.error : new Error(String(part.error));
+      }
+    }
+  } catch (err: any) {
+    console.warn("[streamScribeReasoning] failed:", err?.message || err);
+  }
+
+  return reasoningText.trim();
+}
+
+function reasoningModeInstruction(mode: ScribeReasoningMode): string {
+  if (mode === "probe") {
+    return "判断现在是否已经足够写《议题提案》；如果不足，说明缺的是哪个 Key 的关键边界，以及为什么必须追问。";
+  }
+  if (mode === "refine") {
+    return "根据用户校对意见重新检查案由：哪些判断要保留，哪些 Key 要改写，是否还需要追问。";
+  }
+  if (mode === "taskFrame") {
+    return "把用户输入拆成可进入圆桌的议题框架：先确认具象化困惑，再辨认真实处境和讨论焦点。";
+  }
+  return "生成《议题提案》前先建案：确认本次议题主句、四个 Key 的边界，以及最终圆桌要验证的任务。";
+}
+
+const SCRIBE_PROBE_SYSTEM = `${STAGE_ONE_SCRIBE_SYSTEM}
 
 ${scribePersonaBlock("brief")}
 
-你的任务：通过有来有回的对话，逐步收集信息来填充四个维度：
-1. 具象化的困惑（Surface Dilemma）— 用户面临的选择岔路口是什么？
-2. 真实的处境（Current Constraints）— 限制选择的客观条件是什么？
-3. 隐秘的关切（Core Fears）— 潜意识里真正害怕失去的是什么？
-4. 渴望的终局（Expected Resolution）— 希望这次讨论帮验证什么？
-
-追问策略：
-- 剥洋葱法：当用户表达模糊情绪时，追问哪种情绪更强烈
-- 边界测试：通过极端假设逼近真实想法
-- 每次最多问 1-3 个问题（不要堆积）
-- 每个问题给出 2-4 个猜测选项（你基于金字塔原理对用户处境的有根据推测，降低用户思考成本）
-- 用户可以选择猜测选项，也可以自由输入
-- 不做长追问，不逐字段拷问，语气自然、像对话
-
 判断何时结束追问：
-- 当四个维度都有了至少 medium confidence 的信息
+- 当你已经能写出一句清楚的“本次议题主句”，并且四个 Key 都能用自然语言说清、互不重复
+- 当 Surface Dilemma、Current Constraints、Core Values/Fears、Expected Resolution 的主要边界已经清楚；仍缺的细节不会改变成案方向
+- 如果缺的是关键边界（例如失败成本、家庭压力、现金流、真正想验证什么），先追问；如果只是枝节不全，可以成案并把判断写成可校对的自然语言
 - 或已追问达到 5 轮
+
+你只允许输出两类结果：
+- ask_more：readyToPropose=false，并输出 1-3 个高质量追问。
+- issue_proposal：readyToPropose=true，questions 为空，表示下一步应生成《议题提案》。
 
 输出严格 JSON：
 {
@@ -549,12 +859,12 @@ ${scribePersonaBlock("brief")}
     {
       "id": "q_xxx",
       "text": "一句自然语言的追问",
-      "options": [{"id": "opt_a", "label": "猜测A"}, {"id": "opt_b", "label": "猜测B"}],
+      "options": [{"id": "opt_a", "label": "一个完整、自然、可独立理解的回应选项"}, {"id": "opt_b", "label": "另一个完整回应选项"}],
       "purpose": "surface_dilemma|current_constraints|core_fears|expected_resolution"
     }
   ],
   "readyToPropose": false,
-  "thinking": "内部思考过程，为什么这么问"
+  "thinking": "给 Trace 用的公开工作笔记：说明缺了哪个 Key 的关键边界，为什么要问"
 }`;
 
 export async function generateScribeQuestions(
@@ -562,17 +872,31 @@ export async function generateScribeQuestions(
   dialogue: DefiningDialogue,
   ctx?: ContextBundle,
   runtime?: LlmRuntime,
+  onPartial?: StreamHandlerArg,
 ): Promise<ProbeResult> {
   const dialogueText = serializeDialogue(dialogue);
+  const handlers = streamOpts(onPartial);
+  const reasoningMemo = await streamScribeReasoning({
+    mode: "probe",
+    source: "probe",
+    rawInput,
+    dialogueText,
+    ctx,
+    runtime,
+    onReasoning: handlers.onReasoning,
+  });
   const userMsg = `用户原始输入：
 ${rawInput}
 
 已有对话：
 ${dialogueText}
 
+刚才的自然语言判断过程：
+${reasoningMemo || "（没有可用判断过程）"}
+
 请基于以上信息，决定是继续追问还是信息已经足够可以生成提案。如果继续追问，输出 1-3 个问题。`;
 
-  const fallback: ProbeResult = { questions: [], readyToPropose: true, thinking: "" };
+  const fallback: ProbeResult = safeProbeFallback(rawInput);
   try {
     const validated = await generateValidated(
       [
@@ -580,12 +904,20 @@ ${dialogueText}
         { role: "user", content: userMsg },
       ],
       ProbeResultSchema,
-      { temperature: 0.6, max_tokens: 800, json: true, runtime, fallback },
+      { temperature: 0.6, max_tokens: 800, json: true, runtime, fallback, ...handlers },
     );
-    return {
-      questions: validated.questions,
+    const normalized: ProbeResult = {
+      questions: normalizeProbeQuestions(validated.questions),
       readyToPropose: validated.readyToPropose,
       thinking: validated.thinking || "",
+    };
+    if (shouldForceProbe(rawInput, dialogue, normalized)) {
+      return fallback;
+    }
+    return {
+      questions: normalized.questions,
+      readyToPropose: normalized.readyToPropose,
+      thinking: normalized.thinking,
     };
   } catch (e) {
     console.warn("[generateScribeQuestions] error", e);
@@ -593,36 +925,50 @@ ${dialogueText}
   }
 }
 
-const SCRIBE_PROPOSE_SYSTEM = `你是 ParallelMe 的书记员。基于收集到的全部信息，用金字塔原理的 MECE 原则生成议题提案。
+const SCRIBE_PROPOSE_SYSTEM = `${STAGE_ONE_SCRIBE_SYSTEM}
 
 ${scribePersonaBlock("brief")}
 
+现在信息已经足够形成《议题提案》。请把完整对话收束为一份进入五声圆桌前的问题定义文件。
+
+成案原则：
+- MECE：四个 Key 要相互独立、共同穷尽，不要把同一件事换个说法重复写四遍。
+- 案由优先：先写出一句“本次议题主句”，再展开四个 Key。
+- 只定义问题，不回答用户该怎么选。
+
+本次议题主句（issue_sentence）：
+- 一句话写清“这次圆桌的案由”，不是标题，不是摘要，不是建议。
+- 好的句式：你不是单纯在问 X，而是在确认 Y。
+- 必须可被用户校对，像一份进入圆桌前的案由。
+
 4 个 Key 的要求：
-- Key 1 具象化的困惑（surface_dilemma）：必须是 "A vs B" 或多选形式，语言锋利不含糊
-- Key 2 真实的处境（current_constraints）：只列客观事实/约束，剥离情绪
-- Key 3 隐秘的关切（core_fears）：写出用户可能自己都没清楚意识到的深层恐惧/价值
-- Key 4 渴望的终局（expected_resolution）：必须是明确的行动指令（"我需要验证…"），不是"求安慰"
+- Key 1 具象化的困惑 / Surface Dilemma（surface_dilemma）：回答“用户面临的选择岔路口是什么？”必须写成真实岔路，不能写成泛泛困扰。
+- Key 2 真实的处境 / Current Constraints（current_constraints）：回答“限制用户做出选择的客观条件是什么？”只收钱、时间、家庭、职业制度、身体状态、失败成本等客观约束。
+- Key 3 隐秘的关切 / Core Values/Fears（core_fears）：回答“用户潜意识里真正害怕失去的是什么？”写价值/恐惧，不替用户贴因果标签。
+- Key 4 渴望的终局 / Expected Resolution（expected_resolution）：回答“用户希望这次圆桌讨论帮自己验证什么？”必须写成验证任务，不许写成“五声会帮你决定/建议”。
 
 【关键规则】
 - 即使对话信息有限，每个 Key 也必须基于已有信息做出合理推断和分析，绝不允许写"待补充""待挖掘""待明确""未知"等占位符。
-- 信息不足时用你的专业判断推测最可能的情况，并将 confidence 设为 "low"。
 - 宁可给出一个基于推理的初步分析（即使不完全准确），也不能留空或写占位文字。
+- 不要把议题提前改写成解决方案；书记员先定义问题，再把它交给五声圆桌。
+- 没有建议句、诊断句、安慰句。禁止“你应该/我建议/你需要做/最好的选择是/这说明你有某种心理问题”。
+- value 必须是完整人话句，不是概念短语。用户看到后的自然动作应该是“校对”，不是“继续解释一大段”。
 
 每个 Key 必须包含：
 - title: 给用户看的人话标题
 - content: 核心内容（1-2句）
 - details: 补充细节数组
-- confidence: "high"|"medium"|"low"
 
 同时生成兼容的 taskFrame（visible + internal）供后续圆桌阶段使用。
 
 输出严格 JSON：
 {
   "proposal": {
-    "surface_dilemma": { "title": "", "content": "", "details": [], "confidence": "" },
-    "current_constraints": { "title": "", "content": "", "details": [], "confidence": "" },
-    "core_fears": { "title": "", "content": "", "details": [], "confidence": "" },
-    "expected_resolution": { "title": "", "content": "", "details": [], "confidence": "" }
+    "issue_sentence": "本次议题主句",
+    "surface_dilemma": { "title": "具象化的困惑", "content": "", "details": [] },
+    "current_constraints": { "title": "真实的处境", "content": "", "details": [] },
+    "core_fears": { "title": "隐秘的关切", "content": "", "details": [] },
+    "expected_resolution": { "title": "渴望的终局", "content": "", "details": [] }
   },
   "taskFrame": {
     "visible": {
@@ -659,27 +1005,90 @@ function buildTaskFrameFromProposal(proposal: any): TaskFrame | null {
   };
 }
 
+function normalizeProposalKey(
+  proposalKey: Partial<ProposalKey> | undefined,
+  fallback: ProposalKey,
+  defaultTitle: string,
+): ProposalKey {
+  const rawDetails = Array.isArray(proposalKey?.details)
+    ? proposalKey.details
+    : fallback.details;
+
+  return {
+    title: proposalKey?.title?.trim() || defaultTitle,
+    content: proposalKey?.content?.trim() || fallback.content,
+    details: rawDetails
+      .map((detail) => String(detail).trim())
+      .filter(Boolean),
+  };
+}
+
+function normalizeIssueProposal(proposal: Partial<IssueProposal> | undefined, fallback: IssueProposal): IssueProposal {
+  return {
+    issue_sentence: proposal?.issue_sentence?.trim() || fallback.issue_sentence,
+    surface_dilemma: normalizeProposalKey(proposal?.surface_dilemma, fallback.surface_dilemma, "具象化的困惑"),
+    current_constraints: normalizeProposalKey(proposal?.current_constraints, fallback.current_constraints, "真实的处境"),
+    core_fears: normalizeProposalKey(proposal?.core_fears, fallback.core_fears, "隐秘的关切"),
+    expected_resolution: normalizeProposalKey(proposal?.expected_resolution, fallback.expected_resolution, "渴望的终局"),
+  };
+}
+
 export async function generateIssueProposal(
   rawInput: string,
   dialogue: DefiningDialogue,
   ctx?: ContextBundle,
   runtime?: LlmRuntime,
+  onPartial?: StreamHandlerArg,
 ): Promise<ProposalResult> {
   const dialogueText = serializeDialogue(dialogue);
+  const handlers = streamOpts(onPartial);
+  const reasoningMemo = await streamScribeReasoning({
+    mode: "proposal",
+    source: "proposal",
+    rawInput,
+    dialogueText,
+    ctx,
+    runtime,
+    onReasoning: handlers.onReasoning,
+  });
   const userMsg = `用户原始输入：
 ${rawInput}
 
 完整对话历史：
 ${dialogueText}
 
+刚才的自然语言判断过程：
+${reasoningMemo || "（没有可用判断过程）"}
+
 请基于以上信息生成 4-Key 议题提案和兼容的 taskFrame。`;
 
   const inputSnippet = rawInput.slice(0, 100);
   const fallbackProposal: IssueProposal = {
-    surface_dilemma: { title: "你面临的选择", content: inputSnippet, details: [], confidence: "low" },
-    current_constraints: { title: "你的处境", content: `根据你的描述，目前的核心约束是：${inputSnippet}`, details: [], confidence: "low" },
-    core_fears: { title: "你真正在乎的", content: "这个选择背后可能涉及到对未来方向的不确定感，以及对当下舒适区的权衡", details: [], confidence: "low" },
-    expected_resolution: { title: "你想讨论什么", content: "需要理清各选项的利弊，找到一个让你不后悔的决定路径", details: [], confidence: "low" },
+    issue_sentence: inputSnippet
+      ? `你不是单纯在说「${inputSnippet}」，而是在确认这件事到底该被怎样带进圆桌讨论。`
+      : "你不是单纯在处理一个选择，而是在确认这件事真正值得被圆桌讨论的案由是什么。",
+    surface_dilemma: {
+      title: "具象化的困惑",
+      content: inputSnippet
+        ? `一边是顺着现有惯性继续处理「${inputSnippet}」，一边是停下来重新确认这件事真正的选择岔路口。`
+        : "一边是顺着当前惯性继续处理，一边是停下来重新确认真正的选择岔路口。",
+      details: ["继续沿着当前惯性", "重新界定本次议题"],
+    },
+    current_constraints: {
+      title: "真实的处境",
+      content: "现有信息还不足以确认全部边界，但这件事已经受到时间、责任、资源和外部评价的共同挤压。",
+      details: ["时间窗口", "责任归属", "资源余量", "他人评价"],
+    },
+    core_fears: {
+      title: "隐秘的关切",
+      content: "真正牵动你的可能不是单个选项，而是担心一旦处理错，就会失去安全感、体面或对局面的掌控。",
+      details: ["安全感", "体面", "对局面的掌控"],
+    },
+    expected_resolution: {
+      title: "渴望的终局",
+      content: "这次圆桌要验证：在最坏情况下依然能接受的处理边界是什么，以及哪些声音会把这件事推向不同方向。",
+      details: ["明确底线", "看清不同声音的拉扯", "避免把问题继续滚大"],
+    },
   };
 
   const messages: Msg[] = [
@@ -691,10 +1100,10 @@ ${dialogueText}
     const validated = await generateValidated(
       messages,
       ProposalResultSchema,
-      { temperature: 0.4, max_tokens: 2000, json: true, runtime, fallback: { proposal: fallbackProposal } },
+      { temperature: 0.4, max_tokens: 2000, json: true, runtime, fallback: { proposal: fallbackProposal }, ...handlers },
     );
 
-    const proposal = validated.proposal as IssueProposal;
+    const proposal = normalizeIssueProposal(validated.proposal as IssueProposal, fallbackProposal);
     const taskFrame = validated.taskFrame
       ? (validated.taskFrame as unknown as TaskFrame)
       : buildTaskFrameFromProposal(proposal)!;
@@ -725,17 +1134,41 @@ export async function refineProposal(
   userFeedback: string,
   ctx?: ContextBundle,
   runtime?: LlmRuntime,
+  onPartial?: StreamHandlerArg,
 ): Promise<RefineResult> {
   const dialogueText = serializeDialogue(dialogue);
   const proposalText = JSON.stringify(currentProposal, null, 2);
+  const handlers = streamOpts(onPartial);
+  const reasoningMemo = await streamScribeReasoning({
+    mode: "refine",
+    source: "refine",
+    rawInput,
+    dialogueText,
+    currentProposal,
+    userFeedback,
+    ctx,
+    runtime,
+    onReasoning: handlers.onReasoning,
+  });
 
-  const sys = `你是 ParallelMe 的书记员。用户在看到你的议题提案后提出了修改意见。
+  const sys = `${STAGE_ONE_SCRIBE_SYSTEM}
+
+用户在看到《议题提案》后提出了修改意见。你仍然只做阶段一的问题定义：根据用户反馈继续追问，或修正这份进入五声圆桌前的议题提案。
 
 ${scribePersonaBlock("brief")}
 
 你需要决定：
 1. 如果用户的反馈包含新信息，可能需要追问确认（needMoreInfo: true，输出 questions）
 2. 如果可以直接更新提案（needMoreInfo: false，输出更新后的 proposal + taskFrame）
+
+修正标准：
+- issue_sentence 必须是一句“本次议题主句”，让用户一眼确认这次圆桌讨论什么。
+- 具象化的困惑仍必须是 A vs B 或多重选择岔路。
+- 真实的处境只写客观约束。
+- 隐秘的关切要向下追到价值/恐惧，但不能替用户贴因果标签。
+- 渴望的终局要写成“这次圆桌要验证……”式任务，不许替用户决定。
+- 不写“待补充/待确认/未知”等占位。
+- 不写建议句、诊断句、安慰句。
 
 输出 JSON：
 {
@@ -755,7 +1188,10 @@ ${dialogueText}
 ${proposalText}
 
 用户反馈：
-${userFeedback}`;
+${userFeedback}
+
+刚才的自然语言判断过程：
+${reasoningMemo || "（没有可用判断过程）"}`;
 
   try {
     const validated = await generateValidated(
@@ -764,13 +1200,21 @@ ${userFeedback}`;
         { role: "user", content: userMsg },
       ],
       RefineResultSchema,
-      { temperature: 0.5, max_tokens: 2000, json: true, runtime, fallback: { needMoreInfo: false, thinking: "" } },
+      { temperature: 0.5, max_tokens: 2000, json: true, runtime, fallback: { needMoreInfo: false, thinking: "" }, ...handlers },
     );
+    const proposal = validated.proposal
+      ? normalizeIssueProposal(validated.proposal as IssueProposal, currentProposal)
+      : undefined;
+    const taskFrame = validated.taskFrame
+      ? (validated.taskFrame as unknown as TaskFrame)
+      : proposal
+        ? buildTaskFrameFromProposal(proposal) ?? undefined
+        : undefined;
     return {
       needMoreInfo: !!validated.needMoreInfo,
-      questions: validated.questions,
-      proposal: validated.proposal as IssueProposal | undefined,
-      taskFrame: validated.taskFrame as unknown as TaskFrame | undefined,
+      questions: validated.questions ? normalizeProbeQuestions(validated.questions) : undefined,
+      proposal,
+      taskFrame,
       thinking: validated.thinking || "",
     };
   } catch (e) {
@@ -781,38 +1225,493 @@ ${userFeedback}`;
 
 export async function generateOpeningTurns(
   taskFrame: TaskFrame,
+  issueProposal?: IssueProposal,
   ctx?: ContextBundle,
   runtime?: LlmRuntime,
+  onPartial?: StreamHandlerArg,
 ): Promise<VoiceOpeningTurn[]> {
-  const fallback = fallbackOpeningTurns(taskFrame);
-  const voiceBrief = VOICE_IDS.map((vid) => {
-    const s = SELVES[vid];
-    return `[${vid}] ${s.name}
-守护：${s.soul?.protects || s.core_value}
-注意：${s.soul?.clarityRole || s.core_belief}`;
-  }).join("\n\n");
+  const brief = compactRoundtableBrief(taskFrame, issueProposal);
+  const now = Date.now();
+  const results = await Promise.allSettled(
+    VOICE_IDS.map((vid, index) =>
+      generateOpeningTurnForVoice(vid, taskFrame, brief, ctx, runtime, now + index),
+    ),
+  );
+  return VOICE_IDS.map((vid, index) => {
+    const result = results[index];
+    if (result.status === "fulfilled") return result.value;
+    console.warn(`[generateOpeningTurns] ${vid} fallback`, result.reason);
+    return normalizeOpeningTurn(vid, fallbackOpeningPayload(vid, taskFrame), now + index);
+  });
+}
 
-  const sys = `你是 ParallelMe v0.7 的圆桌编排器。请让固定五声围绕“本次议题”发表第一轮结构化立论。
+async function generateOpeningTurnForVoice(
+  voiceId: VoiceId,
+  taskFrame: TaskFrame,
+  brief: string,
+  ctx: ContextBundle | undefined,
+  runtime: LlmRuntime | undefined,
+  at: number,
+): Promise<VoiceOpeningTurn> {
+  const voice = SELVES[voiceId];
+  const fallback = fallbackOpeningPayload(voiceId, taskFrame);
+  const sys = `${voice.system_prompt}
+
+你正在参加 ParallelMe 五声圆桌的第一轮立论。
+这一轮是结构化开场，不是自由聊天；你只代表「${voice.name}」这一声，不替其他声音综合。
+你只能基于用户确认后的《本次议题 + 4 Key》立论，不读取也不引用阶段一书记员的追问过程。
+
+请输出严格 JSON：
+{
+  "thesis": "当下的痛苦本质是什么，≤36字",
+  "pull": "第一步必须做什么，≤32字",
+  "concern": "需要承受什么无可挽回的代价，≤36字",
+  "protected_value": "我在为用户守护什么底线，≤28字",
+  "task_evidence": "来自本次议题的具体线索，≤36字"
+}
+
+禁止输出 JSON 以外的任何文字。`;
+
+  const validated = await generateValidated(
+    [
+      { role: "system", content: sys + buildContextBlock(ctx) },
+      { role: "user", content: `用户确认后的入桌材料：\n${brief}` },
+    ],
+    VoiceOpeningPayloadResultSchema,
+    { temperature: 0.68, max_tokens: 700, json: true, runtime, fallback },
+  );
+  return normalizeOpeningTurn(voiceId, validated, at);
+}
+
+export async function generateRoundtableMove(
+  input: RoundtableMoveInput,
+  ctx?: ContextBundle,
+  runtime?: LlmRuntime,
+  onPartial?: StreamHandlerArg,
+): Promise<RoundtableMoveResult> {
+  const fallback = fallbackRoundtableMove(input);
+  const brief = compactRoundtableBrief(input.taskFrame, input.issueProposal);
+  const history = serializeRoundtable(input.roundtable);
+
+  if (input.moveType === "continue_all" || input.moveType === "user_to_table") {
+    return generateParallelVoiceMove(input, brief, history, ctx, runtime, fallback);
+  }
+
+  if (input.moveType === "user_to_voice") {
+    return generateSingleVoiceMove(input, brief, history, ctx, runtime, fallback);
+  }
+
+  if (input.moveType === "duel") {
+    return generateDuelVoiceMove(input, brief, history, ctx, runtime, fallback);
+  }
+
+  return fallback;
+}
+
+async function generateParallelVoiceMove(
+  input: RoundtableMoveInput,
+  brief: string,
+  history: string,
+  ctx: ContextBundle | undefined,
+  runtime: LlmRuntime | undefined,
+  fallback: RoundtableMoveResult,
+): Promise<RoundtableMoveResult> {
+  const move = createRoundtableMove(input);
+  const at = Date.now();
+  const roundIndex = roundIndexForMove(input);
+  const results = await Promise.allSettled(
+    VOICE_IDS.map((voiceId) =>
+      generateVoiceTurnText({
+        voiceId,
+        mode: input.moveType,
+        brief,
+        history,
+        userText: input.userText,
+        ctx,
+        runtime,
+        fallbackText: fallbackContinuationText(voiceId, input),
+        parallelBatch: true,
+      }),
+    ),
+  );
+
+  const turns = VOICE_IDS.map((voiceId, index) => {
+    const result = results[index];
+    const payload =
+      result.status === "fulfilled"
+        ? result.value
+        : { text: fallbackContinuationText(voiceId, input), refers_to: [] as VoiceId[] };
+    if (result.status === "rejected") {
+      console.warn(`[generateParallelVoiceMove] ${voiceId} fallback`, result.reason);
+    }
+    return makeVoiceRoundtableTurn({
+      input,
+      move,
+      voiceId,
+      text: payload.text,
+      refersTo: payload.refers_to,
+      at: at + index,
+      roundIndex,
+      parallelBatch: true,
+    });
+  });
+
+  return { move, turns };
+}
+
+async function generateSingleVoiceMove(
+  input: RoundtableMoveInput,
+  brief: string,
+  history: string,
+  ctx: ContextBundle | undefined,
+  runtime: LlmRuntime | undefined,
+  fallback: RoundtableMoveResult,
+): Promise<RoundtableMoveResult> {
+  const voiceId = input.targetVoiceId || ("future" as VoiceId);
+  const move = createRoundtableMove(input);
+  const roundIndex = roundIndexForMove(input);
+  try {
+    const payload = await generateVoiceTurnText({
+      voiceId,
+      mode: input.moveType,
+      brief,
+      history,
+      userText: input.userText,
+      ctx,
+      runtime,
+      fallbackText: fallbackContinuationText(voiceId, input),
+      parallelBatch: false,
+    });
+    return {
+      move,
+      turns: [
+        makeVoiceRoundtableTurn({
+          input,
+          move,
+          voiceId,
+          text: payload.text,
+          refersTo: payload.refers_to,
+          at: Date.now(),
+          roundIndex,
+          parallelBatch: false,
+        }),
+      ],
+    };
+  } catch (err) {
+    console.warn("[generateSingleVoiceMove] fallback", err);
+    return fallback;
+  }
+}
+
+async function generateDuelVoiceMove(
+  input: RoundtableMoveInput,
+  brief: string,
+  history: string,
+  ctx: ContextBundle | undefined,
+  runtime: LlmRuntime | undefined,
+  fallback: RoundtableMoveResult,
+): Promise<RoundtableMoveResult> {
+  if (!input.fromVoiceId || !input.toVoiceId) return fallback;
+
+  const move = createRoundtableMove(input);
+  const fallbackDuel = fallback.turns[0]?.duel;
+  const questionFallback =
+    fallbackDuel?.question || `${voiceName(input.toVoiceId)}，如果只听你，什么代价会被你轻轻放过去？`;
+  const responseFallback = fallbackDuel?.response || `我承认有代价，但我守的是${SELVES[input.toVoiceId].core_value}。`;
+
+  try {
+    const question = await generateDuelQuestion(
+      input.fromVoiceId,
+      input.toVoiceId,
+      brief,
+      history,
+      ctx,
+      runtime,
+      questionFallback,
+    );
+    const response = await generateDuelResponse(
+      input.toVoiceId,
+      input.fromVoiceId,
+      question,
+      brief,
+      history,
+      ctx,
+      runtime,
+      responseFallback,
+    );
+    return {
+      move,
+      turns: [
+        {
+          id: id("turn"),
+          move_id: move.id,
+          trigger: "duel",
+          duel: {
+            from_voice_id: input.fromVoiceId,
+            from_name: voiceName(input.fromVoiceId),
+            to_voice_id: input.toVoiceId,
+            to_name: voiceName(input.toVoiceId),
+            question,
+            response: response.response,
+          },
+          round_index: roundIndexForMove(input),
+          at: Date.now(),
+        },
+      ],
+    };
+  } catch (err) {
+    console.warn("[generateDuelVoiceMove] fallback", err);
+    return fallback;
+  }
+}
+
+async function generateVoiceTurnText({
+  voiceId,
+  mode,
+  brief,
+  history,
+  userText,
+  ctx,
+  runtime,
+  fallbackText,
+  parallelBatch,
+}: {
+  voiceId: VoiceId;
+  mode: RoundtableMoveType;
+  brief: string;
+  history: string;
+  userText?: string;
+  ctx?: ContextBundle;
+  runtime?: LlmRuntime;
+  fallbackText: string;
+  parallelBatch: boolean;
+}): Promise<{ text: string; refers_to: VoiceId[] }> {
+  const voice = SELVES[voiceId];
+  const modeInstruction =
+    mode === "user_to_table"
+      ? `用户刚向全桌发问：${userText || "（未提供文字）"}。五声会同时各自接住这个问题，从自己的位置说话。`
+      : mode === "user_to_voice"
+        ? `用户这一轮只请你说话：${userText || "（未提供文字）"}。只有你发言，但你仍然能看到完整圆桌历史。`
+        : "这是全员自由轮次。五声将同时基于同一份历史快照，各自把这一轮想说的话放到桌面上。";
+  const participationRules = parallelBatch
+    ? [
+        "- 这是并发批次：你不能假装看见本批次里其他声音尚未生成的发言。",
+        "- 这一轮不是接力，也不是互相追打；如果承接，只承接已经存在于历史里的内容。",
+        "- 你可以接住既有历史和用户问题，但发言重心必须是你自己的立场、判断和保护意图。",
+        "- refers_to 固定输出空数组。",
+      ].join("\n")
+    : [
+        "- 这是定向发言：你可以引用历史里任何已经发生的发言，但不要替其他声音说话。",
+        "- 如果你明确回应某个声音，把它的 voice_id 放进 refers_to；可选：lay, money, roam, filial, future。",
+      ].join("\n");
+
+  const sys = `${voice.system_prompt}
+
+你正在 ParallelMe 五声圆桌的自由讨论阶段发言。
+你只代表「${voice.name}」这一声。你不是助手，不做总结，不替用户做最终决定。
+五声立论、所有五声发言、用户发言和两声对话都会作为上下文给你。
+
+当前任务：
+${modeInstruction}
 
 规则：
-- 只使用固定五声：lay, money, roam, filial, future。
-- 不新增角色，不说入席，不说声浪。
-- 每个声音都要保护某个正向价值，没有反派。
-- 第一轮必须结构化、短、可比较，但仍保留人格。
-- 不使用心理学术语给用户贴标签。
+- 基于场上已有历史，说出这一轮你最想放到桌面上的判断、担心或提醒。
+${participationRules}
+- 不要输出 opening 的四格字段，不要说“大家都有道理”，不要端水。
+- 非定向对话模式下，不为了冲突而冲突；自然承认分歧即可。
+- text ≤120 字，必须像这一声真的在圆桌上说话。
+
+输出严格 JSON：
+{"text":"你的本轮发言","refers_to":["money"]}`;
+
+  const validated = await generateValidated(
+    [
+      { role: "system", content: sys + buildContextBlock(ctx) },
+      {
+        role: "user",
+        content: `用户确认后的入桌材料：\n${brief}\n\n完整圆桌历史：\n${history}`,
+      },
+    ],
+    VoiceTurnTextResultSchema,
+    { temperature: 0.76, max_tokens: 650, json: true, runtime, fallback: { text: fallbackText, refers_to: [] } },
+  );
+  const text = String(validated.text || "").trim() || fallbackText;
+  return {
+    text,
+    refers_to: parallelBatch
+      ? []
+      : Array.isArray(validated.refers_to)
+      ? validated.refers_to.filter(isVoiceId)
+      : [],
+  };
+}
+
+async function generateDuelQuestion(
+  fromVoiceId: VoiceId,
+  toVoiceId: VoiceId,
+  brief: string,
+  history: string,
+  ctx: ContextBundle | undefined,
+  runtime: LlmRuntime | undefined,
+  fallbackQuestion: string,
+): Promise<string> {
+  const from = SELVES[fromVoiceId];
+  const sys = `${from.system_prompt}
+
+你正在发起一场定向对话。你能看到完整圆桌历史。
+你的任务是代表「${from.name}」，向「${voiceName(toVoiceId)}」提出一个具体追问。
+
+规则：
+- 问题必须基于已有历史中的具体立场、代价判断或没说清的地方，不要凭空发明。
+- 可以直接指出你担心的代价，但不要攻击人格和身份。
+- 只输出一个问题，≤80 字。
+
+输出严格 JSON：{"question":"..."}`;
+
+  const validated = await generateValidated(
+    [
+      { role: "system", content: sys + buildContextBlock(ctx) },
+      { role: "user", content: `用户确认后的入桌材料：\n${brief}\n\n完整圆桌历史：\n${history}` },
+    ],
+    DuelQuestionResultSchema,
+    { temperature: 0.78, max_tokens: 450, json: true, runtime, fallback: { question: fallbackQuestion } },
+  );
+  return String(validated.question || "").trim() || fallbackQuestion;
+}
+
+async function generateDuelResponse(
+  toVoiceId: VoiceId,
+  fromVoiceId: VoiceId,
+  question: string,
+  brief: string,
+  history: string,
+  ctx: ContextBundle | undefined,
+  runtime: LlmRuntime | undefined,
+  fallbackResponse: string,
+): Promise<{ response: string }> {
+  const to = SELVES[toVoiceId];
+  const sys = `${to.system_prompt}
+
+你正在被「${voiceName(fromVoiceId)}」具体追问。你能看到完整圆桌历史和对方刚刚的问题。
+你的任务是代表「${to.name}」正面回应，并继续守住你自己的核心价值。
+
+规则：
+- 不要端水式综合，也不要替对方总结。
+- 可以承认对方说中的部分，但要说清你仍然在守什么底线。
+- 回应必须承接完整历史和对方问题。
+- response ≤110 字。
+
+输出严格 JSON：{"response":"..."}`;
+
+  const validated = await generateValidated(
+    [
+      { role: "system", content: sys + buildContextBlock(ctx) },
+      {
+        role: "user",
+        content: `用户确认后的入桌材料：\n${brief}\n\n完整圆桌历史：\n${history}\n\n对方的问题：\n${question}`,
+      },
+    ],
+    DuelResponseResultSchema,
+    {
+      temperature: 0.76,
+      max_tokens: 600,
+      json: true,
+      runtime,
+      fallback: { response: fallbackResponse },
+    },
+  );
+  return {
+    response: String(validated.response || "").trim() || fallbackResponse,
+  };
+}
+
+function createRoundtableMove(input: RoundtableMoveInput): RoundtableMove {
+  return {
+    id: id("move"),
+    type: input.moveType,
+    target_voice_id: input.targetVoiceId,
+    from_voice_id: input.fromVoiceId,
+    to_voice_id: input.toVoiceId,
+    user_text: input.userText,
+    at: Date.now(),
+  };
+}
+
+function makeVoiceRoundtableTurn({
+  input,
+  move,
+  voiceId,
+  text,
+  refersTo,
+  at,
+  roundIndex,
+  parallelBatch,
+}: {
+  input: RoundtableMoveInput;
+  move: RoundtableMove;
+  voiceId: VoiceId;
+  text: string;
+  refersTo: VoiceId[];
+  at: number;
+  roundIndex: number;
+  parallelBatch: boolean;
+}): RoundtableTurn {
+  return {
+    id: id("turn"),
+    move_id: move.id,
+    trigger: input.moveType,
+    voice_id: voiceId,
+    name: voiceName(voiceId),
+    text,
+    user_text: input.userText,
+    refers_to: refersTo.length ? refersTo : undefined,
+    round_index: roundIndex,
+    is_parallel_batch: parallelBatch || undefined,
+    at,
+  };
+}
+
+function roundIndexForMove(input: RoundtableMoveInput): number {
+  return input.roundtable.moves.length + 2;
+}
+
+export async function generateScribeObservationLedger(
+  taskFrame: TaskFrame,
+  issueProposal: IssueProposal | undefined,
+  roundtable: RoundtableRecord,
+  previousLedger?: ScribeObservationLedger | null,
+  ctx?: ContextBundle,
+  runtime?: LlmRuntime,
+): Promise<ScribeObservationLedger> {
+  const fallback = fallbackObservationLedger(taskFrame, issueProposal, roundtable, previousLedger);
+  const sys = `你是 ParallelMe v1.0 的书记员。你在五声会谈期间后台观察，不下场、不打断、不改变圆桌。
+
+你的任务不是生成用户可见内容，而是更新内部观察账本，服务最终「书记员问询」与「本心落定」。
+
+${scribePersonaBlock("inquiry")}
+
+任务：
+- 观察用户与五声的行为、选择、追问方向和回避处。
+- 围绕四类线索更新：被证伪幻想、核心价值主轴、必须接纳的痛苦、最小行动线索。
+- 整理五声问过但用户还没有回应的关键问题。
+- 可以写“本轮没有形成有效观察”。不要为了显得有洞察强行归因。
+- 不做临床诊断，不把用户贴成某种人格，不写治疗建议。
+- 只输出自然语言观察，不输出给用户看的话术。
 
 输出严格 JSON：
 {
-  "turns": [
-    {
-      "voice_id": "lay",
-      "thesis": "≤36字",
-      "protected_value": "≤24字",
-      "concern": "≤32字",
-      "task_evidence": "≤36字",
-      "pull": "≤32字"
-    }
-  ]
+  "observations": [
+    {"id":"snake_case","round_index":1,"trigger":"opening","observation":"","attribution":"","module":"creative_hopelessness|core_values|cost_acceptance|minimum_action|none","evidence":[]}
+  ],
+  "unanswered_questions": [
+    {"id":"snake_case","from_voice_id":"future","from_name":"","question":"","why_it_matters":""}
+  ],
+  "module_signals": {
+    "creative_hopelessness": [],
+    "core_values": [],
+    "cost_acceptance": [],
+    "minimum_action": []
+  }
 }`;
 
   try {
@@ -821,117 +1720,74 @@ export async function generateOpeningTurns(
         { role: "system", content: sys + buildContextBlock(ctx) },
         {
           role: "user",
-          content: `本次议题：\n${compactTaskFrame(taskFrame)}\n\n五声人格：\n${voiceBrief}`,
-        },
-      ],
-      OpeningTurnsResultSchema,
-      { temperature: 0.65, max_tokens: 1800, json: true, runtime, fallback: { turns: [] } },
-    );
-    const turns = validated.turns || [];
-    const now = Date.now();
-    const normalized = VOICE_IDS.map((vid, i) => {
-      const source = turns.find((t: any) => t.voice_id === vid) || fallback[i];
-      return normalizeOpeningTurn(vid, source, now + i);
-    });
-    return normalized;
-  } catch (e) {
-    console.warn("[generateOpeningTurns] fallback", e);
-    return fallback;
-  }
-}
-
-export async function generateRoundtableMove(
-  input: RoundtableMoveInput,
-  ctx?: ContextBundle,
-  runtime?: LlmRuntime,
-): Promise<RoundtableMoveResult> {
-  const fallback = fallbackRoundtableMove(input);
-  const sys = `你是 ParallelMe v0.7 的圆桌编排器。根据用户动作，生成下一段圆桌内容。
-
-${scribePersonaBlock("mirror")}
-
-规则：
-- 固定五声 + 书记员。五声是辩手，书记员是镜子。两者职能不可混淆。
-- 自由圆桌阶段必须打破第一轮结构：允许互相引用原话（用 refers_to 标出被回应声音）、允许打断、允许沉默，不再套第一轮五项字段。
-- 任何声音都不能变成助手，也不能说“大家都有道理”来糊弄。违反时立刻重写。
-- 对峙的边界是：可以反对对方的行为、选择、回避和代价判断（这叫对抗）；不可以贬损对方的人格、身份和价值（这叫攻击）。允许尖锐、允许不留情面、允许打断；不允许人身攻击与人格审判。
-- 书记员是激烈对话中的理性支柱：只输出可观测事实（次数、缺席声音、主题对照、前后顺序），只用观察句（“我注意到 / 在 X 次发言里”），不用判断句（“你在躲 / 你应该 / 真正”），不预设观点、不替用户做选择、不下场表达立场。
-- 每一轮至少要有一次明确不同意，且必须由 voice 发起；书记员不参与对抗，只负责让结构可见。
-
-输出严格 JSON。根据 moveType：
-- continue_all / user_to_table：{"turns":[{"voice_id":"lay","text":"短段回应","refers_to":["money"]}],"scribeNote":"一句书记员侧记"}
-- continue_one / user_to_voice：{"turns":[{"voice_id":"money","text":"短段回应","refers_to":["future"]}],"scribeNote":"一句书记员侧记"}
-- duel：{"duel":{"question":"","response":"","unresolved_point":""},"scribeNote":"一句书记员侧记"}
-- challenge：{"turns":[{"voice_id":"money","text":"明确反对 toVoice 的一句具体话","refers_to":["future"]}],"scribeNote":"一句书记员侧记"}
-- name_avoidance：{"turns":[{"voice_id":"future","text":"命名对方正在绕开的具体问题","refers_to":["lay"]}],"scribeNote":"一句书记员侧记"}
-- cut_through：{"turns":[{"voice_id":"roam","text":"一句不解释、不缓冲的戳破句","refers_to":["lay","money"]}],"scribeNote":"一句书记员侧记"}
-- mirror_structure：{"summary":"书记员纯观察陈述，必须含至少一个可量化事实，禁用判断词","scribeNote":"一句书记员侧记"}
-- scribe_summary：{"summary":"书记员整理，不超过120字","scribeNote":"一句书记员侧记"}`;
-
-  const moveDesc = {
-    moveType: input.moveType,
-    targetVoiceId: input.targetVoiceId,
-    fromVoiceId: input.fromVoiceId,
-    toVoiceId: input.toVoiceId,
-    userText: input.userText,
-  };
-
-  try {
-    const validated = await generateValidated(
-      [
-        { role: "system", content: sys + buildContextBlock(ctx) },
-        {
-          role: "user",
           content:
-            `本次议题：\n${compactTaskFrame(input.taskFrame)}\n\n` +
-            `圆桌记录：\n${serializeRoundtable(input.roundtable)}\n\n` +
-            `用户动作：\n${JSON.stringify(moveDesc, null, 2)}`,
+            `本次议题：\n${compactRoundtableBrief(taskFrame, issueProposal)}\n\n` +
+            `已有观察账本：\n${JSON.stringify(previousLedger || emptyObservationLedger(), null, 2)}\n\n` +
+            `圆桌记录：\n${serializeRoundtable(roundtable)}\n\n` +
+            `请更新观察账本。注意：这份账本不直接展示给用户。`,
         },
       ],
-      RoundtableRawResultSchema,
-      { temperature: 0.7, max_tokens: 1600, json: true, runtime, fallback: { turns: [] } },
+      ScribeObservationLedgerSchema,
+      { temperature: 0.35, max_tokens: 1800, json: true, runtime, fallback },
     );
-    return normalizeRoundtableMoveResult(validated, input, fallback);
+    return normalizeObservationLedger(validated as any, fallback);
   } catch (e) {
-    console.warn("[generateRoundtableMove] fallback", e);
+    console.warn("[generateScribeObservationLedger] fallback", e);
     return fallback;
   }
 }
 
-export async function generateScribeInquiry(
+export async function generateAlignmentInquiry(
   taskFrame: TaskFrame,
+  issueProposal: IssueProposal | undefined,
   roundtable: RoundtableRecord,
-  scribeTrace: ScribeTrace,
+  ledger: ScribeObservationLedger | null | undefined,
+  inquiryQuestions: ScribeInquiryQuestion[] = [],
   inquiryAnswers: ScribeInquiryAnswer[] = [],
   ctx?: ContextBundle,
   runtime?: LlmRuntime,
+  onPartial?: StreamHandlerArg,
 ): Promise<InquiryResult> {
-  const fallback = fallbackInquiry(taskFrame, roundtable, inquiryAnswers);
-  const sys = `你是 ParallelMe v0.7 的书记员。自由圆桌结束后，你要通过少量高密度选择题验证用户在五声之间的偏好。
+  const activeLedger = ledger?.observations?.length
+    ? ledger
+    : fallbackObservationLedger(taskFrame, issueProposal, roundtable, ledger);
+  const fallback = fallbackAlignmentInquiry(taskFrame, issueProposal, activeLedger, inquiryAnswers);
+  const remainingQuestionBudget = Math.max(0, MAX_ALIGNMENT_INQUIRY_QUESTIONS - inquiryAnswers.length);
+  const sys = `你是 ParallelMe v1.0 的书记员。五声会谈之后，你要通过少量高密度选择题完成最终确认，为「本心落定」做准备。
 
 ${scribePersonaBlock("inquiry")}
 
 任务：
-- 问题不是追问背景，而是验证圆桌里已经出现的偏好。
-- 问题以选择题为主，每题最后保留“都不准，我自己说”。
-- 不打分，不排名，不判断哪个声音更大。
-- preferenceProfile 只写自然语言观察和已验证倾向。
-- 未被用户回答验证的内容只能放入 hypotheses。
+- 只基于确认后的议题和书记员观察账本发问。
+- 优先处理五声已经问过、但用户没有回应的关键问题。
+- 问题服务最终卡片的五个落点：创造性无望宣判、核心价值主轴提取、痛苦接纳契约、最小阻力行动承诺、正反合。
+- 每轮最多 1-3 题，每题 2-4 个自然语言选项，最后保留“都不准，我自己说”。
+- 如果答案已经足够生成本心落定，readyForReport 设为 true，questions 置空。
+- 如果用户回答揭示新矛盾，可以继续追问，但总题量最多 ${MAX_ALIGNMENT_INQUIRY_QUESTIONS} 个。当前还剩 ${remainingQuestionBudget} 个题量。
+- 如果题量已经用完，必须 readyForReport=true，不要继续发问。
+- 如果缺口很小，只问最能改变最终卡片的一题。
+- 如果用户已经清楚表达反对、修正或承诺，不要围绕同一主题重复追问。
+- 不输出“后台观察”字样，不告诉用户你在引用观察账本。
+
+规则：
+- 不做建议，不替用户选择，不做临床诊断。
+- alignmentProfile 只写自然语言观察和已经被问询或圆桌行为支持的倾向。
+- 黑格尔结构中：thesis 是用户想坚持的主轴，antithesis 是阻碍他承认主轴的现实恐惧和代价，synthesis 是能被用户认领的本心方向。
 
 输出严格 JSON：
 {
   "questions": [
     {"id":"snake_case","question":"","options":[{"id":"snake_case","label":"","meaning":""}]}
   ],
-  "preferenceProfile": {
-    "hypotheses": [],
-    "validated_leanings": [],
-    "resisted_positions": [],
-    "requested_perspectives": [],
-    "conflict_judgments": [],
-    "accepted_tradeoffs": [],
-    "refused_tradeoffs": [],
+  "readyForReport": false,
+  "alignmentProfile": {
+    "falsified_fantasy": "",
+    "core_value_axis": "",
+    "offended_voices": [],
+    "accepted_costs": [],
+    "refused_costs": [],
     "unresolved_tensions": [],
+    "hegelian_synthesis": {"thesis":"","antithesis":"","synthesis":""},
     "user_self_statements": []
   }
 }`;
@@ -943,78 +1799,98 @@ ${scribePersonaBlock("inquiry")}
         {
           role: "user",
           content:
-            `本次议题：\n${compactTaskFrame(taskFrame)}\n\n` +
-            `圆桌记录：\n${serializeRoundtable(roundtable)}\n\n` +
-            `书记员动作痕迹：\n${JSON.stringify(scribeTrace, null, 2)}\n\n` +
-            `用户已回答：\n${JSON.stringify(inquiryAnswers, null, 2)}`,
+            `本次议题：\n${compactRoundtableBrief(taskFrame, issueProposal)}\n\n` +
+            `书记员观察账本：\n${JSON.stringify(activeLedger, null, 2)}\n\n` +
+            `已提出的问题：\n${JSON.stringify(inquiryQuestions, null, 2)}\n\n` +
+            `用户已回答：\n${JSON.stringify(inquiryAnswers, null, 2)}\n\n` +
+            `请先判断五个落点是否足够，再决定继续问询或生成可供本心落定使用的 alignmentProfile。`,
         },
       ],
       InquiryResultSchema,
-      { temperature: 0.45, max_tokens: 1800, json: true, runtime, fallback },
+      { temperature: 0.45, max_tokens: 2000, json: true, runtime, fallback, ...streamOpts(onPartial) },
     );
-    return normalizeInquiry(validated as any, fallback);
+    const normalized = normalizeAlignmentInquiry(validated as any, fallback, activeLedger, remainingQuestionBudget);
+    return remainingQuestionBudget <= 0
+      ? { ...normalized, questions: [], readyForReport: true }
+      : normalized;
   } catch (e) {
-    console.warn("[generateScribeInquiry] fallback", e);
-    return fallback;
+    console.warn("[generateAlignmentInquiry] fallback", e);
+    return remainingQuestionBudget <= 0
+      ? { ...fallback, questions: [], readyForReport: true }
+      : fallback;
   }
 }
 
-export async function generateClaritySettlement(
+export async function generateAlignmentReport(
   taskFrame: TaskFrame,
-  roundtable: RoundtableRecord,
-  scribeTrace: ScribeTrace,
+  issueProposal: IssueProposal | undefined,
+  ledger: ScribeObservationLedger,
   inquiryAnswers: ScribeInquiryAnswer[],
-  preferenceProfile: PreferenceProfile,
+  alignmentProfile: AlignmentProfile,
   ctx?: ContextBundle,
   runtime?: LlmRuntime,
-): Promise<ClarityResult> {
-  const fallback = fallbackClarity(taskFrame, preferenceProfile);
-  const sys = `你是 ParallelMe v0.7 的书记员。请基于本次议题、五声圆桌、用户动作和问询答案，整理“清明落定”。
+  onPartial?: StreamHandlerArg,
+): Promise<AlignmentReport> {
+  const fallback = fallbackAlignmentReport(taskFrame, issueProposal, ledger, alignmentProfile);
+  const sys = `你是 ParallelMe v1.0 的书记员。请基于本次议题、观察账本和最终问询答案，生成用户可见的「本心落定」。
 
 ${scribePersonaBlock("settlement")}
 
-必须输出：
-- clarity_sentence：一句用户愿意承认的真实判断。
-- preference_readout：说明用户更靠近哪些价值、仍在哪些价值之间摇摆；不用分数、不排名、不说声浪。
-- tradeoff_acknowledgement：承认一个选择代价。
-- settlement_posture：只能是 leaning / not_ready / testing / boundary / grieving。
-- commitment24h：24 小时内能做的最小动作，动词开头。
+本心落定不是建议书，也不是心理诊断。它是一张单一收束卡片，帮助用户：
+1. 对不可能的完美解死心。
+2. 看见真正的核心价值主轴。
+3. 主动接纳随之而来的具体痛苦。
+4. 把宏大叙事切成 24 小时内的微动作。
+5. 用正反合把冲突、代价和行动整合成用户能认领的表达。
+
+固定模块：
+- creative_hopelessness：创造性无望宣判。report 里写现实报告，不要拆成旧字段。
+- core_value_axis：核心价值主轴提取。report 里写主轴和判断规则。
+- cost_acceptance_contract：痛苦接纳契约。report 里写“我同意……”式契约，并点明具体痛苦。
+- minimum_viable_commitment：最小阻力行动承诺。report 里写 deadline、动作和完成标准，必须能在 24 小时内完成。
+- dialectic_synthesis：正反合。thesis 写“正”，antithesis 写“反”，synthesis 写“合”。合要是一段用户可直接修改、可认领的本心表达。
+
+黑格尔正反合：
+- 正：核心价值主轴。
+- 反：被证伪幻想与必然痛苦。
+- 合：用户可以认领的本心方向、契约和微动作。
 
 规则：
-- 清明句不是模型总结，要像从用户刚才的选择里长出来。
-- 敢于把代价、偏好和摇摆摆到台面，让用户自己拍板。
-- 不引入独立的收束角色或第六声。
-- 如果用户只是看清卡点，也可以给 not_ready，并给澄清动作。
+- 文案可以锋利，但必须来自账本和用户回答的线索。
+- 不说“后台观察”，不展示 schema，不写 confidence，不写选项 id。
+- 不做临床诊断，不把失眠、焦虑等归因为唯一原因，除非用户明确这样说。
+- 不输出“清明句”“本心对齐报告”“清明落定”等旧产品词。
+- 不写“我建议你”。标题里的建议感已经由产品副标题承接，正文只呈现现实、契约和动作。
+- 行动必须具体到时间、动作、完成标准。
 
 输出严格 JSON：
 {
-  "clarity_sentence": "",
-  "preference_readout": "",
-  "tradeoff_acknowledgement": "",
-  "settlement_posture": "leaning",
-  "commitment24h": ""
+  "creative_hopelessness": {"title":"创造性无望宣判","report":"","evidence":[]},
+  "core_value_axis": {"title":"核心价值主轴提取","report":"","evidence":[]},
+  "cost_acceptance_contract": {"title":"痛苦接纳契约","report":"","evidence":[]},
+  "minimum_viable_commitment": {"title":"最小阻力行动承诺","report":"","evidence":[]},
+  "dialectic_synthesis": {"thesis":"","antithesis":"","synthesis":""}
 }`;
 
   try {
-    const validated = await generateValidated(
+    const draft = await generateValidated(
       [
         { role: "system", content: sys + buildContextBlock(ctx) },
         {
           role: "user",
           content:
-            `本次议题：\n${compactTaskFrame(taskFrame)}\n\n` +
-            `圆桌记录：\n${serializeRoundtable(roundtable)}\n\n` +
-            `书记员动作痕迹：\n${JSON.stringify(scribeTrace, null, 2)}\n\n` +
+            `本次议题：\n${compactRoundtableBrief(taskFrame, issueProposal)}\n\n` +
+            `书记员观察账本：\n${JSON.stringify(ledger, null, 2)}\n\n` +
             `问询答案：\n${JSON.stringify(inquiryAnswers, null, 2)}\n\n` +
-            `偏好刻画：\n${JSON.stringify(preferenceProfile, null, 2)}`,
+            `本心画像：\n${JSON.stringify(alignmentProfile, null, 2)}`,
         },
       ],
-      ClarityResultSchema,
-      { temperature: 0.55, max_tokens: 1300, json: true, runtime, fallback },
+      AlignmentReportSchema,
+      { temperature: 0.55, max_tokens: 1900, json: true, runtime, fallback, ...streamOpts(onPartial) },
     );
-    return normalizeClarity(validated as any, fallback);
+    return normalizeAlignmentReport(draft as any, fallback);
   } catch (e) {
-    console.warn("[generateClaritySettlement] fallback", e);
+    console.warn("[generateAlignmentReport] fallback", e);
     return fallback;
   }
 }
@@ -1152,87 +2028,65 @@ function normalizeOpeningTurn(vid: VoiceId, source: any, at: number): VoiceOpeni
   };
 }
 
-function normalizeRoundtableMoveResult(
-  parsed: any,
-  input: RoundtableMoveInput,
-  fallback: RoundtableMoveResult,
-): RoundtableMoveResult {
-  const at = Date.now();
-  const move: RoundtableMove = {
-    id: id("move"),
-    type: input.moveType,
-    target_voice_id: input.targetVoiceId,
-    from_voice_id: input.fromVoiceId,
-    to_voice_id: input.toVoiceId,
-    user_text: input.userText,
-    scribe_note: stringOr(parsed.scribeNote || parsed.scribe_note, fallback.scribeNote),
-    at,
-  };
+function normalizeObservationLedger(parsed: any, fallback: ScribeObservationLedger): ScribeObservationLedger {
+  const base = parsed && typeof parsed === "object" ? parsed : {};
+  const observations = Array.isArray(base.observations)
+    ? base.observations
+        .slice(-12)
+        .map((o: any, i: number) => ({
+          id: String(o.id || `obs_${i + 1}`),
+          round_index: typeof o.round_index === "number" ? o.round_index : undefined,
+          trigger: String(o.trigger || "summary") as any,
+          observation: String(o.observation || "").trim(),
+          attribution: String(o.attribution || "").trim(),
+          module: safeEnum(
+            o.module,
+            ["creative_hopelessness", "core_values", "cost_acceptance", "minimum_action", "none"],
+            "none",
+          ) as ScribeObservationLedger["observations"][number]["module"],
+          evidence: stringArrayOr(o.evidence, []),
+          at: typeof o.at === "number" ? o.at : Date.now(),
+        }))
+        .filter((o: ScribeObservationLedger["observations"][number]) => o.observation)
+    : fallback.observations;
 
-  if (input.moveType === "duel" && input.fromVoiceId && input.toVoiceId) {
-    const duel = parsed.duel || {};
-    return {
-      move,
-      scribeNote: move.scribe_note || fallback.scribeNote,
-      turns: [
-        {
-          id: id("turn"),
-          move_id: move.id,
-          trigger: "duel",
-          duel: {
-            from_voice_id: input.fromVoiceId,
-            from_name: voiceName(input.fromVoiceId),
-            to_voice_id: input.toVoiceId,
-            to_name: voiceName(input.toVoiceId),
-            question: stringOr(duel.question, fallback.turns[0]?.duel?.question || ""),
-            response: stringOr(duel.response, fallback.turns[0]?.duel?.response || ""),
-            unresolved_point: stringOr(duel.unresolved_point, fallback.turns[0]?.duel?.unresolved_point || ""),
-          },
-          at,
-        },
-      ],
-    };
-  }
+  const unanswered = Array.isArray(base.unanswered_questions)
+    ? base.unanswered_questions
+        .slice(0, 8)
+        .map((q: any, i: number) => ({
+          id: String(q.id || `unanswered_${i + 1}`),
+          from_voice_id: isVoiceId(String(q.from_voice_id || "")) ? String(q.from_voice_id) as VoiceId : undefined,
+          from_name: q.from_name ? String(q.from_name) : undefined,
+          question: String(q.question || "").trim(),
+          why_it_matters: String(q.why_it_matters || "").trim(),
+          at: typeof q.at === "number" ? q.at : undefined,
+        }))
+        .filter((q: ScribeObservationLedger["unanswered_questions"][number]) => q.question)
+    : fallback.unanswered_questions;
 
-  if (input.moveType === "scribe_summary" || input.moveType === "mirror_structure") {
-    const text = stringOr(parsed.summary || parsed.mirror || parsed.observation, fallback.turns[0]?.text || "");
-    return {
-      move,
-      scribeNote: move.scribe_note || fallback.scribeNote,
-      turns: [{ id: id("turn"), move_id: move.id, trigger: input.moveType, text, at }],
-    };
-  }
-
-  const rawTurns = Array.isArray(parsed.turns) ? parsed.turns : [];
-  const turns = rawTurns
-    .map((t: any) => {
-      const vid = String(t.voice_id || "");
-      if (!isVoiceId(vid) || !String(t.text || "").trim()) return null;
-      return {
-        id: id("turn"),
-        move_id: move.id,
-        trigger: input.moveType === "end_free_roundtable" ? "scribe_summary" : input.moveType,
-        voice_id: vid,
-        name: voiceName(vid),
-        text: String(t.text).trim(),
-        user_text: input.userText,
-        refers_to: Array.isArray(t.refers_to) ? t.refers_to.filter(isVoiceId) : undefined,
-        at,
-      } as RoundtableTurn;
-    })
-    .filter(Boolean) as RoundtableTurn[];
-
+  const signals = base.module_signals || {};
   return {
-    move,
-    scribeNote: move.scribe_note || fallback.scribeNote,
-    turns: turns.length ? turns : fallback.turns,
+    observations: observations.length ? observations : fallback.observations,
+    unanswered_questions: unanswered,
+    module_signals: {
+      creative_hopelessness: stringArrayOr(signals.creative_hopelessness, fallback.module_signals.creative_hopelessness).slice(0, 8),
+      core_values: stringArrayOr(signals.core_values, fallback.module_signals.core_values).slice(0, 8),
+      cost_acceptance: stringArrayOr(signals.cost_acceptance, fallback.module_signals.cost_acceptance).slice(0, 8),
+      minimum_action: stringArrayOr(signals.minimum_action, fallback.module_signals.minimum_action).slice(0, 8),
+    },
+    updated_at: typeof base.updated_at === "number" ? base.updated_at : Date.now(),
   };
 }
 
-function normalizeInquiry(parsed: any, fallback: InquiryResult): InquiryResult {
+function normalizeAlignmentInquiry(
+  parsed: any,
+  fallback: InquiryResult,
+  ledger: ScribeObservationLedger,
+  remainingQuestionBudget = MAX_ALIGNMENT_INQUIRY_QUESTIONS,
+): InquiryResult {
   const questions = Array.isArray(parsed.questions)
     ? parsed.questions
-        .slice(0, 4)
+        .slice(0, Math.min(3, Math.max(0, remainingQuestionBudget)))
         .map((q: any, i: number) => ({
           id: String(q.id || `inquiry_${i + 1}`),
           question: String(q.question || "").trim(),
@@ -1247,44 +2101,125 @@ function normalizeInquiry(parsed: any, fallback: InquiryResult): InquiryResult {
         }))
         .filter((q: ScribeInquiryQuestion) => q.question && q.options.length >= 2)
     : [];
-  const normalizedQuestions = questions.length ? questions : fallback.questions;
+  const fallbackQuestions = remainingQuestionBudget > 0
+    ? fallback.questions.slice(0, Math.min(3, remainingQuestionBudget))
+    : [];
+  const normalizedQuestions = questions.length ? questions : fallbackQuestions;
   for (const q of normalizedQuestions) {
     if (!q.options.some((o: ScribeInquiryQuestion["options"][number]) => /不准|自己|补/.test(o.label))) {
       q.options.push({ id: "custom", label: "都不准，我自己说" });
     }
   }
+  const ready = remainingQuestionBudget <= 0 || Boolean(parsed.readyForReport) || (questions.length === 0 && fallback.readyForReport);
   return {
-    questions: normalizedQuestions,
-    preferenceProfile: normalizePreferenceProfile(parsed.preferenceProfile || parsed.preference_profile, fallback.preferenceProfile),
+    questions: ready ? [] : normalizedQuestions,
+    readyForReport: ready,
+    alignmentProfile: normalizeAlignmentProfile(parsed.alignmentProfile || parsed.alignment_profile, fallback.alignmentProfile),
+    ledger,
   };
 }
 
-function normalizePreferenceProfile(input: any, fallback: PreferenceProfile): PreferenceProfile {
+function normalizeAlignmentProfile(input: any, fallback: AlignmentProfile): AlignmentProfile {
+  const offended = Array.isArray(input?.offended_voices)
+    ? input.offended_voices.filter((id: any) => isVoiceId(String(id))).map((id: any) => String(id) as VoiceId)
+    : fallback.offended_voices;
   return {
-    hypotheses: stringArrayOr(input?.hypotheses, fallback.hypotheses),
-    validated_leanings: stringArrayOr(input?.validated_leanings, fallback.validated_leanings),
-    resisted_positions: stringArrayOr(input?.resisted_positions, fallback.resisted_positions),
-    requested_perspectives: stringArrayOr(input?.requested_perspectives, fallback.requested_perspectives),
-    conflict_judgments: stringArrayOr(input?.conflict_judgments, fallback.conflict_judgments),
-    accepted_tradeoffs: stringArrayOr(input?.accepted_tradeoffs, fallback.accepted_tradeoffs),
-    refused_tradeoffs: stringArrayOr(input?.refused_tradeoffs, fallback.refused_tradeoffs),
+    falsified_fantasy: stringOr(input?.falsified_fantasy, fallback.falsified_fantasy),
+    core_value_axis: stringOr(input?.core_value_axis, fallback.core_value_axis),
+    offended_voices: offended,
+    accepted_costs: stringArrayOr(input?.accepted_costs, fallback.accepted_costs),
+    refused_costs: stringArrayOr(input?.refused_costs, fallback.refused_costs),
     unresolved_tensions: stringArrayOr(input?.unresolved_tensions, fallback.unresolved_tensions),
+    hegelian_synthesis: {
+      thesis: stringOr(input?.hegelian_synthesis?.thesis, fallback.hegelian_synthesis.thesis),
+      antithesis: stringOr(input?.hegelian_synthesis?.antithesis, fallback.hegelian_synthesis.antithesis),
+      synthesis: stringOr(input?.hegelian_synthesis?.synthesis, fallback.hegelian_synthesis.synthesis),
+    },
     user_self_statements: stringArrayOr(input?.user_self_statements, fallback.user_self_statements),
   };
 }
 
-function normalizeClarity(input: any, fallback: ClarityResult): ClarityResult {
+function normalizeAlignmentReport(input: any, fallback: AlignmentReport): AlignmentReport {
+  const oldCosts = Array.isArray(input?.cost_acceptance_contract?.accepted_costs)
+    ? input.cost_acceptance_contract.accepted_costs
+        .slice(0, 5)
+        .map((c: any) => {
+          const voice = isVoiceId(String(c.voice_id || "")) ? `${voiceName(String(c.voice_id) as VoiceId)}：` : "";
+          const cost = String(c.cost || "").trim();
+          const pain = String(c.pain || "").trim();
+          return `${voice}${cost}${pain ? `；${pain}` : ""}`;
+        })
+        .filter(Boolean)
+    : [];
+  const oldActions = Array.isArray(input?.minimum_viable_commitment?.actions)
+    ? input.minimum_viable_commitment.actions
+        .slice(0, 2)
+        .map((a: any) => {
+          const deadline = String(a.deadline || "").trim();
+          const action = String(a.action || "").trim();
+          const criteria = String(a.acceptance_criteria || "").trim();
+          return [deadline, action].filter(Boolean).join("：") + (criteria ? `\n完成标准：${criteria}` : "");
+        })
+        .filter(Boolean)
+    : [];
   return {
-    clarity_sentence: stringOr(input?.clarity_sentence, fallback.clarity_sentence),
-    preference_readout: stringOr(input?.preference_readout, fallback.preference_readout),
-    tradeoff_acknowledgement: stringOr(input?.tradeoff_acknowledgement, fallback.tradeoff_acknowledgement),
-    settlement_posture: safeEnum(
-      input?.settlement_posture,
-      ["leaning", "not_ready", "testing", "boundary", "grieving"],
-      fallback.settlement_posture,
-    ) as SettlementPosture,
-    commitment24h: stringOr(input?.commitment24h, fallback.commitment24h),
-    user_revision: typeof input?.user_revision === "string" ? input.user_revision : undefined,
+    creative_hopelessness: normalizeSettlementModule(
+      input?.creative_hopelessness,
+      fallback.creative_hopelessness,
+      "创造性无望宣判",
+      [input?.creative_hopelessness?.verdict, input?.creative_hopelessness?.falsified_coordinate].filter(Boolean).join("\n"),
+    ),
+    core_value_axis: normalizeSettlementModule(
+      input?.core_value_axis,
+      fallback.core_value_axis,
+      "核心价值主轴提取",
+      [input?.core_value_axis?.primary_vector, input?.core_value_axis?.decision_rule].filter(Boolean).join("\n"),
+    ),
+    cost_acceptance_contract: normalizeSettlementModule(
+      input?.cost_acceptance_contract,
+      fallback.cost_acceptance_contract,
+      "痛苦接纳契约",
+      [input?.cost_acceptance_contract?.contract_sentence, ...oldCosts].filter(Boolean).join("\n"),
+    ),
+    minimum_viable_commitment: normalizeSettlementModule(
+      input?.minimum_viable_commitment,
+      fallback.minimum_viable_commitment,
+      "最小阻力行动承诺",
+      oldActions.join("\n"),
+    ),
+    dialectic_synthesis: {
+      thesis: stringOr(input?.dialectic_synthesis?.thesis, fallback.dialectic_synthesis.thesis),
+      antithesis: stringOr(input?.dialectic_synthesis?.antithesis, fallback.dialectic_synthesis.antithesis),
+      synthesis: stringOr(input?.dialectic_synthesis?.synthesis || input?.clarity_sentence, fallback.dialectic_synthesis.synthesis),
+      user_revision: typeof input?.dialectic_synthesis?.user_revision === "string"
+        ? input.dialectic_synthesis.user_revision
+        : undefined,
+    },
+  };
+}
+
+function normalizeSettlementModule(
+  input: any,
+  fallback: AlignmentReport["creative_hopelessness"],
+  title: string,
+  oldReport = "",
+): AlignmentReport["creative_hopelessness"] {
+  const status = input?.user_feedback?.status === "agree" || input?.user_feedback?.status === "disagree"
+    ? input.user_feedback.status
+    : undefined;
+  const userText = typeof input?.user_feedback?.user_text === "string"
+    ? input.user_feedback.user_text.trim()
+    : "";
+  return {
+    title: stringOr(input?.title, fallback.title || title),
+    report: stringOr(input?.report || oldReport, fallback.report),
+    evidence: stringArrayOr(input?.evidence, fallback.evidence || []),
+    user_feedback: status
+      ? {
+          status,
+          user_text: userText || undefined,
+        }
+      : fallback.user_feedback,
   };
 }
 
@@ -1415,39 +2350,39 @@ function fallbackOpeningPayload(vid: VoiceId, taskFrame?: TaskFrame): VoiceOpeni
   const focus = taskFrame?.visible.discussion_focus || "这件事先别急着下结论。";
   const map: Record<VoiceId, VoiceOpeningPayload> = {
     lay: {
-      thesis: "先别把自己继续往前推。",
-      protected_value: "低消耗和身体余量",
-      concern: "你可能已经太累，判断会被耗竭带偏。",
+      thesis: "过载正在吞掉你的判断力。",
+      protected_value: "身心健康与神经系统",
+      concern: "短期成就感会被放下。",
       task_evidence: focus.slice(0, 34),
-      pull: "先停一停，恢复一点再判断",
+      pull: "先停止加码，睡一觉再回看。",
     },
     money: {
-      thesis: "先把现实底盘算清楚。",
-      protected_value: "现金流、退路和选择权",
-      concern: "你可能低估了代价和风险。",
+      thesis: "现金流不足会放大恐惧。",
+      protected_value: "生存底线与选择权",
+      concern: "理想主义要先被标价。",
       task_evidence: focus.slice(0, 34),
-      pull: "先看数字，再谈自由",
+      pull: "先算清安全垫和机会成本。",
     },
     roam: {
-      thesis: "别把惯性误认成命运。",
-      protected_value: "自由、出口和生命力",
-      concern: "你可能正在被旧轨道压到没气。",
+      thesis: "现有轨道压住了生命力。",
+      protected_value: "自由与真实性",
+      concern: "要承受试错和失败。",
       task_evidence: focus.slice(0, 34),
-      pull: "先给自己留一个出口",
+      pull: "给自己留一个真实出口。",
     },
     filial: {
-      thesis: "关系也在这件事里。",
-      protected_value: "牵挂、责任和归属",
-      concern: "你可能假装重要的人不重要。",
+      thesis: "选择会牵动重要关系。",
+      protected_value: "家庭连接与责任",
+      concern: "不能享有绝对自由。",
       task_evidence: focus.slice(0, 34),
-      pull: "把会被牵动的人也放进图里",
+      pull: "先和关键的人说清楚。",
     },
     future: {
-      thesis: "把今天放进五年里看。",
-      protected_value: "长期连续性和未来回看",
-      concern: "你可能让此刻情绪替你掌舵。",
+      thesis: "当下情绪遮住了长期路。",
+      protected_value: "未来连续性",
+      concern: "要忍受慢反馈和孤独。",
       task_evidence: focus.slice(0, 34),
-      pull: "选一条五年后仍认得的路",
+      pull: "把选择放进五年后回看。",
     },
   };
   return map[vid];
@@ -1455,6 +2390,7 @@ function fallbackOpeningPayload(vid: VoiceId, taskFrame?: TaskFrame): VoiceOpeni
 
 function fallbackRoundtableMove(input: RoundtableMoveInput): RoundtableMoveResult {
   const at = Date.now();
+  const roundIndex = roundIndexForMove(input);
   const move: RoundtableMove = {
     id: id("move"),
     type: input.moveType,
@@ -1462,14 +2398,12 @@ function fallbackRoundtableMove(input: RoundtableMoveInput): RoundtableMoveResul
     from_voice_id: input.fromVoiceId,
     to_voice_id: input.toVoiceId,
     user_text: input.userText,
-    scribe_note: "书记员先把这个动作记下：它透露了你想继续听哪一种价值。",
     at,
   };
 
   if (input.moveType === "duel" && input.fromVoiceId && input.toVoiceId) {
     return {
       move,
-      scribeNote: "这组对峙点亮了一条主要冲突。",
       turns: [
         {
           id: id("turn"),
@@ -1482,29 +2416,8 @@ function fallbackRoundtableMove(input: RoundtableMoveInput): RoundtableMoveResul
             to_name: voiceName(input.toVoiceId),
             question: `${voiceName(input.toVoiceId)}，如果只听你，什么代价会被你轻轻放过去？`,
             response: `我承认有代价，但我守的是${SELVES[input.toVoiceId].core_value}。`,
-            unresolved_point: "保护一个价值时，另一个价值会被暂时放到后面。",
           },
-          at,
-        },
-      ],
-    };
-  }
-
-  if (input.moveType === "scribe_summary" || input.moveType === "mirror_structure") {
-    const isMirror = input.moveType === "mirror_structure";
-    return {
-      move,
-      scribeNote: isMirror
-        ? "书记员用可观测事实照了一下这段对话的结构。"
-        : "书记员把当前圆桌压缩成一段可继续使用的记录。",
-      turns: [
-        {
-          id: id("turn"),
-          move_id: move.id,
-          trigger: input.moveType,
-          text: isMirror
-            ? mirrorStructureFallback(input.roundtable)
-            : "目前圆桌里浮出的不是单一答案，而是几个保护方向：现实退路、关系牵动、身体余量、自由出口和长期回看。你正在确认哪一个此刻更不能被牺牲。",
+          round_index: roundIndex,
           at,
         },
       ],
@@ -1514,26 +2427,22 @@ function fallbackRoundtableMove(input: RoundtableMoveInput): RoundtableMoveResul
   const voices =
     input.moveType === "continue_all" || input.moveType === "user_to_table"
       ? VOICE_IDS
-      : input.moveType === "challenge" || input.moveType === "name_avoidance"
-        ? [input.fromVoiceId || input.targetVoiceId || ("future" as VoiceId)]
-        : input.moveType === "cut_through"
-          ? [input.targetVoiceId || input.fromVoiceId || ("roam" as VoiceId)]
       : input.targetVoiceId
         ? [input.targetVoiceId]
         : ["future" as VoiceId];
-  const trigger: RoundtableTurn["trigger"] =
-    input.moveType === "end_free_roundtable" ? "scribe_summary" : input.moveType;
   return {
     move,
-    scribeNote: "书记员记录到：你选择让这些声音继续参与判断。",
     turns: voices.map((vid) => ({
       id: id("turn"),
       move_id: move.id,
-      trigger,
+      trigger: input.moveType,
       voice_id: vid,
       name: voiceName(vid),
       text: fallbackContinuationText(vid, input),
       user_text: input.userText,
+      round_index: roundIndex,
+      is_parallel_batch:
+        input.moveType === "continue_all" || input.moveType === "user_to_table" || undefined,
       at,
     })),
   };
@@ -1541,17 +2450,6 @@ function fallbackRoundtableMove(input: RoundtableMoveInput): RoundtableMoveResul
 
 function fallbackContinuationText(vid: VoiceId, input: RoundtableMoveInput): string {
   const prefix = input.userText ? `听见你说“${input.userText.slice(0, 30)}”，` : "";
-  if (input.moveType === "challenge") {
-    const target = input.toVoiceId ? voiceName(input.toVoiceId) : "刚才那一声";
-    return `${target}，我不同意。你把代价说得太轻了；我守的这件事一旦丢掉，不是补一补就能回来。`;
-  }
-  if (input.moveType === "name_avoidance") {
-    const target = input.toVoiceId ? voiceName(input.toVoiceId) : "你";
-    return `${target}，你刚才绕开的是最难承认的那一步：如果继续拖着不选，也是在选一种代价。`;
-  }
-  if (input.moveType === "cut_through") {
-    return "别再把“还没准备好”说成谨慎了，它也可能只是让旧生活继续赢。";
-  }
   const map: Record<VoiceId, string> = {
     lay: `${prefix}我还是想问：你有没有把累当成不够努力？先让身体回来，判断才会准。`,
     money: `${prefix}我需要你把代价摊开。不是为了吓自己，是为了别用模糊恐惧替代真实数字。`,
@@ -1562,81 +2460,166 @@ function fallbackContinuationText(vid: VoiceId, input: RoundtableMoveInput): str
   return map[vid];
 }
 
-function mirrorStructureFallback(roundtable: RoundtableRecord): string {
-  const turns = roundtable.turns.filter((turn) => turn.voice_id || turn.trigger === "user_text");
-  const counts = VOICE_IDS.map((vid) => ({
-    id: vid,
-    count: turns.filter((turn) => turn.voice_id === vid).length,
-  }));
-  const most = counts.reduce((best, item) => (item.count > best.count ? item : best), counts[0]);
-  const missing = counts.filter((item) => item.count === 0).map((item) => voiceName(item.id));
-  const userTurns = turns.filter((turn) => turn.trigger === "user_text").length;
-  if (!turns.length) return "我注意到：自由圆桌还没有开始，五声只完成了第一轮站位。";
-  const missingText = missing.length ? `；尚未发言的声音有 ${missing.join("、")}` : "";
-  return `我注意到：后续 ${turns.length} 条发言里，${voiceName(most.id)} 出现 ${most.count} 次，用户补充 ${userTurns} 次${missingText}。`;
+function emptyObservationLedger(): ScribeObservationLedger {
+  return {
+    observations: [],
+    unanswered_questions: [],
+    module_signals: {
+      creative_hopelessness: [],
+      core_values: [],
+      cost_acceptance: [],
+      minimum_action: [],
+    },
+    updated_at: Date.now(),
+  };
 }
 
-function fallbackInquiry(
+function fallbackObservationLedger(
   taskFrame: TaskFrame,
+  issueProposal: IssueProposal | undefined,
   roundtable: RoundtableRecord,
+  previousLedger?: ScribeObservationLedger | null,
+): ScribeObservationLedger {
+  const issue = compactRoundtableBrief(taskFrame, issueProposal);
+  const previous = previousLedger || emptyObservationLedger();
+  const now = Date.now();
+  const unanswered = roundtable.turns
+    .filter((t) => t.duel?.question || /[？?]/.test(t.text || ""))
+    .slice(-5)
+    .map((t, i) => ({
+      id: `unanswered_${now}_${i}`,
+      from_voice_id: t.voice_id,
+      from_name: t.name,
+      question: t.duel?.question || t.text || "",
+      why_it_matters: "这句话可能关系到用户最终愿意认领哪一种痛苦。",
+      at: t.at,
+    }));
+  const observations = previous.observations.length
+    ? previous.observations
+    : [
+        {
+          id: `obs_${now}`,
+          trigger: "summary" as const,
+          observation: "本轮只形成了基础议题线索，还需要最终问询确认。",
+          attribution: "目前不能强行归因，只能把选择岔路和代价先放在桌面上。",
+          module: "none" as const,
+          evidence: [issue],
+          at: now,
+        },
+      ];
+  return {
+    observations,
+    unanswered_questions: previous.unanswered_questions.length ? previous.unanswered_questions : unanswered,
+    module_signals: {
+      creative_hopelessness: previous.module_signals.creative_hopelessness.length
+        ? previous.module_signals.creative_hopelessness
+        : [taskFrame.visible.core_conflict].filter(Boolean),
+      core_values: previous.module_signals.core_values.length
+        ? previous.module_signals.core_values
+        : [taskFrame.visible.central_question].filter(Boolean),
+      cost_acceptance: previous.module_signals.cost_acceptance.length
+        ? previous.module_signals.cost_acceptance
+        : taskFrame.visible.main_concerns.slice(0, 3),
+      minimum_action: previous.module_signals.minimum_action,
+    },
+    updated_at: now,
+  };
+}
+
+function fallbackAlignmentInquiry(
+  taskFrame: TaskFrame,
+  issueProposal: IssueProposal | undefined,
+  ledger: ScribeObservationLedger,
   answers: ScribeInquiryAnswer[],
 ): InquiryResult {
-  const askedVoices = roundtable.moves.map((m) => m.target_voice_id).filter(Boolean).map(String);
-  const profile: PreferenceProfile = {
-    hypotheses: ["你似乎不是在找唯一正确答案，而是在确认哪个代价此刻更能承认。"],
-    validated_leanings: answers.map((a) => a.custom_text || a.selected_label).filter(Boolean),
-    resisted_positions: [],
-    requested_perspectives: askedVoices.map((v) => `你主动要求继续听见「${voiceName(v as VoiceId)}」。`),
-    conflict_judgments: roundtable.moves
-      .filter((m) => m.type === "duel" && m.from_voice_id && m.to_voice_id)
-      .map((m) => `你选择让「${voiceName(m.from_voice_id!)}」向「${voiceName(m.to_voice_id!)}」发问。`),
-    accepted_tradeoffs: [],
-    refused_tradeoffs: [],
-    unresolved_tensions: [taskFrame.visible.core_conflict],
-    user_self_statements: answers.map((a) => a.custom_text).filter(Boolean) as string[],
-  };
+  const userStatements = answers.map((a) => a.custom_text || a.selected_label).filter(Boolean);
+  const answeredEnough = answers.length >= 2;
+  const firstUnanswered = ledger.unanswered_questions[0];
+  const questions: ScribeInquiryQuestion[] = answeredEnough
+    ? []
+    : [
+        {
+          id: "falsified_fantasy",
+          question: firstUnanswered?.question || "如果必须承认一条路不存在，你最不愿意放下的是哪一种“既要又要”？",
+          options: [
+            { id: "safety_growth", label: "既想要足够安全，又想要立刻获得巨大成长" },
+            { id: "approval_autonomy", label: "既想完全自主，又想不让重要的人失望" },
+            { id: "no_loss", label: "既想换一种活法，又想不损失现在拥有的一切" },
+            { id: "custom", label: "都不准，我自己说" },
+          ],
+        },
+        {
+          id: "accepted_pain",
+          question: "为了更靠近你的主轴，你此刻愿意先吞下哪一种具体的痛？",
+          options: [
+            { id: "money", label: "收益或安全感短期没有最大化" },
+            { id: "comparison", label: "看到同龄人走得更稳时产生落差和怀疑" },
+            { id: "relationship", label: "让重要关系里的人继续担心或不理解一段时间" },
+            { id: "custom", label: "都不准，我自己说" },
+          ],
+        },
+      ];
+  const core = ledger.module_signals.core_values[0] || taskFrame.visible.central_question;
   return {
-    questions: [
-      {
-        id: "value_first",
-        question: "听完这一轮，你此刻更想先保护哪一边？",
-        options: [
-          { id: "reality", label: "先保护现实退路和可承受成本" },
-          { id: "autonomy", label: "先保护自主感和呼吸感" },
-          { id: "relationship", label: "先保护重要关系不被撕裂" },
-          { id: "custom", label: "都不准，我自己说" },
-        ],
+    questions,
+    readyForReport: answeredEnough,
+    ledger,
+    alignmentProfile: {
+      falsified_fantasy: ledger.module_signals.creative_hopelessness[0] || taskFrame.visible.core_conflict,
+      core_value_axis: core,
+      offended_voices: ["money", "filial", "lay"].filter((id) => isVoiceId(id)) as VoiceId[],
+      accepted_costs: userStatements.length ? userStatements : ledger.module_signals.cost_acceptance,
+      refused_costs: [],
+      unresolved_tensions: [taskFrame.visible.core_conflict].filter(Boolean),
+      hegelian_synthesis: {
+        thesis: core,
+        antithesis: ledger.module_signals.creative_hopelessness[0] || taskFrame.visible.core_conflict,
+        synthesis: `先承认${issueProposal?.expected_resolution.content || taskFrame.visible.central_question}`,
       },
-      {
-        id: "tradeoff",
-        question: "如果只能先承认一个代价，哪一句更接近？",
-        options: [
-          { id: "others_worry", label: "我可能要接受别人继续担心一段时间" },
-          { id: "money_risk", label: "我可能要接受现实收益没有立刻最大化" },
-          { id: "delay_decision", label: "我可能要接受现在还不能立刻决定" },
-          { id: "custom", label: "都不准，我自己说" },
-        ],
-      },
-    ],
-    preferenceProfile: profile,
+      user_self_statements: userStatements,
+    },
   };
 }
 
-function fallbackClarity(taskFrame: TaskFrame, preferenceProfile: PreferenceProfile): ClarityResult {
-  const posture: SettlementPosture = preferenceProfile.validated_leanings.length ? "leaning" : "testing";
+function fallbackAlignmentReport(
+  taskFrame: TaskFrame,
+  issueProposal: IssueProposal | undefined,
+  ledger: ScribeObservationLedger,
+  alignmentProfile: AlignmentProfile,
+): AlignmentReport {
+  const firstAction = issueProposal?.current_constraints.details[0] || "写下一个 24 小时内可验证的小事实";
+  const primary = alignmentProfile.core_value_axis || ledger.module_signals.core_values[0] || taskFrame.visible.central_question;
+  const fantasy = alignmentProfile.falsified_fantasy || ledger.module_signals.creative_hopelessness[0] || taskFrame.visible.core_conflict;
+  const acceptedCosts = (alignmentProfile.accepted_costs.length ? alignmentProfile.accepted_costs : taskFrame.visible.main_concerns)
+    .slice(0, 3);
   return {
-    clarity_sentence: `我现在看清楚的是：${taskFrame.visible.central_question}`,
-    preference_readout:
-      preferenceProfile.validated_leanings[0] ||
-      "你更需要先把几个价值分开放在桌上，而不是立刻让其中一个替你决定。",
-    tradeoff_acknowledgement:
-      preferenceProfile.accepted_tradeoffs[0] ||
-      "如果我先保护一个价值，就要承认另一个价值会暂时得不到完整安抚。",
-    settlement_posture: posture,
-    commitment24h:
-      posture === "testing"
-        ? "写下一个 24 小时内可验证的小事实"
-        : "写下此刻最不能牺牲的一件事",
+    creative_hopelessness: {
+      title: "创造性无望宣判",
+      report: `这个幻想被证伪了：${fantasy}。继续寻找一条完全不需要代价、却能同时满足所有声音的路，只会把真正需要面对的选择推迟到下一轮内耗里。`,
+      evidence: ledger.observations.slice(0, 3).map((o) => o.observation),
+    },
+    core_value_axis: {
+      title: "核心价值主轴提取",
+      report: `此刻最需要被优先服务的主轴是：${primary}。接下来的判断先服务这个主轴；不能增加它、反而只是在拖延承认现实的事情，先降级。`,
+      evidence: (alignmentProfile.refused_costs.length
+        ? alignmentProfile.refused_costs
+        : taskFrame.visible.main_concerns.slice(0, 3)),
+    },
+    cost_acceptance_contract: {
+      title: "痛苦接纳契约",
+      report: `我同意：为了走向第一主轴，我愿意让一部分声音暂时不被完整安抚。${acceptedCosts.join("；")}。我承认这部分会不舒服，但不再让它偷偷替我否决主轴。`,
+      evidence: acceptedCosts,
+    },
+    minimum_viable_commitment: {
+      title: "最小阻力行动承诺",
+      report: `今晚 24:00 前：${firstAction}。完成标准：留下一个可回看的文档、清单或数字结果，而不是只在脑子里想过。`,
+      evidence: [firstAction],
+    },
+    dialectic_synthesis: {
+      thesis: primary,
+      antithesis: fantasy,
+      synthesis: `本心是：我先承认“${fantasy}”这条完美路不存在，再用一个小动作服务“${primary}”。`,
+    },
   };
 }
 
@@ -1655,19 +2638,20 @@ function safeEnum<T extends string>(value: any, allowed: readonly T[], fallback:
   return allowed.includes(value) ? value : fallback;
 }
 
-export function getAgentMeta() {
+export function getIntegrationMeta() {
   return {
     name: "ParallelMe",
     name_zh: "平行的我",
-    one_liner: "书记员牵引的固定五声圆桌，帮助用户把议题定义清楚并落成清明句。",
+    one_liner: "书记员牵引的固定五声圆桌，帮助用户把议题定义清楚并完成本心落定。",
     architecture:
-      "scribe-guided task frame + fixed five-voice opening + free roundtable actions + scribe inquiry + clarity settlement",
+      "scribe-guided issue proposal + fixed five-voice opening + free roundtable actions + invisible scribe observation + alignment inquiry + alignment report",
     selves: SELVES_META,
     endpoints: {
       task_frame: "/api/task-frame",
       roundtable: "/api/roundtable",
-      scribe_inquiry: "/api/scribe-inquiry",
-      settlement: "/api/settlement",
+      scribe_observation: "/api/scribe-observation",
+      alignment_inquiry: "/api/alignment-inquiry",
+      alignment_report: "/api/alignment-report",
     },
   };
 }

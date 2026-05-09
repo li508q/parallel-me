@@ -6,6 +6,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { SelfAvatar } from "@/components/SelfAvatar";
 import { SELVES, type SelfId } from "@/lib/selves";
 import { db } from "@/lib/db";
+import { settlementCommitment, settlementHeadline } from "@/lib/v7";
 
 const STANDING_IDS: SelfId[] = ["lay", "money", "roam", "filial", "future"];
 
@@ -244,15 +245,15 @@ export default function InsightsPage() {
       {latest && (
         <section className="mb-14 animate-fade-up text-center">
           <div className="font-display text-xs tracking-[0.18em] text-ink3 uppercase mb-4">
-            ⓷ 最近的清明句
+            ⓷ 最近的本心落定
           </div>
           <div className="bg-surface-deep text-paper p-8 sm:p-12 rounded-3xl">
             <div className="font-display text-3xl sm:text-4xl mb-4 leading-tight">
-              「{latest.clarity?.clarity_sentence || latest.task_frame?.visible.problem_definition || latest.raw_input}」
+              「{settlementHeadline(latest.alignment_report) || latest.task_frame?.visible.problem_definition || latest.raw_input}」
             </div>
-            {latest.clarity?.commitment24h && (
+            {settlementCommitment(latest.alignment_report) && (
               <p className="text-paper/80 text-base leading-relaxed mb-5">
-                24h 承诺：{latest.clarity.commitment24h}
+                24h 行动：{settlementCommitment(latest.alignment_report)}
               </p>
             )}
             <div className="text-xs text-paper/50">

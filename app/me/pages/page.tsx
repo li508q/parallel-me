@@ -1,10 +1,11 @@
 "use client";
 
-// 纸页 — v0.7 roundtable records.
+// 纸页 — v1 roundtable records.
 
 import Link from "next/link";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db, type Meeting } from "@/lib/db";
+import { settlementCommitment, settlementHeadline } from "@/lib/v7";
 
 const STATUS_LABEL: Record<Meeting["status"], string> = {
   in_progress: "进行中",
@@ -75,9 +76,10 @@ export default function PagesView() {
 
 function RecordCard({ meeting }: { meeting: Meeting }) {
   const display =
-    meeting.clarity?.clarity_sentence ||
+    settlementHeadline(meeting.alignment_report) ||
     meeting.task_frame?.visible.problem_definition ||
     meeting.raw_input;
+  const action = settlementCommitment(meeting.alignment_report);
 
   return (
     <Link href={`/archive/${meeting.id}`} className="block">
@@ -98,9 +100,9 @@ function RecordCard({ meeting }: { meeting: Meeting }) {
           <span>{meeting.roundtable.opening_turns.length} 声立论</span>
         </div>
 
-        {meeting.clarity?.commitment24h && (
+        {action && (
           <p className="mt-3 text-body-sm text-ink-body italic font-serif border-l border-paper-edge pl-3">
-            「{meeting.clarity.commitment24h}」
+            「{action}」
           </p>
         )}
       </article>

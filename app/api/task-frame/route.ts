@@ -13,9 +13,8 @@ import {
   type ContextBundle,
   type LlmRuntime,
 } from "@/lib/llm";
-import { scribeEventStream, SSE_HEADERS } from "@/lib/agents/events";
+import { scribeEventStream, SSE_HEADERS, type ScribeStreamEvent } from "@/lib/agents/events";
 import type { DefiningDialogue, IssueProposal } from "@/lib/v7";
-import { compactDialogue } from "@/lib/context-manager";
 
 // ─── Agent Loop Guard (参考 smolagents max_steps + graceful degradation) ───
 const MAX_PROBE_TURNS = 5;
@@ -45,9 +44,7 @@ export async function POST(req: NextRequest) {
     const dialogueTurns = dialogue.filter((d) => d.role === "user").length;
     const forcePropose = dialogueTurns >= MAX_PROBE_TURNS;
 
-    // Context compaction: compress old dialogue for LLM
-    const { compacted, summary } = compactDialogue(dialogue);
-    const effectiveDialogue = compacted;
+    const effectiveDialogue = dialogue;
 
     const stream = scribeEventStream(async (emit) => {
       emit({ type: "narration", stage: "taskFrame", key: "reading" });
@@ -55,35 +52,51 @@ export async function POST(req: NextRequest) {
       if (forcePropose) {
         // Graceful degradation: don't ask more, generate proposal from what we have
         emit({ type: "narration", stage: "taskFrame", key: "proposing" });
-        const proposalResult = await generateIssueProposal(rawInput, effectiveDialogue, context, llmRuntime);
+        const proposalResult = await generateIssueProposal(
+          rawInput,
+          effectiveDialogue,
+          context,
+          llmRuntime,
+          modelStream(emit, "proposal"),
+        );
         emit({ type: "narration", stage: "taskFrame", key: "done" });
-        emitProposalTokens(emit, proposalResult.proposal);
         emit({ type: "result", payload: {
           action: "propose",
           readyToPropose: true,
           proposal: proposalResult.proposal,
           taskFrame: proposalResult.taskFrame,
           thinking: `已达 ${MAX_PROBE_TURNS} 轮追问上限，自动生成提案。`,
-          _contextCompacted: !!summary,
+          _contextCompacted: false,
         }});
         emit({ type: "done" });
         return;
       }
 
-      const probeResult = await generateScribeQuestions(rawInput, effectiveDialogue, context, llmRuntime);
+      const probeResult = await generateScribeQuestions(
+        rawInput,
+        effectiveDialogue,
+        context,
+        llmRuntime,
+        modelStream(emit, "probe"),
+      );
 
       if (probeResult.readyToPropose) {
         emit({ type: "narration", stage: "taskFrame", key: "proposing" });
-        const proposalResult = await generateIssueProposal(rawInput, effectiveDialogue, context, llmRuntime);
+        const proposalResult = await generateIssueProposal(
+          rawInput,
+          effectiveDialogue,
+          context,
+          llmRuntime,
+          modelStream(emit, "proposal"),
+        );
         emit({ type: "narration", stage: "taskFrame", key: "done" });
-        emitProposalTokens(emit, proposalResult.proposal);
         emit({ type: "result", payload: {
           action: "propose",
           readyToPropose: true,
           proposal: proposalResult.proposal,
           taskFrame: proposalResult.taskFrame,
           thinking: probeResult.thinking,
-          _contextCompacted: !!summary,
+          _contextCompacted: false,
         }});
       } else {
         emit({ type: "narration", stage: "taskFrame", key: "questioning" });
@@ -92,7 +105,7 @@ export async function POST(req: NextRequest) {
           readyToPropose: false,
           questions: probeResult.questions,
           thinking: probeResult.thinking,
-          _contextCompacted: !!summary,
+          _contextCompacted: false,
         }});
       }
       emit({ type: "done" });
@@ -106,10 +119,15 @@ export async function POST(req: NextRequest) {
       emit({ type: "narration", stage: "taskFrame", key: "proposing" });
       await sleep(200);
 
-      const proposalResult = await generateIssueProposal(rawInput, dialogue, context, llmRuntime);
+      const proposalResult = await generateIssueProposal(
+        rawInput,
+        dialogue,
+        context,
+        llmRuntime,
+        modelStream(emit, "proposal"),
+      );
 
       emit({ type: "narration", stage: "taskFrame", key: "done" });
-      emitProposalTokens(emit, proposalResult.proposal);
       emit({ type: "result", payload: {
         action: "propose",
         readyToPropose: true,
@@ -136,7 +154,13 @@ export async function POST(req: NextRequest) {
       emit({ type: "narration", stage: "taskFrame", key: "refining" });
 
       const refineResult = await refineProposal(
-        rawInput, dialogue, currentProposal, userFeedback, context, llmRuntime,
+        rawInput,
+        dialogue,
+        currentProposal,
+        userFeedback,
+        context,
+        llmRuntime,
+        modelStream(emit, "refine"),
       );
 
       if (refineResult.needMoreInfo && refineResult.questions?.length) {
@@ -149,7 +173,6 @@ export async function POST(req: NextRequest) {
         }});
       } else {
         emit({ type: "narration", stage: "taskFrame", key: "done" });
-        emitProposalTokens(emit, refineResult.proposal || currentProposal);
         emit({ type: "result", payload: {
           action: "propose",
           readyToPropose: true,
@@ -169,7 +192,13 @@ export async function POST(req: NextRequest) {
     emit({ type: "narration", stage: "taskFrame", key: "reading" });
     emit({ type: "narration", stage: "taskFrame", key: "extractingTension" });
 
-    const result = await generateTaskFrame(rawInput, choiceAnswers, context, llmRuntime);
+    const result = await generateTaskFrame(
+      rawInput,
+      choiceAnswers,
+      context,
+      llmRuntime,
+      modelStream(emit, "taskFrame"),
+    );
 
     emit({ type: "narration", stage: "taskFrame", key: "done" });
     emit({ type: "result", payload: { crisis: false, ...result } });
@@ -187,17 +216,19 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function emitProposalTokens(
-  emit: (event: any) => void,
-  proposal: IssueProposal,
-) {
-  const keys = [
-    proposal.surface_dilemma,
-    proposal.current_constraints,
-    proposal.core_fears,
-    proposal.expected_resolution,
-  ];
-  for (const key of keys) {
-    emit({ type: "token", text: `${key.title}：${key.content}\n` });
-  }
+function modelStream(emit: (event: ScribeStreamEvent) => void, source: string) {
+  return {
+    onToken: (text: string) => emit({ type: "model_delta", source, text }),
+    onPartial: (payload: unknown) => emit({ type: "object_delta", source, payload }),
+    onReasoning: (
+      text: string,
+      meta?: { source?: string; mode?: "native" | "public" },
+    ) => emit({
+      type: "reasoning_delta",
+      source: meta?.source || source,
+      text,
+      mode: meta?.mode,
+    }),
+    onEvent: (event: any) => emit("source" in event && event.source ? event : { ...event, source }),
+  };
 }

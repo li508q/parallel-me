@@ -34,7 +34,7 @@ const ERROR_META: Record<string, { icon: string; label: string; color: string }>
   rate_limit: { icon: "⏱", label: "请求过于频繁", color: "#d97706" },
   timeout: { icon: "⏳", label: "响应超时", color: "#d97706" },
   server_error: { icon: "⚡", label: "服务暂时不可用", color: "#dc2626" },
-  parse_error: { icon: "📋", label: "格式异常", color: "#d97706" },
+  parse_error: { icon: "📋", label: "结果需要复核", color: "#d97706" },
   empty_response: { icon: "💨", label: "模型返回为空", color: "#d97706" },
   context_overflow: { icon: "📏", label: "上下文过长", color: "#dc2626" },
   auth_error: { icon: "🔑", label: "认证失败", color: "#dc2626" },
