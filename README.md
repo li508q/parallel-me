@@ -10,33 +10,35 @@ ParallelMe 为正饱受重大选择撕扯的人搭建一间私密的内心圆桌
 
 <br />
 
-![Next.js](https://img.shields.io/badge/Next.js-16-000000?style=flat-square&logo=nextdotjs)
-![React](https://img.shields.io/badge/React-19-20232A?style=flat-square&logo=react)
-![TypeScript](https://img.shields.io/badge/TypeScript-5.8-3178C6?style=flat-square&logo=typescript&logoColor=white)
-![Vercel AI SDK](https://img.shields.io/badge/Vercel%20AI%20SDK-6-191713?style=flat-square)
-![Local First](https://img.shields.io/badge/Local--First-IndexedDB-536E5A?style=flat-square)
-![Version](https://img.shields.io/badge/Release-v1.0-8E3F32?style=flat-square)
+<p>
+  <img alt="Next.js 16" height="28" src="https://img.shields.io/badge/Next.js-16-000000?style=flat-square&logo=nextdotjs" />
+  <img alt="React 19" height="28" src="https://img.shields.io/badge/React-19-20232A?style=flat-square&logo=react" />
+  <img alt="TypeScript 5.8" height="28" src="https://img.shields.io/badge/TypeScript-5.8-3178C6?style=flat-square&logo=typescript&logoColor=white" />
+  <img alt="Vercel AI SDK 6" height="28" src="https://img.shields.io/badge/Vercel_AI_SDK-6-191713?style=flat-square" />
+  <img alt="Local-first IndexedDB" height="28" src="https://img.shields.io/badge/Local--First-IndexedDB-536E5A?style=flat-square" />
+  <img alt="Release v1.0" height="28" src="https://img.shields.io/badge/Release-v1.0-8E3F32?style=flat-square" />
+</p>
 
-<br />
-
-<a href="https://parallel-me-olive.vercel.app/">
-  <img alt="Live demo" src="https://img.shields.io/badge/Live_Demo-8E3F32?style=for-the-badge&logo=vercel&logoColor=white" />
-</a>
-<a href="#core-philosophy">
-  <img alt="Product philosophy" src="https://img.shields.io/badge/Philosophy-191713?style=for-the-badge" />
-</a>
-<a href="#product-architecture">
-  <img alt="Product modules" src="https://img.shields.io/badge/Modules-191713?style=for-the-badge" />
-</a>
-<a href="#system-implementation">
-  <img alt="System implementation" src="https://img.shields.io/badge/System-191713?style=for-the-badge" />
-</a>
-<a href="#documentation">
-  <img alt="Documentation" src="https://img.shields.io/badge/Docs-191713?style=for-the-badge" />
-</a>
-<a href="#quick-start">
-  <img alt="Quick start" src="https://img.shields.io/badge/Quick_Start-191713?style=for-the-badge" />
-</a>
+<p>
+  <a href="https://parallel-me-olive.vercel.app/">
+    <img alt="Live demo" height="28" src="https://img.shields.io/badge/Live_Demo-8E3F32?style=flat-square&logo=vercel&logoColor=white" />
+  </a>
+  <a href="#core-philosophy">
+    <img alt="Product philosophy" height="28" src="https://img.shields.io/badge/Philosophy-191713?style=flat-square" />
+  </a>
+  <a href="#product-architecture">
+    <img alt="Product modules" height="28" src="https://img.shields.io/badge/Modules-191713?style=flat-square" />
+  </a>
+  <a href="#system-implementation">
+    <img alt="System implementation" height="28" src="https://img.shields.io/badge/System-191713?style=flat-square" />
+  </a>
+  <a href="#documentation">
+    <img alt="Documentation" height="28" src="https://img.shields.io/badge/Docs-191713?style=flat-square" />
+  </a>
+  <a href="#quick-start">
+    <img alt="Quick start" height="28" src="https://img.shields.io/badge/Quick_Start-191713?style=flat-square" />
+  </a>
+</p>
 
 </div>
 
