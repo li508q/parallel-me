@@ -4,6 +4,7 @@
 // not used here.
 
 import { SELVES, type SelfId, SELVES_META } from "./selves";
+import { scribePersonaBlock } from "./scribe";
 import {
   VOICE_IDS,
   emptyRoundtable,
@@ -192,6 +193,8 @@ function serializeRoundtable(roundtable: RoundtableRecord): string {
       if (t.duel) {
         return `[对峙] ${t.duel.from_name} 问 ${t.duel.to_name}: ${t.duel.question} / ${t.duel.to_name}: ${t.duel.response}`;
       }
+      if (t.trigger === "user_text") return `[用户] ${t.user_text || t.text}`;
+      if (t.trigger === "mirror_structure") return `[书记员观察] ${t.text}`;
       if (t.voice_id) return `[${t.name}] ${t.text}`;
       return `[书记员] ${t.text}`;
     })
@@ -221,9 +224,11 @@ export async function generateTaskFrame(
 
   const sys = `你是 ParallelMe v0.7 的书记员。你的任务是把用户原始输入整理成“本次议题”，并设计少量高密度选择卡。
 
+${scribePersonaBlock("brief")}
+
 产品原则：
 - 书记员半显性，不是第六声。
-- 不诊断，不治疗承诺，不用心理学术语吓用户。
+- 敢于把处境命名清楚，但只用用户能改写的人话，不用心理学术语压人。
 - 用户懒，所以选项要高密度：一个选择应能更新多个 KV。
 - 不做长追问，不逐字段拷问。
 - 可见字段要自然、锋利、可被用户改写。
@@ -296,8 +301,7 @@ export async function generateOpeningTurns(
     const s = SELVES[vid];
     return `[${vid}] ${s.name}
 守护：${s.soul?.protects || s.core_value}
-注意：${s.soul?.clarityRole || s.core_belief}
-风险：${s.soul?.cost || s.fear}`;
+注意：${s.soul?.clarityRole || s.core_belief}`;
   }).join("\n\n");
 
   const sys = `你是 ParallelMe v0.7 的圆桌编排器。请让固定五声围绕“本次议题”发表第一轮结构化立论。
@@ -318,8 +322,7 @@ export async function generateOpeningTurns(
       "protected_value": "≤24字",
       "concern": "≤32字",
       "task_evidence": "≤36字",
-      "pull": "≤32字",
-      "overreach_cost": "≤36字"
+      "pull": "≤32字"
     }
   ]
 }`;
@@ -357,17 +360,24 @@ export async function generateRoundtableMove(
   const fallback = fallbackRoundtableMove(input);
   const sys = `你是 ParallelMe v0.7 的圆桌编排器。根据用户动作，生成下一段圆桌内容。
 
+${scribePersonaBlock("mirror")}
+
 规则：
-- 固定五声，不新增角色。
-- 自由圆桌阶段可以自然对话，不再套第一轮六项结构。
-- 任何声音都不能变成助手，也不能说“大家都有道理”来糊弄。
-- 对峙目标是看见代价和盲点，不攻击、不讽刺、不审判。
-- 书记员只做整理和记录，不站队。
+- 固定五声 + 书记员。五声是辩手，书记员是镜子。两者职能不可混淆。
+- 自由圆桌阶段必须打破第一轮结构：允许互相引用原话（用 refers_to 标出被回应声音）、允许打断、允许沉默，不再套第一轮五项字段。
+- 任何声音都不能变成助手，也不能说“大家都有道理”来糊弄。违反时立刻重写。
+- 对峙的边界是：可以反对对方的行为、选择、回避和代价判断（这叫对抗）；不可以贬损对方的人格、身份和价值（这叫攻击）。允许尖锐、允许不留情面、允许打断；不允许人身攻击与人格审判。
+- 书记员是激烈对话中的理性支柱：只输出可观测事实（次数、缺席声音、主题对照、前后顺序），只用观察句（“我注意到 / 在 X 次发言里”），不用判断句（“你在躲 / 你应该 / 真正”），不预设观点、不替用户做选择、不下场表达立场。
+- 每一轮至少要有一次明确不同意，且必须由 voice 发起；书记员不参与对抗，只负责让结构可见。
 
 输出严格 JSON。根据 moveType：
 - continue_all / user_to_table：{"turns":[{"voice_id":"lay","text":"短段回应","refers_to":["money"]}],"scribeNote":"一句书记员侧记"}
 - continue_one / user_to_voice：{"turns":[{"voice_id":"money","text":"短段回应","refers_to":["future"]}],"scribeNote":"一句书记员侧记"}
 - duel：{"duel":{"question":"","response":"","unresolved_point":""},"scribeNote":"一句书记员侧记"}
+- challenge：{"turns":[{"voice_id":"money","text":"明确反对 toVoice 的一句具体话","refers_to":["future"]}],"scribeNote":"一句书记员侧记"}
+- name_avoidance：{"turns":[{"voice_id":"future","text":"命名对方正在绕开的具体问题","refers_to":["lay"]}],"scribeNote":"一句书记员侧记"}
+- cut_through：{"turns":[{"voice_id":"roam","text":"一句不解释、不缓冲的戳破句","refers_to":["lay","money"]}],"scribeNote":"一句书记员侧记"}
+- mirror_structure：{"summary":"书记员纯观察陈述，必须含至少一个可量化事实，禁用判断词","scribeNote":"一句书记员侧记"}
 - scribe_summary：{"summary":"书记员整理，不超过120字","scribeNote":"一句书记员侧记"}`;
 
   const moveDesc = {
@@ -409,6 +419,8 @@ export async function generateScribeInquiry(
 ): Promise<InquiryResult> {
   const fallback = fallbackInquiry(taskFrame, roundtable, inquiryAnswers);
   const sys = `你是 ParallelMe v0.7 的书记员。自由圆桌结束后，你要通过少量高密度选择题验证用户在五声之间的偏好。
+
+${scribePersonaBlock("inquiry")}
 
 任务：
 - 问题不是追问背景，而是验证圆桌里已经出现的偏好。
@@ -470,16 +482,18 @@ export async function generateClaritySettlement(
   const fallback = fallbackClarity(taskFrame, preferenceProfile);
   const sys = `你是 ParallelMe v0.7 的书记员。请基于本次议题、五声圆桌、用户动作和问询答案，整理“清明落定”。
 
+${scribePersonaBlock("settlement")}
+
 必须输出：
 - clarity_sentence：一句用户愿意承认的真实判断。
 - preference_readout：说明用户更靠近哪些价值、仍在哪些价值之间摇摆；不用分数、不排名、不说声浪。
 - tradeoff_acknowledgement：承认一个选择代价。
 - settlement_posture：只能是 leaning / not_ready / testing / boundary / grieving。
-- commitment24h：24 小时内能做的最小动作，动词开头，不替用户做重大决定。
+- commitment24h：24 小时内能做的最小动作，动词开头。
 
 规则：
 - 清明句不是模型总结，要像从用户刚才的选择里长出来。
-- 不诊断，不做治疗承诺。
+- 敢于把代价、偏好和摇摆摆到台面，让用户自己拍板。
 - 不引入独立的收束角色或第六声。
 - 如果用户只是看清卡点，也可以给 not_ready，并给澄清动作。
 
@@ -607,7 +621,7 @@ function normalizeChoiceCards(input: any, fallback: ChoiceCard[]): ChoiceCard[] 
           derived_kv: typeof o.derived_kv === "object" && o.derived_kv ? o.derived_kv : undefined,
         }))
         .filter((o: ChoiceCard["options"][number]) => o.label);
-      const hasCustom = normalizedOptions.some((o) => /不准|自己|补/.test(o.label));
+      const hasCustom = normalizedOptions.some((o: ChoiceCard["options"][number]) => /不准|自己|补/.test(o.label));
       if (!hasCustom) normalizedOptions.push({ id: "custom", label: "都不准，我补一句", derived_kv: { user_precision: "custom" } });
       return {
         id: String(card.id || `card_${i + 1}`),
@@ -643,7 +657,6 @@ function normalizeOpeningTurn(vid: VoiceId, source: any, at: number): VoiceOpeni
     concern: stringOr(source?.concern, fallback.concern),
     task_evidence: stringOr(source?.task_evidence, fallback.task_evidence),
     pull: stringOr(source?.pull, fallback.pull),
-    overreach_cost: stringOr(source?.overreach_cost, fallback.overreach_cost),
     at,
   };
 }
@@ -673,6 +686,7 @@ function normalizeRoundtableMoveResult(
       turns: [
         {
           id: id("turn"),
+          move_id: move.id,
           trigger: "duel",
           duel: {
             from_voice_id: input.fromVoiceId,
@@ -689,12 +703,12 @@ function normalizeRoundtableMoveResult(
     };
   }
 
-  if (input.moveType === "scribe_summary") {
-    const text = stringOr(parsed.summary, fallback.turns[0]?.text || "");
+  if (input.moveType === "scribe_summary" || input.moveType === "mirror_structure") {
+    const text = stringOr(parsed.summary || parsed.mirror || parsed.observation, fallback.turns[0]?.text || "");
     return {
       move,
       scribeNote: move.scribe_note || fallback.scribeNote,
-      turns: [{ id: id("turn"), trigger: "scribe_summary", text, at }],
+      turns: [{ id: id("turn"), move_id: move.id, trigger: input.moveType, text, at }],
     };
   }
 
@@ -705,6 +719,7 @@ function normalizeRoundtableMoveResult(
       if (!isVoiceId(vid) || !String(t.text || "").trim()) return null;
       return {
         id: id("turn"),
+        move_id: move.id,
         trigger: input.moveType === "end_free_roundtable" ? "scribe_summary" : input.moveType,
         voice_id: vid,
         name: voiceName(vid),
@@ -743,7 +758,7 @@ function normalizeInquiry(parsed: any, fallback: InquiryResult): InquiryResult {
     : [];
   const normalizedQuestions = questions.length ? questions : fallback.questions;
   for (const q of normalizedQuestions) {
-    if (!q.options.some((o) => /不准|自己|补/.test(o.label))) {
+    if (!q.options.some((o: ScribeInquiryQuestion["options"][number]) => /不准|自己|补/.test(o.label))) {
       q.options.push({ id: "custom", label: "都不准，我自己说" });
     }
   }
@@ -914,7 +929,6 @@ function fallbackOpeningPayload(vid: VoiceId, taskFrame?: TaskFrame): VoiceOpeni
       concern: "你可能已经太累，判断会被耗竭带偏。",
       task_evidence: focus.slice(0, 34),
       pull: "先停一停，恢复一点再判断",
-      overreach_cost: "只听我，可能把暂停变成逃避。",
     },
     money: {
       thesis: "先把现实底盘算清楚。",
@@ -922,7 +936,6 @@ function fallbackOpeningPayload(vid: VoiceId, taskFrame?: TaskFrame): VoiceOpeni
       concern: "你可能低估了代价和风险。",
       task_evidence: focus.slice(0, 34),
       pull: "先看数字，再谈自由",
-      overreach_cost: "只听我，会把人活成表格。",
     },
     roam: {
       thesis: "别把惯性误认成命运。",
@@ -930,7 +943,6 @@ function fallbackOpeningPayload(vid: VoiceId, taskFrame?: TaskFrame): VoiceOpeni
       concern: "你可能正在被旧轨道压到没气。",
       task_evidence: focus.slice(0, 34),
       pull: "先给自己留一个出口",
-      overreach_cost: "只听我，可能把离开当万能药。",
     },
     filial: {
       thesis: "关系也在这件事里。",
@@ -938,7 +950,6 @@ function fallbackOpeningPayload(vid: VoiceId, taskFrame?: TaskFrame): VoiceOpeni
       concern: "你可能假装重要的人不重要。",
       task_evidence: focus.slice(0, 34),
       pull: "把会被牵动的人也放进图里",
-      overreach_cost: "只听我，会替所有人负责。",
     },
     future: {
       thesis: "把今天放进五年里看。",
@@ -946,7 +957,6 @@ function fallbackOpeningPayload(vid: VoiceId, taskFrame?: TaskFrame): VoiceOpeni
       concern: "你可能让此刻情绪替你掌舵。",
       task_evidence: focus.slice(0, 34),
       pull: "选一条五年后仍认得的路",
-      overreach_cost: "只听我，会忽略当下疼痛。",
     },
   };
   return map[vid];
@@ -972,6 +982,7 @@ function fallbackRoundtableMove(input: RoundtableMoveInput): RoundtableMoveResul
       turns: [
         {
           id: id("turn"),
+          move_id: move.id,
           trigger: "duel",
           duel: {
             from_voice_id: input.fromVoiceId,
@@ -988,15 +999,21 @@ function fallbackRoundtableMove(input: RoundtableMoveInput): RoundtableMoveResul
     };
   }
 
-  if (input.moveType === "scribe_summary") {
+  if (input.moveType === "scribe_summary" || input.moveType === "mirror_structure") {
+    const isMirror = input.moveType === "mirror_structure";
     return {
       move,
-      scribeNote: "书记员把当前圆桌压缩成一段可继续使用的记录。",
+      scribeNote: isMirror
+        ? "书记员用可观测事实照了一下这段对话的结构。"
+        : "书记员把当前圆桌压缩成一段可继续使用的记录。",
       turns: [
         {
           id: id("turn"),
-          trigger: "scribe_summary",
-          text: "目前圆桌里浮出的不是单一答案，而是几个保护方向：现实退路、关系牵动、身体余量、自由出口和长期回看。你正在确认哪一个此刻更不能被牺牲。",
+          move_id: move.id,
+          trigger: input.moveType,
+          text: isMirror
+            ? mirrorStructureFallback(input.roundtable)
+            : "目前圆桌里浮出的不是单一答案，而是几个保护方向：现实退路、关系牵动、身体余量、自由出口和长期回看。你正在确认哪一个此刻更不能被牺牲。",
           at,
         },
       ],
@@ -1006,6 +1023,10 @@ function fallbackRoundtableMove(input: RoundtableMoveInput): RoundtableMoveResul
   const voices =
     input.moveType === "continue_all" || input.moveType === "user_to_table"
       ? VOICE_IDS
+      : input.moveType === "challenge" || input.moveType === "name_avoidance"
+        ? [input.fromVoiceId || input.targetVoiceId || ("future" as VoiceId)]
+        : input.moveType === "cut_through"
+          ? [input.targetVoiceId || input.fromVoiceId || ("roam" as VoiceId)]
       : input.targetVoiceId
         ? [input.targetVoiceId]
         : ["future" as VoiceId];
@@ -1016,6 +1037,7 @@ function fallbackRoundtableMove(input: RoundtableMoveInput): RoundtableMoveResul
     scribeNote: "书记员记录到：你选择让这些声音继续参与判断。",
     turns: voices.map((vid) => ({
       id: id("turn"),
+      move_id: move.id,
       trigger,
       voice_id: vid,
       name: voiceName(vid),
@@ -1028,6 +1050,17 @@ function fallbackRoundtableMove(input: RoundtableMoveInput): RoundtableMoveResul
 
 function fallbackContinuationText(vid: VoiceId, input: RoundtableMoveInput): string {
   const prefix = input.userText ? `听见你说“${input.userText.slice(0, 30)}”，` : "";
+  if (input.moveType === "challenge") {
+    const target = input.toVoiceId ? voiceName(input.toVoiceId) : "刚才那一声";
+    return `${target}，我不同意。你把代价说得太轻了；我守的这件事一旦丢掉，不是补一补就能回来。`;
+  }
+  if (input.moveType === "name_avoidance") {
+    const target = input.toVoiceId ? voiceName(input.toVoiceId) : "你";
+    return `${target}，你刚才绕开的是最难承认的那一步：如果继续拖着不选，也是在选一种代价。`;
+  }
+  if (input.moveType === "cut_through") {
+    return "别再把“还没准备好”说成谨慎了，它也可能只是让旧生活继续赢。";
+  }
   const map: Record<VoiceId, string> = {
     lay: `${prefix}我还是想问：你有没有把累当成不够努力？先让身体回来，判断才会准。`,
     money: `${prefix}我需要你把代价摊开。不是为了吓自己，是为了别用模糊恐惧替代真实数字。`,
@@ -1036,6 +1069,20 @@ function fallbackContinuationText(vid: VoiceId, input: RoundtableMoveInput): str
     future: `${prefix}我会把这件事放远一点：五年后你更怕后悔没走，还是后悔没照顾好自己？`,
   };
   return map[vid];
+}
+
+function mirrorStructureFallback(roundtable: RoundtableRecord): string {
+  const turns = roundtable.turns.filter((turn) => turn.voice_id || turn.trigger === "user_text");
+  const counts = VOICE_IDS.map((vid) => ({
+    id: vid,
+    count: turns.filter((turn) => turn.voice_id === vid).length,
+  }));
+  const most = counts.reduce((best, item) => (item.count > best.count ? item : best), counts[0]);
+  const missing = counts.filter((item) => item.count === 0).map((item) => voiceName(item.id));
+  const userTurns = turns.filter((turn) => turn.trigger === "user_text").length;
+  if (!turns.length) return "我注意到：自由圆桌还没有开始，五声只完成了第一轮站位。";
+  const missingText = missing.length ? `；尚未发言的声音有 ${missing.join("、")}` : "";
+  return `我注意到：后续 ${turns.length} 条发言里，${voiceName(most.id)} 出现 ${most.count} 次，用户补充 ${userTurns} 次${missingText}。`;
 }
 
 function fallbackInquiry(

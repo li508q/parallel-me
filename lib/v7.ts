@@ -130,14 +130,18 @@ export interface VoiceOpeningPayload {
   concern: string;
   task_evidence: string;
   pull: string;
-  overreach_cost: string;
 }
 
 export type VoiceTurnTrigger =
   | "opening"
+  | "user_text"
   | "continue_all"
   | "continue_one"
   | "duel"
+  | "challenge"
+  | "name_avoidance"
+  | "cut_through"
+  | "mirror_structure"
   | "user_to_voice"
   | "user_to_table"
   | "scribe_summary";
@@ -161,6 +165,7 @@ export interface DuelPayload {
 
 export interface RoundtableTurn {
   id: string;
+  move_id?: string;
   trigger: VoiceTurnTrigger;
   voice_id?: VoiceId;
   name?: string;
@@ -176,6 +181,10 @@ export type RoundtableMoveType =
   | "continue_all"
   | "continue_one"
   | "duel"
+  | "challenge"
+  | "name_avoidance"
+  | "cut_through"
+  | "mirror_structure"
   | "user_to_voice"
   | "user_to_table"
   | "scribe_summary"
