@@ -8,7 +8,12 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DocketPaper } from "@/components/DocketPaper";
+import { DefiningDialogueBoard } from "@/components/DefiningDialogueBoard";
+import { ErrorRecoveryBar } from "@/components/ErrorRecoveryBar";
 import { HostConsole, type ConsoleAction } from "@/components/HostConsole";
+import { IssueProposalBoard } from "@/components/IssueProposalBoard";
+import { ScribeStatusStrip } from "@/components/ScribeStatusStrip";
+import { ScribeTracePanel } from "@/components/ScribeTracePanel";
 import { StageRail } from "@/components/StageRail";
 import { SELVES, type SelfId } from "@/lib/selves";
 import {
@@ -16,6 +21,7 @@ import {
   toRuntimePayload,
   type ProviderConfig,
 } from "@/lib/provider";
+import { useMeetingStore, type DefiningSubStage, type MeetingStage, type RoundtableMode } from "@/lib/store/meeting-store";
 import {
   newMeetingId,
   saveMeeting,
@@ -44,6 +50,10 @@ import {
   emptyRoundtable,
   emptyScribeTrace,
   voiceName,
+  type DefiningDialogueEntry,
+  type IssueProposal,
+  type ScribeAnswer,
+  type ScribeQuestion,
 } from "@/lib/v7";
 import {
   loadProfile,
@@ -52,17 +62,7 @@ import {
   tasteToProfileHint,
 } from "@/lib/profile";
 
-type Stage = "defining" | "review" | "roundtable" | "inquiry" | "settlement" | "archived";
-
-type RoundtableMode =
-  | "none"
-  | "continue_one"
-  | "ask_voice"
-  | "ask_table"
-  | "duel"
-  | "challenge"
-  | "name_avoidance"
-  | "cut_through";
+type Stage = MeetingStage;
 
 const BIG_STAGES = [
   { id: "defining", label: "本次议题" },
@@ -107,38 +107,77 @@ function MeetingInner() {
   const startedAtRef = useRef<number>(Date.now());
   const initializedRef = useRef<string | null>(null);
 
-  const [provider, setProvider] = useState<ProviderConfig | null>(null);
-  const [stage, setStage] = useState<Stage>("defining");
-  const [rawInput, setRawInput] = useState("");
-  const [choiceCards, setChoiceCards] = useState<ChoiceCard[]>([]);
-  const [choiceAnswers, setChoiceAnswers] = useState<ChoiceAnswer[]>([]);
-  const [choiceIndex, setChoiceIndex] = useState(0);
-  const [customChoiceText, setCustomChoiceText] = useState("");
-
-  const [taskFrame, setTaskFrame] = useState<TaskFrame | null>(null);
-  const [frameDraft, setFrameDraft] = useState<VisibleTaskFrame | null>(null);
-
-  const [roundtable, setRoundtable] = useState<RoundtableRecord>(() => emptyRoundtable());
-  const [scribeTrace, setScribeTrace] = useState<ScribeTrace>(() => emptyScribeTrace());
-  const [roundtableMode, setRoundtableMode] = useState<RoundtableMode>("none");
-  const [selectedVoiceId, setSelectedVoiceId] = useState<VoiceId>("future");
-  const [duelFromId, setDuelFromId] = useState<VoiceId>("money");
-  const [duelToId, setDuelToId] = useState<VoiceId>("lay");
-  const [roundtableText, setRoundtableText] = useState("");
-
-  const [inquiryQuestions, setInquiryQuestions] = useState<ScribeInquiryQuestion[]>([]);
-  const [inquiryAnswers, setInquiryAnswers] = useState<ScribeInquiryAnswer[]>([]);
-  const [inquiryIndex, setInquiryIndex] = useState(0);
-  const [customInquiryText, setCustomInquiryText] = useState("");
-  const [preferenceProfile, setPreferenceProfile] = useState<PreferenceProfile | null>(null);
-
-  const [clarity, setClarity] = useState<ClarityResult | null>(null);
-  const [clarityDraft, setClarityDraft] = useState("");
-  const [commitmentDraft, setCommitmentDraft] = useState("");
-
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const [crisis, setCrisis] = useState("");
+  const {
+    provider,
+    setProvider,
+    stage,
+    setStage,
+    rawInput,
+    setRawInput,
+    choiceCards,
+    setChoiceCards,
+    choiceAnswers,
+    setChoiceAnswers,
+    choiceIndex,
+    setChoiceIndex,
+    customChoiceText,
+    setCustomChoiceText,
+    definingDialogue,
+    setDefiningDialogue,
+    currentQuestions,
+    setCurrentQuestions,
+    issueProposal,
+    setIssueProposal,
+    definingSubStage,
+    setDefiningSubStage,
+    taskFrame,
+    setTaskFrame,
+    frameDraft,
+    setFrameDraft,
+    roundtable,
+    setRoundtable,
+    scribeTrace,
+    setScribeTrace,
+    roundtableMode,
+    setRoundtableMode,
+    selectedVoiceId,
+    setSelectedVoiceId,
+    duelFromId,
+    setDuelFromId,
+    duelToId,
+    setDuelToId,
+    roundtableText,
+    setRoundtableText,
+    inquiryQuestions,
+    setInquiryQuestions,
+    inquiryAnswers,
+    setInquiryAnswers,
+    inquiryIndex,
+    setInquiryIndex,
+    customInquiryText,
+    setCustomInquiryText,
+    preferenceProfile,
+    setPreferenceProfile,
+    clarity,
+    setClarity,
+    clarityDraft,
+    setClarityDraft,
+    commitmentDraft,
+    setCommitmentDraft,
+    busy,
+    setBusy,
+    error,
+    setError,
+    crisis,
+    setCrisis,
+    streamNarration,
+    streamEvents,
+    isStreaming,
+    traceOpen,
+    setTraceOpen,
+    streamRequest,
+    interruptStream,
+  } = useMeetingStore();
 
   const context = useCallback(() => {
     const profile = loadProfile();
@@ -192,24 +231,149 @@ function MeetingInner() {
     return json;
   }
 
+  /**
+   * SSE streaming variant of postJson. Drives Layer 1 narration and Layer 2 events.
+   * Returns the final `result.payload` just like postJson returns JSON.
+   */
+  async function streamJson(
+    path: string,
+    body: any,
+    runtimeProvider: ProviderConfig | null = provider,
+  ) {
+    return streamRequest({
+      path,
+      body,
+      provider: runtimeProvider,
+      context,
+    });
+  }
+
+  // ─── Retry Last Action (useChat reload() pattern) ───
+  const lastActionRef = useRef<{ fn: () => Promise<void> } | null>(null);
+
+  function retryLastAction() {
+    if (lastActionRef.current) {
+      lastActionRef.current.fn();
+    }
+  }
+
   async function loadTaskFrame(
     input: string,
     answers: ChoiceAnswer[],
     runtimeProvider: ProviderConfig | null = provider,
   ) {
+    // Legacy path kept for backward compat but now uses probe-first approach
+    await startDefiningProbe(input, [], runtimeProvider);
+  }
+
+  /** New: Start or continue the dialogue-based defining flow */
+  async function startDefiningProbe(
+    input: string,
+    dialogue: DefiningDialogueEntry[],
+    runtimeProvider: ProviderConfig | null = provider,
+  ) {
+    // Save for retry
+    lastActionRef.current = { fn: () => startDefiningProbe(input, dialogue, runtimeProvider) };
     setBusy(true);
     setError("");
     try {
-      const json = await postJson(
+      const json = await streamJson(
         "/api/task-frame",
-        { rawInput: input, choiceAnswers: answers },
+        { action: "probe", rawInput: input, dialogue },
         runtimeProvider,
       );
-      setChoiceCards(json.choiceCards ?? []);
-      setTaskFrame(json.taskFrame ?? null);
-      setFrameDraft(json.taskFrame?.visible ?? null);
+      if (json._interrupted) return;
+
+      if (json.action === "propose" && json.proposal) {
+        // 信息足够，直接生成提案
+        setIssueProposal(json.proposal);
+        setTaskFrame(json.taskFrame ?? null);
+        setFrameDraft(json.taskFrame?.visible ?? null);
+        setDefiningSubStage("showing_proposal");
+      } else if (json.questions?.length) {
+        // 需要追问
+        setCurrentQuestions(json.questions);
+        setDefiningSubStage("probing");
+      }
     } catch (e: any) {
       if (e?.message !== "safety-offramp") setError(e?.message || "书记员整理失败");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** Handle user answering probe questions */
+  async function handleProbeAnswer(answers: ScribeAnswer[]) {
+    // Add answers to dialogue
+    const newEntries: DefiningDialogueEntry[] = answers.map((a) => ({
+      role: "user" as const,
+      answer: a,
+    }));
+    // Also add the questions that were asked (for history)
+    const questionEntries: DefiningDialogueEntry[] = currentQuestions.map((q) => ({
+      role: "scribe" as const,
+      question: q,
+    }));
+    const updatedDialogue = [...definingDialogue, ...questionEntries, ...newEntries];
+    setDefiningDialogue(updatedDialogue);
+    setCurrentQuestions([]);
+
+    // Continue probing
+    await startDefiningProbe(rawInput, updatedDialogue);
+  }
+
+  /** Handle user confirming the proposal */
+  async function confirmProposal() {
+    if (!issueProposal || !taskFrame) return;
+    lastActionRef.current = { fn: () => confirmProposal() };
+    setBusy(true);
+    setError("");
+    try {
+      setFrameDraft(taskFrame.visible);
+      setStage("roundtable");
+      // Trigger opening turns
+      const json = await streamJson("/api/roundtable", {
+        action: "opening",
+        taskFrame,
+      });
+      if (json._interrupted) return;
+      setRoundtable((prev) => ({ ...prev, opening_turns: json.openingTurns ?? [] }));
+    } catch (e: any) {
+      if (e?.message !== "safety-offramp") setError(e?.message || "生成五声开场失败");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** Handle user refining proposal */
+  async function handleRefineProposal(feedback: string) {
+    if (!issueProposal) return;
+    setBusy(true);
+    setError("");
+    try {
+      const json = await streamJson("/api/task-frame", {
+        action: "refine",
+        rawInput,
+        dialogue: definingDialogue,
+        currentProposal: issueProposal,
+        userFeedback: feedback,
+      });
+      if (json._interrupted) return;
+
+      if (json.action === "probe" && json.questions?.length) {
+        // 需要追问更多信息
+        setCurrentQuestions(json.questions);
+        setDefiningSubStage("probing");
+      } else if (json.proposal) {
+        setIssueProposal(json.proposal);
+        if (json.taskFrame) {
+          setTaskFrame(json.taskFrame);
+          setFrameDraft(json.taskFrame.visible);
+        }
+        setDefiningSubStage("showing_proposal");
+      }
+    } catch (e: any) {
+      if (e?.message !== "safety-offramp") setError(e?.message || "修正失败");
     } finally {
       setBusy(false);
     }
@@ -220,7 +384,7 @@ function MeetingInner() {
     setBusy(true);
     setError("");
     try {
-      const json = await postJson("/api/task-frame", {
+      const json = await streamJson("/api/task-frame", {
         rawInput,
         choiceAnswers,
       });
@@ -287,7 +451,7 @@ function MeetingInner() {
     setBusy(true);
     setError("");
     try {
-      const json = await postJson("/api/roundtable", {
+      const json = await streamJson("/api/roundtable", {
         action: "opening",
         taskFrame: frame,
       });
@@ -314,6 +478,14 @@ function MeetingInner() {
     }> = {},
   ) {
     if (!taskFrame || busy) return;
+
+    // Agent loop guard: max 12 roundtable moves
+    const MAX_ROUNDTABLE_MOVES = 12;
+    if (roundtable.moves.length >= MAX_ROUNDTABLE_MOVES) {
+      setError("圆桌讨论已达上限，请进入下一阶段。");
+      return;
+    }
+    lastActionRef.current = { fn: () => submitRoundtableMove(moveType, payload) };
     setBusy(true);
     setError("");
     const userTurn = createUserRoundtableTurn(moveType, payload.userText);
@@ -327,7 +499,7 @@ function MeetingInner() {
       }));
     }
     try {
-      const json = await postJson("/api/roundtable", {
+      const json = await streamJson("/api/roundtable", {
         action: "move",
         moveType,
         taskFrame,
@@ -364,7 +536,7 @@ function MeetingInner() {
     setBusy(true);
     setError("");
     try {
-      const json = await postJson("/api/scribe-inquiry", {
+      const json = await streamJson("/api/scribe-inquiry", {
         taskFrame,
         roundtable,
         scribeTrace,
@@ -404,7 +576,7 @@ function MeetingInner() {
     setBusy(true);
     setError("");
     try {
-      const inquiry = await postJson("/api/scribe-inquiry", {
+      const inquiry = await streamJson("/api/scribe-inquiry", {
         taskFrame,
         roundtable,
         scribeTrace,
@@ -413,7 +585,7 @@ function MeetingInner() {
       const profile = inquiry.preferenceProfile as PreferenceProfile;
       setPreferenceProfile(profile);
 
-      const settlement = await postJson("/api/settlement", {
+      const settlement = await streamJson("/api/settlement", {
         taskFrame,
         roundtable,
         scribeTrace,
@@ -479,15 +651,8 @@ function MeetingInner() {
 
   function buildActions(): ConsoleAction[] {
     if (stage === "defining") {
-      return [
-        {
-          id: "task-frame",
-          label: busy ? "整理中…" : "整理本次议题 →",
-          onClick: finalizeTaskFrame,
-          variant: "primary",
-          disabled: busy || !allChoicesAnswered,
-        },
-      ];
+      // IssueProposalBoard has its own confirm button, no need for HostConsole action
+      return [];
     }
     if (stage === "review") {
       return [
@@ -619,7 +784,15 @@ function MeetingInner() {
       </header>
 
       {error && !crisis && (
-        <Notice tone="error">{error}</Notice>
+        <div className="max-w-6xl mx-auto w-full px-5 sm:px-10">
+          <ErrorRecoveryBar
+            message={error}
+            retryable={true}
+            onRetry={() => { setError(""); retryLastAction(); }}
+            onSkip={() => setError("")}
+            onDismiss={() => setError("")}
+          />
+        </div>
       )}
       {crisis && <Notice tone="error">{crisis}</Notice>}
 
@@ -628,16 +801,23 @@ function MeetingInner() {
           <p className="font-serif text-title text-ink-core leading-snug">{rawInput}</p>
         </DocketPaper>
 
-        {stage === "defining" && (
-          <ChoiceCardBoard
-            cards={choiceCards}
-            answers={choiceAnswers}
-            index={choiceIndex}
-            customText={customChoiceText}
-            busy={busy}
-            onCustomText={setCustomChoiceText}
-            onIndex={setChoiceIndex}
-            onAnswer={answerChoice}
+        {stage === "defining" && definingSubStage === "probing" && (
+          <DefiningDialogueBoard
+            dialogue={definingDialogue}
+            currentQuestions={currentQuestions}
+            isLoading={busy}
+            thinkingText={isStreaming ? streamNarration : undefined}
+            streamEvents={streamEvents}
+            onAnswer={handleProbeAnswer}
+          />
+        )}
+
+        {stage === "defining" && definingSubStage === "showing_proposal" && issueProposal && (
+          <IssueProposalBoard
+            proposal={issueProposal}
+            onConfirm={confirmProposal}
+            onRefine={handleRefineProposal}
+            isLoading={busy}
           />
         )}
 
@@ -727,8 +907,32 @@ function MeetingInner() {
         </div>
       )}
 
+      {/* Layer 2: Trace Panel */}
+      <div className="fixed left-0 right-0 bottom-[82px] sm:bottom-[90px] z-25 px-4 sm:px-6 pointer-events-none">
+        <div className="max-w-3xl mx-auto pointer-events-auto">
+          <ScribeTracePanel
+            events={streamEvents}
+            open={traceOpen}
+            onClose={() => setTraceOpen(false)}
+            onInterrupt={interruptStream}
+            isStreaming={isStreaming}
+          />
+        </div>
+      </div>
+
+      <div className="fixed left-0 right-0 bottom-[74px] sm:bottom-[82px] z-30 px-4 sm:px-6 pointer-events-none">
+        <div className="max-w-3xl mx-auto pointer-events-auto">
+          <ScribeStatusStrip
+            narration={streamNarration}
+            isStreaming={isStreaming}
+            fallbackLabel={stageLabel(stage, busy)}
+            onTraceClick={() => setTraceOpen(!traceOpen)}
+          />
+        </div>
+      </div>
+
       <HostConsole
-        stageLabel={stage === "roundtable" ? undefined : stageLabel(stage, busy)}
+        stageLabel={stageLabel(stage, busy)}
         actions={actions}
         inputDisabled
       />
@@ -755,6 +959,7 @@ function ChoiceCardBoard({
   onIndex: (v: number) => void;
   onAnswer: (card: ChoiceCard, option: ChoiceOption, customText?: string) => void;
 }) {
+  const [customExpanded, setCustomExpanded] = useState(false);
   const card = cards[index];
   const answer = card ? answers.find((a) => a.card_id === card.id) : undefined;
   const customOption = card?.options.find((o) => isCustomOption(o));
@@ -780,12 +985,46 @@ function ChoiceCardBoard({
         {card.options.map((option) => {
           const selected = answer?.selected_option_id === option.id;
           const custom = isCustomOption(option);
+          if (custom && customExpanded) {
+            return (
+              <div
+                key={option.id}
+                className="p-4 rounded-md border border-ink-core bg-paper-base transition-all"
+              >
+                <textarea
+                  value={customText}
+                  onChange={(e) => onCustomText(e.target.value.slice(0, 180))}
+                  rows={3}
+                  autoFocus
+                  placeholder="用你自己的话补一句。"
+                  className="w-full bg-transparent outline-none resize-none text-body text-ink-body placeholder-ink-faint font-serif"
+                />
+                <div className="mt-3 flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => customText.trim() && onAnswer(card, option, customText)}
+                    disabled={!customText.trim()}
+                    className="px-3 py-1.5 rounded-md bg-ink-core text-paper-base text-body-sm disabled:opacity-30"
+                  >
+                    记下这句
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setCustomExpanded(false); onCustomText(""); }}
+                    className="text-body-sm text-ink-mute hover:text-ink-core"
+                  >
+                    收起
+                  </button>
+                </div>
+              </div>
+            );
+          }
           return (
             <button
               key={option.id}
               type="button"
               onClick={() => {
-                if (!custom) onAnswer(card, option);
+                if (custom) { setCustomExpanded(true); } else { onAnswer(card, option); }
               }}
               className={[
                 "text-left p-3 rounded-md border transition-colors",
@@ -799,25 +1038,6 @@ function ChoiceCardBoard({
           );
         })}
       </div>
-      {customOption && (
-        <div className="mt-4 p-3 rounded-md bg-paper-base border border-paper-edge">
-          <textarea
-            value={customText}
-            onChange={(e) => onCustomText(e.target.value.slice(0, 180))}
-            rows={2}
-            placeholder="如果选项都不准，就在这里补一句。"
-            className="w-full bg-transparent outline-none resize-none text-body text-ink-body placeholder-ink-faint font-serif"
-          />
-          <button
-            type="button"
-            onClick={() => customText.trim() && onAnswer(card, customOption, customText)}
-            disabled={!customText.trim()}
-            className="mt-2 px-3 py-1.5 rounded-md bg-ink-core text-paper-base text-body-sm disabled:opacity-30"
-          >
-            记下这句
-          </button>
-        </div>
-      )}
       <div className="mt-5 flex items-center justify-between gap-3 text-xs text-ink-mute">
         <button
           type="button"
@@ -1423,6 +1643,7 @@ function InquiryBoard({
   onIndex: (v: number) => void;
   onAnswer: (question: ScribeInquiryQuestion, optionId: string, customText?: string) => void;
 }) {
+  const [customExpanded, setCustomExpanded] = useState(false);
   const question = questions[index];
   const answer = question ? answers.find((a) => a.question_id === question.id) : undefined;
   if (busy && !questions.length) {
@@ -1443,12 +1664,46 @@ function InquiryBoard({
         {question.options.map((option) => {
           const selected = answer?.selected_option_id === option.id;
           const isCustom = option.id === custom?.id;
+          if (isCustom && customExpanded) {
+            return (
+              <div
+                key={option.id}
+                className="p-4 rounded-md border border-ink-core bg-paper-base transition-all"
+              >
+                <textarea
+                  value={customText}
+                  onChange={(e) => onCustomText(e.target.value.slice(0, 180))}
+                  rows={3}
+                  autoFocus
+                  placeholder="用你自己的话说出更准确的倾向。"
+                  className="w-full bg-transparent outline-none resize-none text-body text-ink-body placeholder-ink-faint font-serif"
+                />
+                <div className="mt-3 flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => customText.trim() && onAnswer(question, custom!.id, customText)}
+                    disabled={!customText.trim()}
+                    className="px-3 py-1.5 rounded-md bg-ink-core text-paper-base text-body-sm disabled:opacity-30"
+                  >
+                    记下这句
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setCustomExpanded(false); onCustomText(""); }}
+                    className="text-body-sm text-ink-mute hover:text-ink-core"
+                  >
+                    收起
+                  </button>
+                </div>
+              </div>
+            );
+          }
           return (
             <button
               key={option.id}
               type="button"
               onClick={() => {
-                if (!isCustom) onAnswer(question, option.id);
+                if (isCustom) { setCustomExpanded(true); } else { onAnswer(question, option.id); }
               }}
               className={[
                 "text-left p-3 rounded-md border transition-colors",
@@ -1467,25 +1722,6 @@ function InquiryBoard({
           );
         })}
       </div>
-      {custom && (
-        <div className="mt-4 p-3 rounded-md bg-paper-base border border-paper-edge">
-          <textarea
-            value={customText}
-            onChange={(e) => onCustomText(e.target.value.slice(0, 180))}
-            rows={2}
-            placeholder="你也可以直接说出更准确的倾向。"
-            className="w-full bg-transparent outline-none resize-none text-body text-ink-body placeholder-ink-faint font-serif"
-          />
-          <button
-            type="button"
-            onClick={() => customText.trim() && onAnswer(question, custom.id, customText)}
-            disabled={!customText.trim()}
-            className="mt-2 px-3 py-1.5 rounded-md bg-ink-core text-paper-base text-body-sm disabled:opacity-30"
-          >
-            记下这句
-          </button>
-        </div>
-      )}
       <div className="mt-5 flex items-center justify-between gap-3 text-xs text-ink-mute">
         <button
           type="button"
@@ -1790,8 +2026,8 @@ function doneStages(current: string): string[] {
 }
 
 function stageLabel(stage: Stage, busy: boolean): string {
-  if (stage === "defining") return busy ? "本次议题 · 书记员整理中" : "本次议题 · 选择卡";
-  if (stage === "review") return "本次议题 · 确认";
+  if (stage === "defining") return busy ? "本次议题 · 书记员正在思考" : "本次议题 · 对话中";
+  if (stage === "review") return "本次议题 · 确认提案";
   if (stage === "roundtable") return busy ? "五声圆桌 · 正在回应" : "五声圆桌 · 自由讨论";
   if (stage === "inquiry") return busy ? "书记员问询 · 正在分析" : "书记员问询 · 验证偏好";
   if (stage === "settlement") return "清明落定 · 可改写";

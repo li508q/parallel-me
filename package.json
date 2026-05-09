@@ -14,13 +14,18 @@
     "start": "next start"
   },
   "dependencies": {
+    "@ai-sdk/openai-compatible": "^2.0.47",
     "ai": "^6.0.177",
     "dexie": "^4.4.2",
     "dexie-react-hooks": "^4.4.0",
     "geist": "^1.7.0",
+    "js-tiktoken": "^1.0.21",
     "next": "^16.2.6",
     "react": "^19.2.6",
-    "react-dom": "^19.2.6"
+    "react-dom": "^19.2.6",
+    "sonner": "^2.0.7",
+    "zod": "^4.4.3",
+    "zustand": "^5.0.13"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.0",

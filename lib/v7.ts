@@ -124,6 +124,65 @@ export interface TaskFrame {
   edited_fields?: Partial<Record<VisibleTaskFrameKey, boolean>>;
 }
 
+// ─── 4-Key 议题提案（DC 议题定义阶段重构） ───
+
+export interface ProposalKey {
+  title: string;       // Key 标题（给用户看的人话）
+  content: string;     // 核心内容（1-2 句）
+  details: string[];   // 补充细节列表
+  confidence: "high" | "medium" | "low";
+}
+
+export interface IssueProposal {
+  surface_dilemma: ProposalKey;     // Key 1: 具象化的困惑 — A vs B
+  current_constraints: ProposalKey; // Key 2: 真实的处境 — 客观限制
+  core_fears: ProposalKey;          // Key 3: 隐秘的关切 — 深层恐惧/价值
+  expected_resolution: ProposalKey; // Key 4: 渴望的终局 — 希望讨论验证什么
+}
+
+// ─── 对话式追问 ───
+
+export interface ScribeProbeOption {
+  id: string;
+  label: string;
+}
+
+export interface ScribeQuestion {
+  id: string;
+  text: string;                     // 书记员问的话（自然语言）
+  options: ScribeProbeOption[];     // 猜测选项：基于金字塔原理对用户处境的有根据推测
+  purpose: string;                  // 内部：这个问题想挖掘哪个 Key 的信息
+}
+
+export interface ScribeAnswer {
+  question_id: string;
+  selected_option_id?: string;      // 用户选的选项（可选）
+  free_text?: string;               // 用户自由输入（可选）
+  at: number;
+}
+
+export interface DefiningDialogueEntry {
+  role: "scribe" | "user";
+  question?: ScribeQuestion;        // scribe 的提问
+  answer?: ScribeAnswer;            // user 的回答
+}
+
+export type DefiningDialogue = DefiningDialogueEntry[];
+
+/** 将 IssueProposal 映射为 VisibleTaskFrame（向下兼容圆桌等后续阶段） */
+export function proposalToTaskFrame(proposal: IssueProposal): VisibleTaskFrame {
+  return {
+    problem_definition: proposal.surface_dilemma.content,
+    current_state: proposal.current_constraints.content,
+    key_facts: proposal.current_constraints.details,
+    main_choices: proposal.surface_dilemma.details,
+    core_conflict: proposal.core_fears.content,
+    central_question: proposal.expected_resolution.content,
+    main_concerns: proposal.core_fears.details,
+    discussion_focus: proposal.expected_resolution.details[0] || "",
+  };
+}
+
 export interface VoiceOpeningPayload {
   thesis: string;
   protected_value: string;

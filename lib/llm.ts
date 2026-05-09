@@ -2,6 +2,27 @@
 // The product path is now: task frame -> fixed five-voice roundtable ->
 // scribe inquiry -> clarity settlement. Old staged voice-flow contracts are
 // not used here.
+//
+// Production patterns applied:
+// - Vercel AI SDK (generateText / generateObject) for LLM calls
+// - LlmError typed error class with error codes
+// - Exponential backoff retry with rate-limit header respect
+// - Schema validation via AI SDK generateObject (auto-repair built-in)
+
+import { generateText, generateObject } from "ai";
+import { createProvider } from "./ai-provider";
+
+import {
+  ProbeResultSchema,
+  ProposalResultSchema,
+  OpeningTurnsResultSchema,
+  RefineResultSchema,
+  InquiryResultSchema,
+  ClarityResultSchema,
+  RoundtableRawResultSchema,
+  TaskFrameResultSchema,
+  TasteProfileSchema,
+} from "./schema";
 
 import { SELVES, type SelfId, SELVES_META } from "./selves";
 import { scribePersonaBlock } from "./scribe";
@@ -11,16 +32,22 @@ import {
   emptyScribeTrace,
   isVoiceId,
   voiceName,
+  proposalToTaskFrame,
   type ChoiceAnswer,
   type ChoiceCard,
   type ClarityResult,
+  type DefiningDialogue,
+  type IssueProposal,
   type PreferenceProfile,
+  type ProposalKey,
   type RoundtableMove,
   type RoundtableMoveType,
   type RoundtableRecord,
   type RoundtableTurn,
+  type ScribeAnswer,
   type ScribeInquiryAnswer,
   type ScribeInquiryQuestion,
+  type ScribeQuestion,
   type ScribeTrace,
   type SettlementPosture,
   type TaskFrame,
@@ -43,6 +70,72 @@ export interface LlmRuntime {
 }
 
 export type Msg = { role: "system" | "user" | "assistant"; content: string };
+
+// ─── Error Classification (主流实践: 区分错误类型以支持智能重试) ───
+
+export type LlmErrorCode =
+  | "rate_limit"       // 429
+  | "timeout"          // 网络超时 / AbortController
+  | "server_error"     // 500/502/503
+  | "parse_error"      // JSON 解析失败
+  | "empty_response"   // 模型返回空
+  | "context_overflow" // 上下文过长 (400 + context_length)
+  | "auth_error"       // 401/403
+  | "safety_block"     // 内容安全拦截
+  | "unknown";
+
+export class LlmError extends Error {
+  code: LlmErrorCode;
+  retryable: boolean;
+  retryAfterMs?: number;
+
+  constructor(
+    message: string,
+    code: LlmErrorCode,
+    retryable: boolean,
+    retryAfterMs?: number,
+  ) {
+    super(message);
+    this.name = "LlmError";
+    this.code = code;
+    this.retryable = retryable;
+    this.retryAfterMs = retryAfterMs;
+  }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+function classifyHttpError(status: number, body: string, headers?: Headers): LlmError {
+  if (status === 429) {
+    const retryAfter = headers?.get("retry-after-ms")
+      ? Number(headers.get("retry-after-ms"))
+      : headers?.get("retry-after")
+        ? Number(headers.get("retry-after")) * 1000
+        : undefined;
+    return new LlmError(
+      `请求过于频繁，请稍后再试 (429)`,
+      "rate_limit",
+      true,
+      retryAfter || 5000,
+    );
+  }
+  if (status === 401 || status === 403) {
+    return new LlmError(`API Key 无效或已过期 (${status})`, "auth_error", false);
+  }
+  if (status >= 500) {
+    return new LlmError(`模型服务暂时不可用 (${status})`, "server_error", true);
+  }
+  if (status === 400 && /context.*(length|limit|too long|max)/i.test(body)) {
+    return new LlmError(`上下文过长，请缩短输入`, "context_overflow", false);
+  }
+  return new LlmError(
+    `模型请求失败：HTTP ${status} ${body.slice(0, 200)}`,
+    "unknown",
+    status >= 500,
+  );
+}
 
 export interface ContextBundle {
   meCard?: string;
@@ -100,34 +193,149 @@ export function classifyTopic(text: string): Topic {
   return "general";
 }
 
-export async function chat(
+// ─── Chat with Retry (主流实践: exponential backoff + rate-limit header) ───
+
+export interface ChatOpts {
+  temperature?: number;
+  max_tokens?: number;
+  json?: boolean;
+  runtime?: LlmRuntime;
+  maxRetries?: number;
+  timeoutMs?: number;
+}
+
+/**
+ * Single attempt LLM call via Vercel AI SDK — throws typed LlmError on failure.
+ */
+async function chatOnce(
   messages: Msg[],
-  opts?: { temperature?: number; max_tokens?: number; json?: boolean; runtime?: LlmRuntime },
+  opts?: ChatOpts,
 ): Promise<string> {
   const rt = resolveRuntime(opts?.runtime);
   if (!rt.apiKey) {
-    throw new Error("API Key 未配置。请先在设置页接入真实模型。");
+    throw new LlmError("API Key 未配置。请先在设置页接入真实模型。", "auth_error", false);
   }
-  const body: any = {
-    model: rt.model,
-    temperature: opts?.temperature ?? 0.75,
-    max_tokens: opts?.max_tokens ?? 600,
-    messages,
-  };
-  if (opts?.json) body.response_format = { type: "json_object" };
-  const r = await fetch(`${rt.baseUrl.replace(/\/+$/, "")}/chat/completions`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${rt.apiKey}` },
-    body: JSON.stringify(body),
-  });
-  if (!r.ok) {
-    const text = await r.text().catch(() => "");
-    throw new Error(`模型请求失败：HTTP ${r.status} ${text.slice(0, 220)}`);
+
+  const { model } = createProvider(opts?.runtime);
+  const timeoutMs = opts?.timeoutMs ?? 60_000;
+
+  try {
+    const result = await generateText({
+      model,
+      messages: messages.map((m) => ({ role: m.role, content: m.content })),
+      temperature: opts?.temperature ?? 0.75,
+      maxOutputTokens: opts?.max_tokens ?? 600,
+      abortSignal: AbortSignal.timeout(timeoutMs),
+    });
+
+    const content = result.text?.trim();
+    if (!content) {
+      throw new LlmError("模型返回为空", "empty_response", true);
+    }
+    return content;
+  } catch (err: any) {
+    if (err instanceof LlmError) throw err;
+    if (err?.name === "AbortError" || err?.name === "TimeoutError") {
+      throw new LlmError("请求超时，模型响应过慢", "timeout", true);
+    }
+    // Classify API errors from AI SDK
+    const status = err?.status || err?.statusCode;
+    if (status) {
+      throw classifyHttpError(status, err?.message || "", undefined);
+    }
+    throw new LlmError(`LLM 调用失败：${err?.message || "unknown"}`, "unknown", true);
   }
-  const j = await r.json();
-  const content = j?.choices?.[0]?.message?.content?.trim();
-  if (!content) throw new Error("模型返回为空。");
-  return content;
+}
+
+/**
+ * Production chat function with exponential backoff retry.
+ * Respects rate-limit headers, classifies errors, and enforces timeouts.
+ */
+export async function chat(
+  messages: Msg[],
+  opts?: ChatOpts,
+): Promise<string> {
+  const maxRetries = opts?.maxRetries ?? 2;
+  let lastError: Error | null = null;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await chatOnce(messages, opts);
+    } catch (e: any) {
+      lastError = e;
+      if (e instanceof LlmError && e.retryable && attempt < maxRetries) {
+        const delay = e.retryAfterMs ?? Math.min(1000 * 2 ** attempt, 30_000);
+        console.warn(`[chat] attempt ${attempt + 1} failed (${e.code}), retrying in ${delay}ms...`);
+        await sleep(delay);
+        continue;
+      }
+      throw e;
+    }
+  }
+  throw lastError ?? new LlmError("重试耗尽", "unknown", false);
+}
+
+// ─── Schema-Validated Generation (Vercel AI SDK generateObject) ───
+
+import { z } from "zod";
+
+/**
+ * Generate LLM output with Zod schema validation via AI SDK generateObject.
+ * AI SDK handles JSON parsing, validation, and auto-repair internally.
+ * Falls back to provided default on any failure.
+ */
+export async function generateValidated<T>(
+  messages: Msg[],
+  schema: z.ZodType<T>,
+  opts: ChatOpts & { fallback: T },
+): Promise<T> {
+  const rt = resolveRuntime(opts?.runtime);
+  if (!rt.apiKey) {
+    console.warn("[generateValidated] no API key, using fallback");
+    return opts.fallback;
+  }
+
+  const { model } = createProvider(opts?.runtime);
+  const timeoutMs = opts?.timeoutMs ?? 60_000;
+  const maxRetries = opts?.maxRetries ?? 2;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const result = await generateObject({
+        model,
+        messages: messages.map((m) => ({ role: m.role, content: m.content })),
+        schema,
+        temperature: opts?.temperature ?? 0.75,
+        maxOutputTokens: opts?.max_tokens ?? 600,
+        abortSignal: AbortSignal.timeout(timeoutMs),
+      });
+      return result.object;
+    } catch (err: any) {
+      if (err instanceof LlmError) {
+        if (err.retryable && attempt < maxRetries) {
+          const delay = err.retryAfterMs ?? Math.min(1000 * 2 ** attempt, 30_000);
+          await sleep(delay);
+          continue;
+        }
+        break;
+      }
+      // Map AI SDK errors
+      const status = err?.status || err?.statusCode;
+      if (status === 429 && attempt < maxRetries) {
+        await sleep(Math.min(2000 * 2 ** attempt, 30_000));
+        continue;
+      }
+      if (status >= 500 && attempt < maxRetries) {
+        await sleep(Math.min(1000 * 2 ** attempt, 15_000));
+        continue;
+      }
+      console.warn(`[generateValidated] attempt ${attempt + 1} failed:`, err?.message);
+      break;
+    }
+  }
+
+  console.warn("[generateValidated] all attempts failed, using fallback");
+  return opts.fallback;
 }
 
 function buildContextBlock(ctx?: ContextBundle): string {
@@ -147,23 +355,6 @@ export function detectCrisis(text: string): boolean {
 
 export function crisisMessage(): string {
   return "我听见这件事可能已经很危险。ParallelMe 不能替代真人危机支持。若你可能伤害自己或他人，请立刻联系当地紧急服务；在美国可拨打或短信 988。也请尽快联系一个真实的人陪你待一会儿。";
-}
-
-function parseJson<T>(raw: string, fallback: T): T {
-  try {
-    return JSON.parse(raw) as T;
-  } catch {
-    const start = raw.indexOf("{");
-    const end = raw.lastIndexOf("}");
-    if (start >= 0 && end > start) {
-      try {
-        return JSON.parse(raw.slice(start, end + 1)) as T;
-      } catch {
-        return fallback;
-      }
-    }
-    return fallback;
-  }
 }
 
 function compactTaskFrame(frame: TaskFrame): string {
@@ -276,18 +467,315 @@ ${scribePersonaBlock("brief")}
 - evidence_status 只能用：raw_explicit / user_selected / user_confirmed / user_edited / model_inferred / not_clear。`;
 
   try {
-    const raw = await chat(
+    const validated = await generateValidated(
       [
         { role: "system", content: sys + buildContextBlock(ctx) },
         { role: "user", content: `原始输入：\n${rawInput}\n\n选择卡答案：\n${answersText}` },
       ],
-      { temperature: 0.45, max_tokens: 1800, json: true, runtime },
+      TaskFrameResultSchema,
+      { temperature: 0.45, max_tokens: 1800, json: true, runtime, fallback: fallback as any },
     );
-    const parsed = parseJson<any>(raw, fallback);
-    return normalizeTaskFrameResult(parsed, rawInput, choiceAnswers, fallback);
+    return normalizeTaskFrameResult(validated, rawInput, choiceAnswers, fallback);
   } catch (e) {
     console.warn("[generateTaskFrame] fallback", e);
     return fallback;
+  }
+}
+
+// ─── 议题定义阶段重构：对话式追问 + 4-Key 提案 ───
+
+export interface ProbeResult {
+  questions: ScribeQuestion[];
+  readyToPropose: boolean;
+  thinking: string;
+}
+
+export interface ProposalResult {
+  proposal: IssueProposal;
+  taskFrame: TaskFrame;
+}
+
+export interface RefineResult {
+  needMoreInfo: boolean;
+  questions?: ScribeQuestion[];
+  proposal?: IssueProposal;
+  taskFrame?: TaskFrame;
+  thinking: string;
+}
+
+function serializeDialogue(dialogue: DefiningDialogue): string {
+  if (dialogue.length === 0) return "（还没有对话）";
+  return dialogue.map((entry) => {
+    if (entry.role === "scribe" && entry.question) {
+      const opts = entry.question.options.map((o) => o.label).join(" / ");
+      return `[书记员] ${entry.question.text}\n  猜测选项：${opts}`;
+    }
+    if (entry.role === "user" && entry.answer) {
+      const selected = entry.answer.selected_option_id ? `选择了「${entry.answer.selected_option_id}」` : "";
+      const free = entry.answer.free_text ? entry.answer.free_text : "";
+      return `[用户] ${selected}${selected && free ? " + " : ""}${free}`;
+    }
+    return "";
+  }).filter(Boolean).join("\n\n");
+}
+
+const SCRIBE_PROBE_SYSTEM = `你是 ParallelMe 的书记员，深豙金字塔原理（Barbara Minto）的问题定义方法论。
+
+你的身份：不是记录者，不是引导者，而是「挖掘者」。你不引导用户思考什么，而是知道怎么提问才能挖出用户真实想讨论的内容和处境背景。
+
+${scribePersonaBlock("brief")}
+
+你的任务：通过有来有回的对话，逐步收集信息来填充四个维度：
+1. 具象化的困惑（Surface Dilemma）— 用户面临的选择岔路口是什么？
+2. 真实的处境（Current Constraints）— 限制选择的客观条件是什么？
+3. 隐秘的关切（Core Fears）— 潜意识里真正害怕失去的是什么？
+4. 渴望的终局（Expected Resolution）— 希望这次讨论帮验证什么？
+
+追问策略：
+- 剥洋葱法：当用户表达模糊情绪时，追问哪种情绪更强烈
+- 边界测试：通过极端假设逼近真实想法
+- 每次最多问 1-3 个问题（不要堆积）
+- 每个问题给出 2-4 个猜测选项（你基于金字塔原理对用户处境的有根据推测，降低用户思考成本）
+- 用户可以选择猜测选项，也可以自由输入
+- 不做长追问，不逐字段拷问，语气自然、像对话
+
+判断何时结束追问：
+- 当四个维度都有了至少 medium confidence 的信息
+- 或已追问达到 5 轮
+
+输出严格 JSON：
+{
+  "questions": [
+    {
+      "id": "q_xxx",
+      "text": "一句自然语言的追问",
+      "options": [{"id": "opt_a", "label": "猜测A"}, {"id": "opt_b", "label": "猜测B"}],
+      "purpose": "surface_dilemma|current_constraints|core_fears|expected_resolution"
+    }
+  ],
+  "readyToPropose": false,
+  "thinking": "内部思考过程，为什么这么问"
+}`;
+
+export async function generateScribeQuestions(
+  rawInput: string,
+  dialogue: DefiningDialogue,
+  ctx?: ContextBundle,
+  runtime?: LlmRuntime,
+): Promise<ProbeResult> {
+  const dialogueText = serializeDialogue(dialogue);
+  const userMsg = `用户原始输入：
+${rawInput}
+
+已有对话：
+${dialogueText}
+
+请基于以上信息，决定是继续追问还是信息已经足够可以生成提案。如果继续追问，输出 1-3 个问题。`;
+
+  const fallback: ProbeResult = { questions: [], readyToPropose: true, thinking: "" };
+  try {
+    const validated = await generateValidated(
+      [
+        { role: "system", content: SCRIBE_PROBE_SYSTEM + buildContextBlock(ctx) },
+        { role: "user", content: userMsg },
+      ],
+      ProbeResultSchema,
+      { temperature: 0.6, max_tokens: 800, json: true, runtime, fallback },
+    );
+    return {
+      questions: validated.questions,
+      readyToPropose: validated.readyToPropose,
+      thinking: validated.thinking || "",
+    };
+  } catch (e) {
+    console.warn("[generateScribeQuestions] error", e);
+    return fallback;
+  }
+}
+
+const SCRIBE_PROPOSE_SYSTEM = `你是 ParallelMe 的书记员。基于收集到的全部信息，用金字塔原理的 MECE 原则生成议题提案。
+
+${scribePersonaBlock("brief")}
+
+4 个 Key 的要求：
+- Key 1 具象化的困惑（surface_dilemma）：必须是 "A vs B" 或多选形式，语言锋利不含糊
+- Key 2 真实的处境（current_constraints）：只列客观事实/约束，剥离情绪
+- Key 3 隐秘的关切（core_fears）：写出用户可能自己都没清楚意识到的深层恐惧/价值
+- Key 4 渴望的终局（expected_resolution）：必须是明确的行动指令（"我需要验证…"），不是"求安慰"
+
+【关键规则】
+- 即使对话信息有限，每个 Key 也必须基于已有信息做出合理推断和分析，绝不允许写"待补充""待挖掘""待明确""未知"等占位符。
+- 信息不足时用你的专业判断推测最可能的情况，并将 confidence 设为 "low"。
+- 宁可给出一个基于推理的初步分析（即使不完全准确），也不能留空或写占位文字。
+
+每个 Key 必须包含：
+- title: 给用户看的人话标题
+- content: 核心内容（1-2句）
+- details: 补充细节数组
+- confidence: "high"|"medium"|"low"
+
+同时生成兼容的 taskFrame（visible + internal）供后续圆桌阶段使用。
+
+输出严格 JSON：
+{
+  "proposal": {
+    "surface_dilemma": { "title": "", "content": "", "details": [], "confidence": "" },
+    "current_constraints": { "title": "", "content": "", "details": [], "confidence": "" },
+    "core_fears": { "title": "", "content": "", "details": [], "confidence": "" },
+    "expected_resolution": { "title": "", "content": "", "details": [], "confidence": "" }
+  },
+  "taskFrame": {
+    "visible": {
+      "problem_definition": "",
+      "current_state": "",
+      "key_facts": [],
+      "main_choices": [],
+      "core_conflict": "",
+      "central_question": "",
+      "main_concerns": [],
+      "discussion_focus": ""
+    },
+    "internal": {
+      "facts": [], "parties": [], "options": [],
+      "state_tags": {"clarity":"medium","decision_readiness":"exploring","urgency":"medium","emotional_charge":"medium"},
+      "value_axes": [], "pressure_sources": [], "concern_notes": [],
+      "source_labels": {}, "choice_answers": []
+    }
+  }
+}`;
+
+/** Build a minimal taskFrame from proposal when LLM omits it */
+function buildTaskFrameFromProposal(proposal: any): TaskFrame | null {
+  if (!proposal?.surface_dilemma) return null;
+  const visible = proposalToTaskFrame(proposal as IssueProposal);
+  return {
+    visible,
+    internal: {
+      facts: [], parties: [], options: [],
+      state_tags: { clarity: "low", decision_readiness: "exploring", urgency: "medium", emotional_charge: "medium" },
+      value_axes: [], pressure_sources: [], concern_notes: [],
+      source_labels: {}, choice_answers: [],
+    },
+  };
+}
+
+export async function generateIssueProposal(
+  rawInput: string,
+  dialogue: DefiningDialogue,
+  ctx?: ContextBundle,
+  runtime?: LlmRuntime,
+): Promise<ProposalResult> {
+  const dialogueText = serializeDialogue(dialogue);
+  const userMsg = `用户原始输入：
+${rawInput}
+
+完整对话历史：
+${dialogueText}
+
+请基于以上信息生成 4-Key 议题提案和兼容的 taskFrame。`;
+
+  const inputSnippet = rawInput.slice(0, 100);
+  const fallbackProposal: IssueProposal = {
+    surface_dilemma: { title: "你面临的选择", content: inputSnippet, details: [], confidence: "low" },
+    current_constraints: { title: "你的处境", content: `根据你的描述，目前的核心约束是：${inputSnippet}`, details: [], confidence: "low" },
+    core_fears: { title: "你真正在乎的", content: "这个选择背后可能涉及到对未来方向的不确定感，以及对当下舒适区的权衡", details: [], confidence: "low" },
+    expected_resolution: { title: "你想讨论什么", content: "需要理清各选项的利弊，找到一个让你不后悔的决定路径", details: [], confidence: "low" },
+  };
+
+  const messages: Msg[] = [
+    { role: "system", content: SCRIBE_PROPOSE_SYSTEM + buildContextBlock(ctx) },
+    { role: "user", content: userMsg },
+  ];
+
+  try {
+    const validated = await generateValidated(
+      messages,
+      ProposalResultSchema,
+      { temperature: 0.4, max_tokens: 2000, json: true, runtime, fallback: { proposal: fallbackProposal } },
+    );
+
+    const proposal = validated.proposal as IssueProposal;
+    const taskFrame = validated.taskFrame
+      ? (validated.taskFrame as unknown as TaskFrame)
+      : buildTaskFrameFromProposal(proposal)!;
+
+    return { proposal, taskFrame };
+  } catch (e) {
+    console.warn("[generateIssueProposal] error", e);
+    const visible = proposalToTaskFrame(fallbackProposal);
+    return {
+      proposal: fallbackProposal,
+      taskFrame: {
+        visible,
+        internal: {
+          facts: [], parties: [], options: [],
+          state_tags: { clarity: "low", decision_readiness: "exploring", urgency: "medium", emotional_charge: "medium" },
+          value_axes: [], pressure_sources: [], concern_notes: [],
+          source_labels: {}, choice_answers: [],
+        },
+      },
+    };
+  }
+}
+
+export async function refineProposal(
+  rawInput: string,
+  dialogue: DefiningDialogue,
+  currentProposal: IssueProposal,
+  userFeedback: string,
+  ctx?: ContextBundle,
+  runtime?: LlmRuntime,
+): Promise<RefineResult> {
+  const dialogueText = serializeDialogue(dialogue);
+  const proposalText = JSON.stringify(currentProposal, null, 2);
+
+  const sys = `你是 ParallelMe 的书记员。用户在看到你的议题提案后提出了修改意见。
+
+${scribePersonaBlock("brief")}
+
+你需要决定：
+1. 如果用户的反馈包含新信息，可能需要追问确认（needMoreInfo: true，输出 questions）
+2. 如果可以直接更新提案（needMoreInfo: false，输出更新后的 proposal + taskFrame）
+
+输出 JSON：
+{
+  "needMoreInfo": true|false,
+  "questions": [...],
+  "proposal": {...},
+  "taskFrame": {...},
+  "thinking": "内部思考"
+}`;
+
+  const userMsg = `原始输入：${rawInput}
+
+对话历史：
+${dialogueText}
+
+当前提案：
+${proposalText}
+
+用户反馈：
+${userFeedback}`;
+
+  try {
+    const validated = await generateValidated(
+      [
+        { role: "system", content: sys + buildContextBlock(ctx) },
+        { role: "user", content: userMsg },
+      ],
+      RefineResultSchema,
+      { temperature: 0.5, max_tokens: 2000, json: true, runtime, fallback: { needMoreInfo: false, thinking: "" } },
+    );
+    return {
+      needMoreInfo: !!validated.needMoreInfo,
+      questions: validated.questions,
+      proposal: validated.proposal as IssueProposal | undefined,
+      taskFrame: validated.taskFrame as unknown as TaskFrame | undefined,
+      thinking: validated.thinking || "",
+    };
+  } catch (e) {
+    console.warn("[refineProposal] error", e);
+    return { needMoreInfo: false, thinking: "修正失败，保留原提案" };
   }
 }
 
@@ -328,7 +816,7 @@ export async function generateOpeningTurns(
 }`;
 
   try {
-    const raw = await chat(
+    const validated = await generateValidated(
       [
         { role: "system", content: sys + buildContextBlock(ctx) },
         {
@@ -336,10 +824,10 @@ export async function generateOpeningTurns(
           content: `本次议题：\n${compactTaskFrame(taskFrame)}\n\n五声人格：\n${voiceBrief}`,
         },
       ],
-      { temperature: 0.65, max_tokens: 1800, json: true, runtime },
+      OpeningTurnsResultSchema,
+      { temperature: 0.65, max_tokens: 1800, json: true, runtime, fallback: { turns: [] } },
     );
-    const parsed = parseJson<any>(raw, { turns: [] });
-    const turns = Array.isArray(parsed.turns) ? parsed.turns : [];
+    const turns = validated.turns || [];
     const now = Date.now();
     const normalized = VOICE_IDS.map((vid, i) => {
       const source = turns.find((t: any) => t.voice_id === vid) || fallback[i];
@@ -389,7 +877,7 @@ ${scribePersonaBlock("mirror")}
   };
 
   try {
-    const raw = await chat(
+    const validated = await generateValidated(
       [
         { role: "system", content: sys + buildContextBlock(ctx) },
         {
@@ -400,9 +888,10 @@ ${scribePersonaBlock("mirror")}
             `用户动作：\n${JSON.stringify(moveDesc, null, 2)}`,
         },
       ],
-      { temperature: 0.7, max_tokens: 1600, json: true, runtime },
+      RoundtableRawResultSchema,
+      { temperature: 0.7, max_tokens: 1600, json: true, runtime, fallback: { turns: [] } },
     );
-    return normalizeRoundtableMoveResult(parseJson<any>(raw, {}), input, fallback);
+    return normalizeRoundtableMoveResult(validated, input, fallback);
   } catch (e) {
     console.warn("[generateRoundtableMove] fallback", e);
     return fallback;
@@ -448,7 +937,7 @@ ${scribePersonaBlock("inquiry")}
 }`;
 
   try {
-    const raw = await chat(
+    const validated = await generateValidated(
       [
         { role: "system", content: sys + buildContextBlock(ctx) },
         {
@@ -460,10 +949,10 @@ ${scribePersonaBlock("inquiry")}
             `用户已回答：\n${JSON.stringify(inquiryAnswers, null, 2)}`,
         },
       ],
-      { temperature: 0.45, max_tokens: 1800, json: true, runtime },
+      InquiryResultSchema,
+      { temperature: 0.45, max_tokens: 1800, json: true, runtime, fallback },
     );
-    const parsed = parseJson<any>(raw, fallback);
-    return normalizeInquiry(parsed, fallback);
+    return normalizeInquiry(validated as any, fallback);
   } catch (e) {
     console.warn("[generateScribeInquiry] fallback", e);
     return fallback;
@@ -507,7 +996,7 @@ ${scribePersonaBlock("settlement")}
 }`;
 
   try {
-    const raw = await chat(
+    const validated = await generateValidated(
       [
         { role: "system", content: sys + buildContextBlock(ctx) },
         {
@@ -520,9 +1009,10 @@ ${scribePersonaBlock("settlement")}
             `偏好刻画：\n${JSON.stringify(preferenceProfile, null, 2)}`,
         },
       ],
-      { temperature: 0.55, max_tokens: 1300, json: true, runtime },
+      ClarityResultSchema,
+      { temperature: 0.55, max_tokens: 1300, json: true, runtime, fallback },
     );
-    return normalizeClarity(parseJson<any>(raw, fallback), fallback);
+    return normalizeClarity(validated as any, fallback);
   } catch (e) {
     console.warn("[generateClaritySettlement] fallback", e);
     return fallback;
@@ -551,11 +1041,12 @@ export async function extractTasteProfile(
     "\n影：\n" + taste.films.map((f) => `${f.title}${f.why ? "（" + f.why + "）" : ""}`).join("、") +
     "\n乐：\n" + taste.music.map((m) => `${m.title}${m.why ? "（" + m.why + "）" : ""}`).join("、");
   try {
-    const out = await chat(
+    const profile = await generateValidated(
       [{ role: "system", content: sys }, { role: "user", content: txt }],
-      { temperature: 0.7, max_tokens: 300, json: true, runtime },
+      TasteProfileSchema,
+      { temperature: 0.7, max_tokens: 300, json: true, runtime, fallback: { themes: [], moods: [], identity_hint: "" } },
     );
-    return parseJson(out, null);
+    return profile.identity_hint || profile.themes.length || profile.moods.length ? profile : null;
   } catch {
     return null;
   }

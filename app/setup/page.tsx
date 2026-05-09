@@ -4,7 +4,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import {
   PRESETS,
   clearProvider,
@@ -25,7 +25,7 @@ interface TestResult {
   ok: boolean;
   model?: string;
   latencyMs?: number;
-  sampleReply?: string;
+
   error?: string;
 }
 
@@ -352,16 +352,6 @@ function CredentialStep({
   onBaseUrl: (v: string) => void;
   onModel: (v: string) => void;
 }) {
-  const modelHints = useMemo(
-    () => [
-      "DeepSeek: deepseek-chat（可改 deepseek-v4-flash）",
-      "百炼: qwen-plus",
-      "Kimi: kimi-k2.6",
-      "MiniMax: MiniMax-M2.7",
-      "豆包: doubao-seed-1-6-251015 或 ep-...",
-    ],
-    [],
-  );
 
   return (
     <section>
@@ -405,16 +395,7 @@ function CredentialStep({
             spellCheck={false}
             autoComplete="off"
           />
-          <div className="mt-2 flex flex-wrap gap-2">
-            {modelHints.map((hint) => (
-              <span
-                key={hint}
-                className="text-[11px] px-2 py-1 rounded-sm bg-paper-sunk text-ink-mute"
-              >
-                {hint}
-              </span>
-            ))}
-          </div>
+
         </Field>
       </div>
     </section>
@@ -472,12 +453,7 @@ function TestStep({
                 <span className="text-ink-mute">model：</span>
                 <span className="font-mono">{result.model}</span>
               </div>
-              {result.sampleReply && (
-                <div>
-                  <span className="text-ink-mute">reply：</span>
-                  <span className="italic">「{result.sampleReply}」</span>
-                </div>
-              )}
+
             </div>
           ) : (
             <pre className="text-body-sm text-ink-body whitespace-pre-wrap wrap-break-word font-mono">

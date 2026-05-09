@@ -56,7 +56,6 @@ export async function POST(req: NextRequest) {
       ok: true,
       model: j?.model || model,
       latencyMs,
-      sampleReply: j?.choices?.[0]?.message?.content?.slice(0, 80) || "",
     });
   } catch (e: any) {
     return Response.json({
