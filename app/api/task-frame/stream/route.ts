@@ -4,10 +4,9 @@ import {
   detectCrisis,
   generateTaskFrame,
   type ContextBundle,
-  type LlmRuntime,
 } from "@/lib/llm";
 import { agentEventStream, type AgentStreamEvent } from "@/lib/agents/events";
-import { SCRIBE_DEFINING_MAX_STEPS, scribeDefiningAgentSpec } from "@/lib/agents/scribe-defining";
+import { scribeDefiningAgentSpec } from "@/lib/agents/scribe-defining";
 import { runtimeFromProvider } from "@/lib/server-runtime";
 
 export const runtime = "nodejs";
@@ -31,7 +30,7 @@ export async function POST(req: NextRequest) {
     yield {
       type: "status",
       label: "书记员开始整理",
-      detail: `${scribeDefiningAgentSpec.id} · max ${SCRIBE_DEFINING_MAX_STEPS} steps`,
+      detail: `${scribeDefiningAgentSpec.id} · sufficiency-gated`,
     };
     yield { type: "tool", name: "analyzeInput", state: "called", detail: "读取原始输入与已回答选择卡" };
     yield { type: "tool", name: "analyzeInput", state: "completed" };

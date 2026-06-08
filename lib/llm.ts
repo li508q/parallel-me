@@ -45,6 +45,7 @@ import {
   type ScribeAnswer,
   type ScribeInquiryAnswer,
   type ScribeInquiryQuestion,
+  type ScribeProbeOption,
   type ScribeQuestion,
   type TaskFrame,
   type VisibleTaskFrame,
@@ -595,6 +596,191 @@ const PROBE_PURPOSE_LABEL: Record<ProbePurpose, string> = {
   expected_resolution: "圆桌验证任务",
 };
 
+function hashText(text: string): string {
+  let hash = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    hash = (hash * 31 + text.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash).toString(36).slice(0, 7) || "0";
+}
+
+function textSnippet(text: string, max = 34): string {
+  const clean = text
+    .replace(/\s+/g, " ")
+    .replace(/^(书记员问|用户答|用户选择|用户补充|对应问题|原始输入)[:：]\s*/g, "")
+    .trim();
+  if (clean.length <= max) return clean;
+  return `${clean.slice(0, max - 1)}…`;
+}
+
+function extractContextSnippets(text: string, limit = 8): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  const roughParts = text
+    .replace(/\[[^\]]+\]/g, " ")
+    .split(/[\n。！？!?；;]/)
+    .flatMap((part) => part.length > 46 ? part.split(/[，,]/) : [part]);
+
+  for (const part of roughParts) {
+    const snippet = textSnippet(part, 42);
+    const normalized = normalizeQuestionText(snippet);
+    if (snippet.length < 4 || normalized.length < 4 || seen.has(normalized)) continue;
+    if (/^(都不准|都不对|我自己说|选择|可选回应)$/.test(snippet)) continue;
+    seen.add(normalized);
+    result.push(snippet);
+    if (result.length >= limit) break;
+  }
+  return result;
+}
+
+function firstMatchingSnippet(snippets: string[], pattern: RegExp): string | undefined {
+  return snippets.find((snippet) => pattern.test(snippet));
+}
+
+function contextAnchor(coverage: ProbeCoverage, purpose?: ProbePurpose): string {
+  const snippets = extractContextSnippets(coverage.combined);
+  if (purpose === "surface_dilemma") {
+    return firstMatchingSnippet(snippets, /(还是|要不要|该不该|选择|一边|另一边|回|留|辞|换|分|结|搬|买|卖|vs|VS)/) || snippets[0] || "这件事";
+  }
+  if (purpose === "current_constraints") {
+    return firstMatchingSnippet(snippets, /(\d|钱|收入|时间|父母|家人|身体|工作|合同|签证|年龄|成本|压力)/) || snippets[0] || "现实边界";
+  }
+  if (purpose === "core_fears") {
+    return firstMatchingSnippet(snippets, /(怕|担心|害怕|焦虑|失去|后悔|安全感|自由|体面|价值|关系|亏欠|内疚)/) || snippets[0] || "最刺痛的底线";
+  }
+  if (purpose === "expected_resolution") {
+    return firstMatchingSnippet(snippets, /(希望|想知道|验证|确认|判断|圆桌|结论|下一步|观察期|规则)/) || snippets[0] || "圆桌任务";
+  }
+  return snippets[0] || "这件事";
+}
+
+function optionId(label: string, index: number): string {
+  return `option_${index + 1}_${hashText(label)}`;
+}
+
+function naturalOptions(labels: string[]): ScribeProbeOption[] {
+  const seen = new Set<string>();
+  const options = labels
+    .map((label) => label.trim())
+    .filter(Boolean)
+    .filter((label) => {
+      const key = normalizeQuestionText(label);
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, 3)
+    .map((label, index) => ({ id: optionId(label, index), label }));
+
+  return [...options, { id: "custom", label: "都不准，我自己说" }];
+}
+
+function constraintOptionsFromContext(combined: string, anchor: string): string[] {
+  const options: string[] = [];
+  if (/(钱|收入|工资|现金流|存款|房|车|债|成本|亏损|年薪|月薪)/.test(combined)) {
+    options.push("钱、收入或失败成本一变，我的判断会立刻跟着变。");
+  }
+  if (/(父母|爸|妈|家人|伴侣|对象|孩子|亲戚|关系|催婚)/.test(combined)) {
+    options.push("重要关系会被牵动，后果不是我一个人承受。");
+  }
+  if (/(时间|年龄|窗口|期限|合同|签证|考试|项目|offer|机会)/i.test(combined)) {
+    options.push("时间窗口很硬，拖久了或动早了都会改变局面。");
+  }
+  if (/(身体|睡眠|精力|焦虑|抑郁|加班|健康|累| burnout |996)/i.test(combined)) {
+    options.push("身体和精力已经在报警，不能再假装余量无限。");
+  }
+  if (/(工作|老板|同事|岗位|绩效|考公|考研|职业|公司|大厂|国企)/.test(combined)) {
+    options.push("职业制度、岗位或外部评价会限制我能怎么动。");
+  }
+  if (!options.length) {
+    options.push(
+      `围绕「${anchor}」，真正卡住我的是一个还没说透的现实条件。`,
+      "目前最硬的不是感受，而是时间、资源或责任边界。",
+    );
+  }
+  return options;
+}
+
+function fearOptionsFromContext(combined: string, anchor: string): string[] {
+  const options: string[] = [];
+  if (/(安全|稳定|钱|收入|退路|失败|风险)/.test(combined)) {
+    options.push("失去安全感和退路，最后发现自己扛不住。");
+  }
+  if (/(自由|真实|不像自己|理想|生命力|出走|自我)/.test(combined)) {
+    options.push("失去对自己的认可，觉得自己背离了真正想要的活法。");
+  }
+  if (/(父母|家人|伴侣|关系|爱|理解|认可|亏欠|内疚)/.test(combined)) {
+    options.push("失去重要关系里的理解、亲近或基本体面。");
+  }
+  if (/(后悔|错过|来不及|年龄|机会|未来)/.test(combined)) {
+    options.push("失去未来回看时还能认领这一步的底气。");
+  }
+  if (!options.length) {
+    options.push(
+      `如果「${anchor}」处理错，我最怕丢掉某条还没命名的底线。`,
+      "我怕的不是单个选项，而是之后很难再相信自己的判断。",
+    );
+  }
+  return options;
+}
+
+function fallbackProbeQuestionForPurpose(
+  purpose: ProbePurpose,
+  coverage: ProbeCoverage,
+  topic: Topic,
+  followup: boolean,
+): ScribeQuestion {
+  const anchor = contextAnchor(coverage, purpose);
+  const topicNoun = topic === "career"
+    ? "这条职业路"
+    : topic === "family"
+      ? "这件和家人有关的事"
+      : topic === "relationship"
+        ? "这段关系"
+        : topic === "money"
+          ? "这笔现实账"
+          : "这件事";
+  let text = "";
+  let options: string[] = [];
+
+  if (purpose === "surface_dilemma") {
+    text = followup
+      ? `我不复读上一题，只校对岔路：围绕「${anchor}」，现在真正互相拉扯的是哪两边？`
+      : `如果先把情绪放旁边，${topicNoun}最需要被切成哪一个可讨论的选择岔路？`;
+    options = [
+      `继续沿着「${anchor}」现在的惯性往前走。`,
+      `暂停惯性，换一种方向或边界处理「${anchor}」。`,
+      "先设观察期，用一个小事实确认再决定。",
+    ];
+  } else if (purpose === "current_constraints") {
+    text = followup
+      ? `我只补现实边界：关于「${anchor}」，哪一个条件一变，你的判断会立刻跟着变？`
+      : `这件事里，哪个现实条件是真的会卡住选择，而不是单纯让你心烦？`;
+    options = constraintOptionsFromContext(coverage.combined, anchor);
+  } else if (purpose === "core_fears") {
+    text = followup
+      ? `不再问圆桌要产出什么，只问底线：如果「${anchor}」走错，你最怕失去什么？`
+      : `先不谈该选哪边，真正让你心里发紧的是怕哪条底线被拿走？`;
+    options = fearOptionsFromContext(coverage.combined, anchor);
+  } else {
+    text = followup
+      ? `不再追问你怕什么，只定圆桌任务：关于「${anchor}」，最后必须帮你判断哪件事？`
+      : `这次圆桌不是替你做决定，而是要帮你验证哪一种判断规则？`;
+    options = [
+      "把几个代价排出先后：哪个不能碰，哪个可以承受。",
+      `确认一条边界：什么情况下继续处理「${anchor}」，什么情况下停。`,
+      "定一个观察期或下一步验证动作，而不是立刻判终局。",
+    ];
+  }
+
+  return {
+    id: `q_${purpose}_${hashText(text)}`,
+    purpose,
+    text,
+    options: naturalOptions(options),
+  };
+}
+
 interface ProbeCoverage {
   combined: string;
   reasoningMemo: string;
@@ -625,7 +811,7 @@ function safeProbeFallback(
   const freshPurposes = ranked.filter((purpose) => !coverage.askedPurposes.has(purpose));
   const selectedPurposes = (freshPurposes.length ? freshPurposes : ranked).slice(0, 2);
   const questions = selectedPurposes
-    .map((purpose) => fallbackProbeQuestionForPurpose(purpose, topic, coverage.askedPurposes.has(purpose)))
+    .map((purpose) => fallbackProbeQuestionForPurpose(purpose, coverage, topic, coverage.askedPurposes.has(purpose)))
     .filter((question) => !coverage.askedTexts.some((text) => areSimilarQuestions(text, question.text)));
 
   const finalQuestions = questions.length
@@ -633,6 +819,7 @@ function safeProbeFallback(
     : [
         fallbackProbeQuestionForPurpose(
           ranked[0] || "expected_resolution",
+          coverage,
           topic,
           true,
         ),
@@ -743,85 +930,6 @@ function inferProbePurpose(text: string): ProbePurpose | null {
   if (/(害怕|失去|恐惧|关切|底线|价值|安全感|体面|亏欠|后悔)/.test(text)) return "core_fears";
   if (/(圆桌|验证|确认|看清|讨论|产出|判断规则|最终帮你)/.test(text)) return "expected_resolution";
   return null;
-}
-
-function fallbackProbeQuestionForPurpose(
-  purpose: ProbePurpose,
-  topic: Topic,
-  followup: boolean,
-): ScribeQuestion {
-  const commonCustom = { id: "custom", label: "都不准，我自己说" };
-  const topicLabel = topic === "career"
-    ? "这条职业路"
-    : topic === "family"
-      ? "这件和家人有关的事"
-      : topic === "relationship"
-        ? "这段关系"
-        : topic === "money"
-          ? "这笔现实账"
-          : "这件事";
-
-  if (purpose === "surface_dilemma") {
-    return {
-      id: followup ? "q_surface_recheck" : "q_surface_dilemma",
-      purpose,
-      text: followup
-        ? `我不再重问感受，只校对一下：${topicLabel}现在真正的岔路是哪两边？`
-        : `如果先把情绪放旁边，${topicLabel}表面上最像哪一个选择岔路？`,
-      options: [
-        { id: "stay_or_leave", label: "一边是沿着现在的路继续走，一边是明显换方向。" },
-        { id: "delay_or_decide", label: "一边是现在做决定，一边是先设观察期再说。" },
-        { id: "speak_or_hold", label: "一边是把话说开，一边是先把局面稳住。" },
-        commonCustom,
-      ],
-    };
-  }
-
-  if (purpose === "current_constraints") {
-    return {
-      id: followup ? "q_constraints_recheck" : "q_current_constraints",
-      purpose,
-      text: followup
-        ? "我只补现实边界：哪一个条件如果变化，你的选择会立刻跟着变？"
-        : "这件事里，哪个现实条件是真的会卡住选择，而不是单纯让你心烦？",
-      options: [
-        { id: "money_time", label: "钱和时间窗口最硬，拖久或动错都会有实际成本。" },
-        { id: "family_relation", label: "家人或亲近关系会被牵动，后果不是我一个人承受。" },
-        { id: "body_workload", label: "身体、精力或工作制度已经把余量压得很窄。" },
-        commonCustom,
-      ],
-    };
-  }
-
-  if (purpose === "core_fears") {
-    return {
-      id: followup ? "q_core_fear_recheck" : "q_core_fears",
-      purpose,
-      text: followup
-        ? "不问圆桌要验证什么，只问底线：哪一种失去最让你不敢轻易动？"
-        : "先不谈该选哪边，真正让你心里发紧的是怕失去什么？",
-      options: [
-        { id: "lose_safety", label: "失去安全感和退路，最后发现自己扛不住。" },
-        { id: "lose_self_respect", label: "失去对自己的认可，觉得自己背叛了真正想要的活法。" },
-        { id: "lose_belonging", label: "失去重要关系里的理解、认可或亲近。" },
-        commonCustom,
-      ],
-    };
-  }
-
-  return {
-    id: followup ? "q_expected_resolution_recheck" : "q_expected_resolution",
-    purpose: "expected_resolution",
-    text: followup
-      ? "不再追问你怕什么了，只定圆桌任务：你希望它最后帮你产出哪一种判断？"
-      : "这次圆桌不是替你做决定，而是要帮你验证哪一种判断规则？",
-    options: [
-      { id: "cost_order", label: "帮我把几个代价排出先后：哪个不能碰，哪个可以吞下。" },
-      { id: "boundary_rule", label: "帮我确认一条边界：什么情况下继续，什么情况下停。" },
-      { id: "timebox", label: "帮我定一个观察期或下一步验证动作，而不是立刻判终局。" },
-      commonCustom,
-    ],
-  };
 }
 
 function normalizeProbeQuestions(
@@ -2074,7 +2182,7 @@ export async function generateAlignmentInquiry(
   const activeLedger = ledger?.observations?.length
     ? ledger
     : fallbackObservationLedger(taskFrame, issueProposal, roundtable, ledger);
-  const fallback = fallbackAlignmentInquiry(taskFrame, issueProposal, activeLedger, inquiryAnswers);
+  const fallback = fallbackAlignmentInquiry(taskFrame, issueProposal, activeLedger, inquiryAnswers, inquiryQuestions);
   const sys = `你是 ParallelMe v1.0 的书记员。五声会谈之后，你要通过少量高密度选择题完成最终确认，为「本心落定」做准备。
 
 ${scribePersonaBlock("inquiry")}
@@ -2859,49 +2967,242 @@ function fallbackObservationLedger(
   };
 }
 
+type InquiryModule =
+  | "falsified_fantasy"
+  | "core_value_axis"
+  | "cost_acceptance"
+  | "minimum_action";
+
+const INQUIRY_MODULE_LABEL: Record<InquiryModule, string> = {
+  falsified_fantasy: "完美解证伪",
+  core_value_axis: "核心价值主轴",
+  cost_acceptance: "痛苦接纳",
+  minimum_action: "最小行动",
+};
+
+interface InquiryCoverage {
+  combinedAnswers: string;
+  userStatements: string[];
+  previousTexts: string[];
+  covered: Record<InquiryModule, boolean>;
+  missing: InquiryModule[];
+}
+
+function collectInquiryCoverage(
+  answers: ScribeInquiryAnswer[],
+  previousQuestions: ScribeInquiryQuestion[],
+): InquiryCoverage {
+  const userStatements = answers.map((a) => a.custom_text || a.selected_label).filter(Boolean);
+  const combinedAnswers = answers
+    .map((a) => [a.question_id, a.question, a.selected_label, a.custom_text].filter(Boolean).join("\n"))
+    .join("\n\n");
+  const answeredQuestionIds = new Set(answers.map((a) => a.question_id));
+  const answeredQuestionText = previousQuestions
+    .filter((q) => answeredQuestionIds.has(q.id))
+    .map((q) => q.question)
+    .join("\n");
+  const combined = `${combinedAnswers}\n${answeredQuestionText}`;
+  const covered: Record<InquiryModule, boolean> = {
+    falsified_fantasy:
+      /(falsified_fantasy|放下|不存在|不可能|完美|既要又要|无望|幻想|承认.*不能|不能同时)/.test(combined),
+    core_value_axis:
+      /(core_value_axis|主轴|最重要|优先|宁可|价值|底线|保护|真正要|我想要|我在乎)/.test(combined),
+    cost_acceptance:
+      /(cost_acceptance|愿意|接受|接纳|吞下|承受|代价|痛|损失|不舒服|短期|比较|误解)/.test(combined),
+    minimum_action:
+      /(minimum_action|24|今天|今晚|明天|下一步|动作|完成标准|写下|发一条|算清|约|记录|确认)/.test(combined),
+  };
+
+  return {
+    combinedAnswers,
+    userStatements,
+    previousTexts: previousQuestions.map((question) => question.question),
+    covered,
+    missing: (Object.keys(covered) as InquiryModule[]).filter((module) => !covered[module]),
+  };
+}
+
+function inferInquiryModule(question: ScribeInquiryQuestion): InquiryModule | null {
+  const text = `${question.id}\n${question.question}`;
+  if (/(falsified|幻想|完美|既要|不存在|放下|无望)/.test(text)) return "falsified_fantasy";
+  if (/(core|value|主轴|价值|底线|优先|保护)/.test(text)) return "core_value_axis";
+  if (/(cost|pain|accept|代价|痛|接纳|承受|愿意)/.test(text)) return "cost_acceptance";
+  if (/(minimum|action|commit|24|动作|下一步|完成标准)/.test(text)) return "minimum_action";
+  return null;
+}
+
+function issueAnchorForInquiry(taskFrame: TaskFrame, issueProposal?: IssueProposal): string {
+  return textSnippet(
+    issueProposal?.issue_sentence ||
+    issueProposal?.expected_resolution.content ||
+    taskFrame.visible.central_question ||
+    taskFrame.visible.problem_definition ||
+    "这件事",
+    40,
+  );
+}
+
+function inquiryQuestionId(module: InquiryModule, text: string): string {
+  return `inquiry_${module}_${hashText(text)}`;
+}
+
+function inquiryOptions(labels: string[]): ScribeInquiryQuestion["options"] {
+  return naturalOptions(labels).map((option) => ({
+    id: option.id,
+    label: option.label,
+  }));
+}
+
+function buildFallbackInquiryQuestion({
+  module,
+  taskFrame,
+  issueProposal,
+  ledger,
+  coverage,
+  followup,
+}: {
+  module: InquiryModule;
+  taskFrame: TaskFrame;
+  issueProposal?: IssueProposal;
+  ledger: ScribeObservationLedger;
+  coverage: InquiryCoverage;
+  followup: boolean;
+}): ScribeInquiryQuestion {
+  const anchor = issueAnchorForInquiry(taskFrame, issueProposal);
+  const firstUnanswered = ledger.unanswered_questions.find((q) => q.question);
+  const coreSignal = textSnippet(
+    ledger.module_signals.core_values[0] ||
+    issueProposal?.expected_resolution.content ||
+    taskFrame.visible.central_question ||
+    anchor,
+    34,
+  );
+  const costSignals = (
+    ledger.module_signals.cost_acceptance.length
+      ? ledger.module_signals.cost_acceptance
+      : taskFrame.visible.main_concerns
+  ).filter(Boolean);
+  const firstCost = textSnippet(costSignals[0] || "一部分声音暂时不能被完整安抚", 32);
+  const secondCost = textSnippet(costSignals[1] || "短期里别人未必理解这一步", 32);
+
+  if (module === "falsified_fantasy") {
+    const question = firstUnanswered && !followup
+      ? `圆桌里还有一句没被你接住：「${textSnippet(firstUnanswered.question, 46)}」这背后，哪一种完美解最需要先放下？`
+      : `围绕「${anchor}」，哪一种“既要又要”已经不太可能同时成立？`;
+    return {
+      id: inquiryQuestionId(module, question),
+      question,
+      options: inquiryOptions([
+        `不能既完整保住「${anchor}」，又完全不付任何代价。`,
+        "不能让所有重要的人立刻理解，同时又完全不改变自己。",
+        "不能只靠继续想，把不确定性变成一个绝对正确答案。",
+      ]),
+    };
+  }
+
+  if (module === "core_value_axis") {
+    const question = followup
+      ? `我不再问你要放下什么，只校对主轴：如果只能优先服务一件事，它更像什么？`
+      : `这张本心落定如果只能优先服务一条主轴，关于「${anchor}」它应该先保护什么？`;
+    return {
+      id: inquiryQuestionId(module, question),
+      question,
+      options: inquiryOptions([
+        `先保护「${coreSignal}」这条主轴。`,
+        "先保护自己的选择权和可持续余量。",
+        "先保护重要关系里的诚实边界，而不是表面和平。",
+      ]),
+    };
+  }
+
+  if (module === "cost_acceptance") {
+    const question = followup
+      ? `主轴已经更清楚了；为了靠近它，哪一种不舒服你愿意先明着承担？`
+      : `为了更靠近「${coreSignal}」，你此刻愿意先吞下哪一种具体的痛？`;
+    return {
+      id: inquiryQuestionId(module, question),
+      question,
+      options: inquiryOptions([
+        `我愿意先承受：${firstCost}。`,
+        `我愿意先承受：${secondCost}。`,
+        "我愿意承受短期里没有最终答案，只先验证一个小事实。",
+      ]),
+    };
+  }
+
+  const question = followup
+    ? `最后只落到动作：24 小时内做哪一步，能让「${anchor}」从脑内变成现实线索？`
+    : `如果不靠继续想，接下来 24 小时内哪个动作最能验证「${anchor}」？`;
+  return {
+    id: inquiryQuestionId(module, question),
+    question,
+    options: inquiryOptions([
+      "写下一个可回看的事实清单或判断表，先不在脑子里打转。",
+      "向一个相关的人发一条确认边界或信息的消息。",
+      "用 20 分钟算清最硬的时间、钱或失败成本。",
+    ]),
+  };
+}
+
 function fallbackAlignmentInquiry(
   taskFrame: TaskFrame,
   issueProposal: IssueProposal | undefined,
   ledger: ScribeObservationLedger,
   answers: ScribeInquiryAnswer[],
+  previousQuestions: ScribeInquiryQuestion[] = [],
 ): InquiryResult {
-  const userStatements = answers.map((a) => a.custom_text || a.selected_label).filter(Boolean);
-  const answeredEnough = answers.length >= 2;
-  const firstUnanswered = ledger.unanswered_questions[0];
-  const questions: ScribeInquiryQuestion[] = answeredEnough
+  const coverage = collectInquiryCoverage(answers, previousQuestions);
+  const readyForReport = coverage.missing.length === 0;
+  const askedModules = new Set(
+    previousQuestions
+      .map(inferInquiryModule)
+      .filter((module): module is InquiryModule => Boolean(module)),
+  );
+  const missing = coverage.missing.length
+    ? coverage.missing
+    : (Object.keys(INQUIRY_MODULE_LABEL) as InquiryModule[]);
+  const selectedModules = missing
+    .sort((a, b) => {
+      const aAsked = askedModules.has(a) ? 1 : 0;
+      const bAsked = askedModules.has(b) ? 1 : 0;
+      return aAsked - bAsked;
+    })
+    .slice(0, answers.length ? 1 : 2);
+  const questions = readyForReport
     ? []
-    : [
-        {
-          id: "falsified_fantasy",
-          question: firstUnanswered?.question || "如果必须承认一条路不存在，你最不愿意放下的是哪一种“既要又要”？",
-          options: [
-            { id: "safety_growth", label: "既想要足够安全，又想要立刻获得巨大成长" },
-            { id: "approval_autonomy", label: "既想完全自主，又想不让重要的人失望" },
-            { id: "no_loss", label: "既想换一种活法，又想不损失现在拥有的一切" },
-            { id: "custom", label: "都不准，我自己说" },
-          ],
-        },
-        {
-          id: "accepted_pain",
-          question: "为了更靠近你的主轴，你此刻愿意先吞下哪一种具体的痛？",
-          options: [
-            { id: "money", label: "收益或安全感短期没有最大化" },
-            { id: "comparison", label: "看到同龄人走得更稳时产生落差和怀疑" },
-            { id: "relationship", label: "让重要关系里的人继续担心或不理解一段时间" },
-            { id: "custom", label: "都不准，我自己说" },
-          ],
-        },
-      ];
+    : selectedModules
+        .map((module) => buildFallbackInquiryQuestion({
+          module,
+          taskFrame,
+          issueProposal,
+          ledger,
+          coverage,
+          followup: askedModules.has(module),
+        }))
+        .filter((question) => !coverage.previousTexts.some((text) => areSimilarQuestions(text, question.question)));
+  if (!readyForReport && questions.length === 0) {
+    const module = missing[0] || "minimum_action";
+    const anchor = issueAnchorForInquiry(taskFrame, issueProposal);
+    questions.push({
+      id: inquiryQuestionId(module, `${module}_${answers.length}_${anchor}`),
+      question: `我不再给你重复选项，只补「${INQUIRY_MODULE_LABEL[module]}」：关于「${anchor}」，你现在最确定的一句话是什么？`,
+      options: inquiryOptions([
+        "我说一条已经能承认的现实。",
+        "我说一条真正想保护的主轴。",
+        "我说一个 24 小时内能做的小动作。",
+      ]),
+    });
+  }
   const core = ledger.module_signals.core_values[0] || taskFrame.visible.central_question;
   return {
     questions,
-    readyForReport: answeredEnough,
+    readyForReport,
     ledger,
     alignmentProfile: {
       falsified_fantasy: ledger.module_signals.creative_hopelessness[0] || taskFrame.visible.core_conflict,
       core_value_axis: core,
       offended_voices: ["money", "filial", "lay"].filter((id) => isVoiceId(id)) as VoiceId[],
-      accepted_costs: userStatements.length ? userStatements : ledger.module_signals.cost_acceptance,
+      accepted_costs: coverage.userStatements.length ? coverage.userStatements : ledger.module_signals.cost_acceptance,
       refused_costs: [],
       unresolved_tensions: [taskFrame.visible.core_conflict].filter(Boolean),
       hegelian_synthesis: {
@@ -2909,7 +3210,7 @@ function fallbackAlignmentInquiry(
         antithesis: ledger.module_signals.creative_hopelessness[0] || taskFrame.visible.core_conflict,
         synthesis: `先承认${issueProposal?.expected_resolution.content || taskFrame.visible.central_question}`,
       },
-      user_self_statements: userStatements,
+      user_self_statements: coverage.userStatements,
     },
   };
 }

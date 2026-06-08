@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
 
   const stream = scribeEventStream(async (emit) => {
     emit({ type: "narration", stage: "inquiry", key: "reviewing" });
-    emitInquiryThinking(emit, inquiryAnswers.length);
+    emitInquiryThinking(emit, inquiryAnswers.length, inquiryQuestions.length);
     await sleep(250);
     emit({ type: "narration", stage: "inquiry", key: "drafting" });
 
@@ -85,10 +85,14 @@ function modelStream(emit: (event: ScribeStreamEvent) => void, source: string) {
   };
 }
 
-function emitInquiryThinking(emit: (event: ScribeStreamEvent) => void, answeredCount: number) {
+function emitInquiryThinking(
+  emit: (event: ScribeStreamEvent) => void,
+  answeredCount: number,
+  askedCount: number,
+) {
   const text =
     answeredCount <= 0
-      ? "我先检查五个落点：哪一个幻想需要被宣判，哪条主轴最像本心，哪些痛必须被认领，24 小时动作是否够具体，以及正反合能不能被用户认领。\n"
-      : `我把前面 ${answeredCount} 个回答放回五个落点里复核：如果只剩一个关键缺口，就只问那一个；如果已经足够，我会直接进入本心落定。\n`;
+      ? "我先按这场圆桌已有线索检查本心落定还缺哪些落点；问题数量不固定，只问会改变结论的缺口。\n"
+      : `我把已问的 ${askedCount} 个问题和你的 ${answeredCount} 个回答放回落点里复核：缺哪个就补哪个，足够了才进入本心落定。\n`;
   emit({ type: "reasoning_delta", source: "inquiry", mode: "public", text });
 }

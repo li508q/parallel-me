@@ -1,6 +1,6 @@
 // /api/task-frame — 议题定义阶段：对话式追问 + 4-Key 提案 (SSE streaming)
 // 支持 3 种 action: probe / propose / refine
-// Production patterns: context compaction, max_turns guard, graceful degradation
+// Production patterns: context compaction, sufficiency-gated loop, graceful degradation
 
 import { NextRequest, NextResponse } from "next/server";
 import {

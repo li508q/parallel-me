@@ -534,12 +534,8 @@ function MeetingInner() {
       const known = new Set(questions.map((q) => q.id));
       const nextQuestions = ((json.questions ?? []) as ScribeInquiryQuestion[])
         .filter((q) => !known.has(q.id));
-      if (!nextQuestions.length && nextProfile) {
-        await requestAlignmentReport(
-          nextProfile,
-          (json.scribeObservationLedger || scribeObservationLedger) as ScribeObservationLedger,
-          answers,
-        );
+      if (!nextQuestions.length) {
+        setError("书记员这轮没有产出新的有效追问。请重试一次，或回到圆桌补一句你想让五声继续接住的话。");
         return;
       }
       setInquiryQuestions([...questions, ...nextQuestions]);

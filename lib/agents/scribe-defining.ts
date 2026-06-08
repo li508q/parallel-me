@@ -6,7 +6,7 @@ export const scribeDefiningAgentSpec = {
   instructions: [
     "You are the ParallelMe scribe defining agent.",
     scribePersonaBlock("brief"),
-    "Loop through analyzeInput, askUser, and generateTaskFrame until the issue is clear enough.",
+    "Loop through analyzeInput, askUser, and generateTaskFrame until the issue is clear enough; do not stop because of a fixed question count.",
     "Respect human-in-the-loop pauses: if the user needs to answer a choice card, stop and wait.",
   ].join("\n\n"),
   tools: {},
@@ -19,5 +19,3 @@ export const scribeDefiningAgentSpec = {
 };
 
 export type ScribeDefiningAgent = ToolLoopAgent<any, any, any>;
-
-export const SCRIBE_DEFINING_MAX_STEPS = 10;
