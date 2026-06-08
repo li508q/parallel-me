@@ -10,6 +10,7 @@
 
 import { generateText, generateObject, streamObject, streamText } from "ai";
 import { createProvider } from "./ai-provider";
+import { compactDialogue, compactRoundtable } from "./context-manager";
 
 import {
   AlignmentReportSchema,
@@ -173,8 +174,6 @@ export interface InquiryResult {
   ledger: ScribeObservationLedger;
 }
 
-const MAX_ALIGNMENT_INQUIRY_QUESTIONS = 12;
-
 function resolveRuntime(rt?: LlmRuntime) {
   return {
     apiKey: rt?.apiKey || ENV_API_KEY,
@@ -203,12 +202,14 @@ export interface ChatOpts {
   timeoutMs?: number;
   onPartial?: (partial: unknown) => void;
   onToken?: (delta: string) => void;
+  onFallback?: (reason: string) => void;
 }
 
 export interface LlmStreamHandlers {
   onPartial?: (partial: unknown) => void;
   onToken?: (delta: string) => void;
   onReasoning?: (delta: string, meta?: { source?: string; mode?: "native" | "public" }) => void;
+  onFallback?: (reason: string) => void;
 }
 
 type StreamHandlerArg = ((partial: unknown) => void) | LlmStreamHandlers | undefined;
@@ -328,6 +329,7 @@ export async function generateValidated<T>(
   const rt = resolveRuntime(opts?.runtime);
   if (!rt.apiKey) {
     console.warn("[generateValidated] no API key, using fallback");
+    opts.onFallback?.("no_api_key");
     return opts.fallback;
   }
 
@@ -394,6 +396,7 @@ export async function generateValidated<T>(
   }
 
   console.warn("[generateValidated] all attempts failed, using fallback");
+  opts.onFallback?.("generation_failed");
   return opts.fallback;
 }
 
@@ -402,7 +405,9 @@ function buildContextBlock(ctx?: ContextBundle): string {
   const parts: string[] = [];
   if (ctx.meCard) parts.push(`【关于这个人】\n${ctx.meCard}`);
   if (ctx.tasteProfile) parts.push(`【他喜欢的东西揭示的他】\n${ctx.tasteProfile}`);
-  return parts.length ? "\n\n" + parts.join("\n\n") : "";
+  return parts.length
+    ? "\n\n【长期背景｜低优先级】\n以下资料只在和当前议题直接相关时使用；不要为了呼应画像而偏离本轮问题，也不要围绕长期背景重复追问。\n\n" + parts.join("\n\n")
+    : "";
 }
 
 const CRISIS_RE =
@@ -450,13 +455,14 @@ function compactRoundtableBrief(taskFrame: TaskFrame, proposal?: IssueProposal):
 }
 
 function serializeRoundtable(roundtable: RoundtableRecord): string {
+  const compacted = compactRoundtable(roundtable);
   const openings = roundtable.opening_turns
     .map(
       (t) =>
         `[${t.name}] 痛苦本质：${t.thesis} / 第一步：${t.pull} / 苦果：${t.concern} / 守护底线：${t.protected_value}`,
     )
     .join("\n");
-  const turns = roundtable.turns
+  const turns = compacted.recentTurns
     .map((t) => {
       if (t.duel) {
         return `[两声对话] ${t.duel.from_name} 问 ${t.duel.to_name}: ${t.duel.question} / ${t.duel.to_name}: ${t.duel.response}`;
@@ -471,7 +477,8 @@ function serializeRoundtable(roundtable: RoundtableRecord): string {
       return `[圆桌记录] ${t.text}`;
     })
     .join("\n");
-  return `第一轮：\n${openings || "（还没有）"}\n\n后续：\n${turns || "（还没有）"}`;
+  const early = compacted.earlySummary ? `\n\n压缩摘要：\n${compacted.earlySummary}` : "";
+  return `第一轮：\n${openings || "（还没有）"}${early}\n\n后续：\n${turns || "（还没有）"}`;
 }
 
 function id(prefix: string): string {
@@ -572,54 +579,269 @@ export interface ProbeResult {
   thinking: string;
 }
 
-function safeProbeFallback(rawInput: string): ProbeResult {
-  const careerFamily = /(妈|母亲|父母|老家|考公|大厂|月薪|工资|稳定)/.test(rawInput);
+const PROBE_PURPOSES = [
+  "surface_dilemma",
+  "current_constraints",
+  "core_fears",
+  "expected_resolution",
+] as const;
+
+type ProbePurpose = (typeof PROBE_PURPOSES)[number];
+
+const PROBE_PURPOSE_LABEL: Record<ProbePurpose, string> = {
+  surface_dilemma: "选择岔路",
+  current_constraints: "现实边界",
+  core_fears: "隐秘关切",
+  expected_resolution: "圆桌验证任务",
+};
+
+interface ProbeCoverage {
+  combined: string;
+  reasoningMemo: string;
+  userAnswerCount: number;
+  askedPurposes: Set<ProbePurpose>;
+  answeredPurposes: Set<ProbePurpose>;
+  askedTexts: string[];
+  has: Record<ProbePurpose, boolean>;
+  missing: ProbePurpose[];
+}
+
+function safeProbeFallback(
+  rawInput: string,
+  dialogue: DefiningDialogue = [],
+  reasoningMemo = "",
+): ProbeResult {
+  const coverage = collectProbeCoverage(rawInput, dialogue, reasoningMemo);
+  if (!coverage.missing.length) {
+    return {
+      readyToPropose: true,
+      thinking: "四个 Key 的主要边界已经足够清楚，不再追问，直接生成议题提案。",
+      questions: [],
+    };
+  }
+
+  const topic = classifyTopic(`${rawInput}\n${coverage.combined}`);
+  const ranked = rankProbePurposes(coverage);
+  const freshPurposes = ranked.filter((purpose) => !coverage.askedPurposes.has(purpose));
+  const selectedPurposes = (freshPurposes.length ? freshPurposes : ranked).slice(0, 2);
+  const questions = selectedPurposes
+    .map((purpose) => fallbackProbeQuestionForPurpose(purpose, topic, coverage.askedPurposes.has(purpose)))
+    .filter((question) => !coverage.askedTexts.some((text) => areSimilarQuestions(text, question.text)));
+
+  const finalQuestions = questions.length
+    ? questions
+    : [
+        fallbackProbeQuestionForPurpose(
+          ranked[0] || "expected_resolution",
+          topic,
+          true,
+        ),
+      ];
+
   return {
     readyToPropose: false,
-    thinking: "当前信息还不足以稳妥形成 4-Key，先补一轮关键追问。",
-    questions: careerFamily
-      ? [
-          {
-            id: "q_real_pull",
-            text: "如果暂时不看收入差距，你内心真正犹豫的是哪一层？",
-            purpose: "core_fears",
-            options: [
-              { id: "family_pressure", label: "我主要是不想让家里失望，也怕关系一直被这件事消耗。" },
-              { id: "future_risk", label: "我其实也担心大厂的不确定性，只是不确定是否值得用收入去换稳定。" },
-              { id: "self_choice", label: "我不想回去，但又怕自己只是短期被高薪和城市惯性推着走。" },
-              { id: "custom", label: "都不准，我自己说" },
-            ],
-          },
-          {
-            id: "q_expected_resolution",
-            text: "你希望这次圆桌最终帮你验证什么？",
-            purpose: "expected_resolution",
-            options: [
-              { id: "boundary", label: "我想确认自己能承受多大程度地违背母亲期待。" },
-              { id: "tradeoff", label: "我想算清楚高收入、稳定、陪伴家人之间到底哪一个是底线。" },
-              { id: "timeline", label: "我想知道这是不是一个现在必须做的决定，还是可以先设观察期。" },
-              { id: "custom", label: "都不准，我自己说" },
-            ],
-          },
-        ]
-      : [
-          {
-            id: "q_missing_key",
-            text: "这件事真正卡住你的地方，更接近哪一种？",
-            purpose: "core_fears",
-            options: [
-              { id: "fear_loss", label: "我怕选错以后，会失去某个对我很重要的东西。" },
-              { id: "pressure", label: "我更像是被外部期待推着走，还没听清自己的声音。" },
-              { id: "unclear_goal", label: "我知道表面选项，但不知道自己到底想验证什么。" },
-              { id: "custom", label: "都不准，我自己说" },
-            ],
-          },
-        ],
+    thinking: `结构化输出不可用时，改用缺口感知追问。当前优先补：${selectedPurposes.map((p) => PROBE_PURPOSE_LABEL[p]).join("、")}。`,
+    questions: finalQuestions.slice(0, 2),
   };
 }
 
-function normalizeProbeQuestions(questions: ScribeQuestion[] = []): ScribeQuestion[] {
-  return questions.map((question) => {
+function collectProbeCoverage(
+  rawInput: string,
+  dialogue: DefiningDialogue,
+  reasoningMemo = "",
+): ProbeCoverage {
+  const questionById = new Map<string, ScribeQuestion>();
+  const askedPurposes = new Set<ProbePurpose>();
+  const answeredPurposes = new Set<ProbePurpose>();
+  const askedTexts: string[] = [];
+  const textParts = [rawInput];
+
+  for (const entry of dialogue) {
+    if (entry.role === "scribe" && entry.question) {
+      questionById.set(entry.question.id, entry.question);
+      askedTexts.push(entry.question.text);
+      textParts.push(entry.question.text, ...entry.question.options.map((option) => option.label));
+      const purpose = normalizeProbePurpose(entry.question.purpose) || inferProbePurpose(entry.question.text);
+      if (purpose) askedPurposes.add(purpose);
+      continue;
+    }
+
+    if (entry.role === "user" && entry.answer) {
+      const question = questionById.get(entry.answer.question_id);
+      const answerText = [
+        entry.answer.question_text,
+        entry.answer.selected_option_label,
+        entry.answer.free_text,
+      ].filter(Boolean).join(" ");
+      textParts.push(answerText);
+
+      const purpose = normalizeProbePurpose(question?.purpose) || inferProbePurpose(entry.answer.question_text || "");
+      if (purpose && answerText.trim()) answeredPurposes.add(purpose);
+    }
+  }
+
+  const combined = textParts.filter(Boolean).join("\n");
+  const userAnswerCount = dialogue.filter((entry) => entry.role === "user").length;
+  const has: Record<ProbePurpose, boolean> = {
+    surface_dilemma:
+      answeredPurposes.has("surface_dilemma") ||
+      /(还是|要不要|该不该|留在|回|考公|辞职|选择|一边|另一边|vs|VS|还是说|A|B|哪条路|岔路)/.test(combined),
+    current_constraints:
+      answeredPurposes.has("current_constraints") ||
+      /(\d|月薪|年薪|收入|房|钱|父母|妈妈|母亲|老家|大厂|稳定|压力|年龄|时间|健康|婚|孩子|债|存款|合同|签证|身体|睡眠|失败成本|现金流)/.test(combined),
+    core_fears:
+      answeredPurposes.has("core_fears") ||
+      /(害怕|担心|怕|焦虑|愧疚|不甘心|后悔|自由|体面|安全感|价值|身份|尊严|掌控|亏欠|内疚|想证明|不想失去|失去|底线)/.test(combined),
+    expected_resolution:
+      answeredPurposes.has("expected_resolution") ||
+      /(希望|想让|想知道|验证|确认|看清|圆桌|讨论|帮我|判断规则|产出|结论|代价排序|观察期|下一步验证)/.test(combined),
+  };
+
+  return {
+    combined,
+    reasoningMemo,
+    userAnswerCount,
+    askedPurposes,
+    answeredPurposes,
+    askedTexts,
+    has,
+    missing: PROBE_PURPOSES.filter((purpose) => !has[purpose]),
+  };
+}
+
+function rankProbePurposes(coverage: ProbeCoverage): ProbePurpose[] {
+  const scores = new Map<ProbePurpose, number>();
+  const reasoning = coverage.reasoningMemo;
+  for (const purpose of coverage.missing) {
+    let score = 10;
+    if (!coverage.askedPurposes.has(purpose)) score += 3;
+    if (coverage.answeredPurposes.has(purpose)) score -= 6;
+    if (purpose === "surface_dilemma") score += 4;
+    if (purpose === "current_constraints") score += 3;
+    if (purpose === "core_fears") score += 2;
+    if (purpose === "expected_resolution") score += 1;
+
+    if (purpose === "surface_dilemma" && /(岔路|选项|选择|A|B|该不该|要不要)/.test(reasoning)) score += 5;
+    if (purpose === "current_constraints" && /(现实|约束|现金流|钱|时间|失败成本|家庭压力|边界|条件)/.test(reasoning)) score += 5;
+    if (purpose === "core_fears" && /(害怕|失去|恐惧|关切|底线|价值|真正不能失去)/.test(reasoning)) score += 5;
+    if (purpose === "expected_resolution" && /(验证|圆桌|讨论任务|希望|产出|判断规则|要确认什么)/.test(reasoning)) score += 5;
+    scores.set(purpose, score);
+  }
+  return [...coverage.missing].sort((a, b) => (scores.get(b) || 0) - (scores.get(a) || 0));
+}
+
+function normalizeProbePurpose(value: unknown): ProbePurpose | null {
+  const purpose = String(value || "").trim();
+  return (PROBE_PURPOSES as readonly string[]).includes(purpose)
+    ? (purpose as ProbePurpose)
+    : null;
+}
+
+function inferProbePurpose(text: string): ProbePurpose | null {
+  if (/(岔路|选项|选择|该不该|要不要|一边|另一边|A|B)/.test(text)) return "surface_dilemma";
+  if (/(现实|约束|条件|钱|时间|收入|家庭|身体|失败成本|现金流|边界)/.test(text)) return "current_constraints";
+  if (/(害怕|失去|恐惧|关切|底线|价值|安全感|体面|亏欠|后悔)/.test(text)) return "core_fears";
+  if (/(圆桌|验证|确认|看清|讨论|产出|判断规则|最终帮你)/.test(text)) return "expected_resolution";
+  return null;
+}
+
+function fallbackProbeQuestionForPurpose(
+  purpose: ProbePurpose,
+  topic: Topic,
+  followup: boolean,
+): ScribeQuestion {
+  const commonCustom = { id: "custom", label: "都不准，我自己说" };
+  const topicLabel = topic === "career"
+    ? "这条职业路"
+    : topic === "family"
+      ? "这件和家人有关的事"
+      : topic === "relationship"
+        ? "这段关系"
+        : topic === "money"
+          ? "这笔现实账"
+          : "这件事";
+
+  if (purpose === "surface_dilemma") {
+    return {
+      id: followup ? "q_surface_recheck" : "q_surface_dilemma",
+      purpose,
+      text: followup
+        ? `我不再重问感受，只校对一下：${topicLabel}现在真正的岔路是哪两边？`
+        : `如果先把情绪放旁边，${topicLabel}表面上最像哪一个选择岔路？`,
+      options: [
+        { id: "stay_or_leave", label: "一边是沿着现在的路继续走，一边是明显换方向。" },
+        { id: "delay_or_decide", label: "一边是现在做决定，一边是先设观察期再说。" },
+        { id: "speak_or_hold", label: "一边是把话说开，一边是先把局面稳住。" },
+        commonCustom,
+      ],
+    };
+  }
+
+  if (purpose === "current_constraints") {
+    return {
+      id: followup ? "q_constraints_recheck" : "q_current_constraints",
+      purpose,
+      text: followup
+        ? "我只补现实边界：哪一个条件如果变化，你的选择会立刻跟着变？"
+        : "这件事里，哪个现实条件是真的会卡住选择，而不是单纯让你心烦？",
+      options: [
+        { id: "money_time", label: "钱和时间窗口最硬，拖久或动错都会有实际成本。" },
+        { id: "family_relation", label: "家人或亲近关系会被牵动，后果不是我一个人承受。" },
+        { id: "body_workload", label: "身体、精力或工作制度已经把余量压得很窄。" },
+        commonCustom,
+      ],
+    };
+  }
+
+  if (purpose === "core_fears") {
+    return {
+      id: followup ? "q_core_fear_recheck" : "q_core_fears",
+      purpose,
+      text: followup
+        ? "不问圆桌要验证什么，只问底线：哪一种失去最让你不敢轻易动？"
+        : "先不谈该选哪边，真正让你心里发紧的是怕失去什么？",
+      options: [
+        { id: "lose_safety", label: "失去安全感和退路，最后发现自己扛不住。" },
+        { id: "lose_self_respect", label: "失去对自己的认可，觉得自己背叛了真正想要的活法。" },
+        { id: "lose_belonging", label: "失去重要关系里的理解、认可或亲近。" },
+        commonCustom,
+      ],
+    };
+  }
+
+  return {
+    id: followup ? "q_expected_resolution_recheck" : "q_expected_resolution",
+    purpose: "expected_resolution",
+    text: followup
+      ? "不再追问你怕什么了，只定圆桌任务：你希望它最后帮你产出哪一种判断？"
+      : "这次圆桌不是替你做决定，而是要帮你验证哪一种判断规则？",
+    options: [
+      { id: "cost_order", label: "帮我把几个代价排出先后：哪个不能碰，哪个可以吞下。" },
+      { id: "boundary_rule", label: "帮我确认一条边界：什么情况下继续，什么情况下停。" },
+      { id: "timebox", label: "帮我定一个观察期或下一步验证动作，而不是立刻判终局。" },
+      commonCustom,
+    ],
+  };
+}
+
+function normalizeProbeQuestions(
+  questions: ScribeQuestion[] = [],
+  context?: { rawInput?: string; dialogue?: DefiningDialogue; reasoningMemo?: string },
+): ScribeQuestion[] {
+  const coverage = context?.rawInput
+    ? collectProbeCoverage(context.rawInput, context.dialogue || [], context.reasoningMemo || "")
+    : null;
+  const seenPurposes = new Set<ProbePurpose>();
+  const seenTexts: string[] = [];
+  const normalizedQuestions: ScribeQuestion[] = [];
+
+  for (const [questionIndex, question] of questions.entries()) {
+    const purpose = normalizeProbePurpose(question.purpose) || inferProbePurpose(question.text);
+    if (!purpose) continue;
+    if (seenPurposes.has(purpose)) continue;
+    if (coverage?.askedTexts.some((text) => areSimilarQuestions(text, question.text))) continue;
+    if (seenTexts.some((text) => areSimilarQuestions(text, question.text))) continue;
+
     const options = question.options
       .map((option, index) => ({
         id: String(option.id || "").trim() || `option_${index + 1}`,
@@ -627,12 +849,27 @@ function normalizeProbeQuestions(questions: ScribeQuestion[] = []): ScribeQuesti
       }))
       .filter((option) => option.label);
 
-    if (!options.some(isCustomFreeTextOption)) {
+    if (!options.some(isCustomFreeTextOption) && options.length >= 4) {
+      options.splice(3, options.length - 3, { id: "custom", label: "都不准，我自己说" });
+    } else if (!options.some(isCustomFreeTextOption)) {
       options.push({ id: "custom", label: "都不准，我自己说" });
     }
 
-    return { ...question, options };
-  });
+    seenPurposes.add(purpose);
+    seenTexts.push(question.text);
+
+    normalizedQuestions.push({
+      ...question,
+      id: String(question.id || `q_${purpose}_${questionIndex + 1}`),
+      purpose,
+      text: String(question.text || "").trim(),
+      options: options.slice(0, 4),
+    });
+  }
+
+  return normalizedQuestions
+    .filter((question) => question.text && question.options.length >= 2)
+    .slice(0, 3);
 }
 
 function isCustomFreeTextOption(option: { id: string; label: string }): boolean {
@@ -642,27 +879,63 @@ function isCustomFreeTextOption(option: { id: string; label: string }): boolean 
   return /^(都不准|都不对|不准确|我想自己说|我自己说|自己补一句|我自己补一句)/.test(label);
 }
 
-function shouldForceProbe(rawInput: string, dialogue: DefiningDialogue, result: ProbeResult): boolean {
-  if (!result.readyToPropose) return false;
-  const combined = [
-    rawInput,
-    ...dialogue.map((entry) => {
-      if (entry.role === "scribe") return entry.question?.text || "";
-      return [
-        entry.answer?.question_text,
-        entry.answer?.selected_option_label,
-        entry.answer?.free_text,
-      ].filter(Boolean).join(" ");
-    }),
-  ].join("\n");
-  const userAnswerCount = dialogue.filter((entry) => entry.role === "user").length;
-  const hasSurfaceChoice = /(还是|要不要|该不该|留在|回|考公|辞职|选择|一边|另一边|vs|VS|还是说)/.test(combined);
-  const hasConcreteConstraint = /(\d|月薪|年薪|收入|房|钱|父母|妈妈|母亲|老家|大厂|稳定|压力|年龄|时间|健康|婚|孩子|债|存款)/.test(combined);
-  const hasHiddenConcern = /(害怕|担心|怕|焦虑|愧疚|不甘心|后悔|自由|体面|安全感|价值|身份|尊严|掌控|亏欠|内疚|想证明|不想失去)/.test(combined);
-  const hasExpectedResolution = /(希望|想让|想知道|验证|确认|看清|圆桌|讨论|帮我|到底|边界|底线|决定什么|怎么选)/.test(combined);
+function areSimilarQuestions(a: string, b: string): boolean {
+  const left = normalizeQuestionText(a);
+  const right = normalizeQuestionText(b);
+  if (!left || !right) return false;
+  if (left === right) return true;
+  if (left.length >= 10 && right.length >= 10 && (left.includes(right) || right.includes(left))) return true;
 
-  if (userAnswerCount >= 2 && hasSurfaceChoice && hasConcreteConstraint) return false;
-  return !(hasSurfaceChoice && hasConcreteConstraint && hasHiddenConcern && hasExpectedResolution);
+  const leftBigrams = bigrams(left);
+  const rightBigrams = bigrams(right);
+  if (!leftBigrams.size || !rightBigrams.size) return false;
+  let overlap = 0;
+  for (const item of leftBigrams) {
+    if (rightBigrams.has(item)) overlap += 1;
+  }
+  const union = leftBigrams.size + rightBigrams.size - overlap;
+  return overlap / union >= 0.58;
+}
+
+function normalizeQuestionText(text: string): string {
+  return Array.from(text)
+    .filter((char) => /[\p{Script=Han}A-Za-z0-9]/u.test(char))
+    .join("")
+    .replace(/你希望这次圆桌最终帮你验证什么/g, "圆桌验证任务")
+    .replace(/你希望这次圆桌讨论帮自己验证什么/g, "圆桌验证任务")
+    .toLowerCase();
+}
+
+function bigrams(text: string): Set<string> {
+  const result = new Set<string>();
+  if (text.length <= 2) {
+    if (text) result.add(text);
+    return result;
+  }
+  for (let i = 0; i < text.length - 1; i += 1) {
+    result.add(text.slice(i, i + 2));
+  }
+  return result;
+}
+
+function shouldForceProbe(
+  rawInput: string,
+  dialogue: DefiningDialogue,
+  result: ProbeResult,
+  reasoningMemo = "",
+): boolean {
+  if (!result.readyToPropose) return false;
+  const coverage = collectProbeCoverage(rawInput, dialogue, reasoningMemo);
+  if (!coverage.missing.length) return false;
+  if (
+    coverage.userAnswerCount >= 3 &&
+    coverage.has.surface_dilemma &&
+    coverage.has.current_constraints &&
+    (coverage.has.core_fears || coverage.has.expected_resolution)
+  ) {
+    return false;
+  }
+  return true;
 }
 
 export interface ProposalResult {
@@ -680,13 +953,14 @@ export interface RefineResult {
 
 function serializeDialogue(dialogue: DefiningDialogue): string {
   if (dialogue.length === 0) return "（还没有对话）";
+  const compacted = compactDialogue(dialogue);
   const questions = new Map<string, ScribeQuestion>();
-  for (const entry of dialogue) {
+  for (const entry of compacted.compacted) {
     if (entry.role === "scribe" && entry.question) {
       questions.set(entry.question.id, entry.question);
     }
   }
-  return dialogue.map((entry) => {
+  const recent = compacted.compacted.map((entry) => {
     if (entry.role === "scribe" && entry.question) {
       const thinking = extractDialogueThinking(entry.thinking_events);
       const opts = entry.question.options
@@ -714,6 +988,7 @@ function serializeDialogue(dialogue: DefiningDialogue): string {
     }
     return "";
   }).filter(Boolean).join("\n\n");
+  return [compacted.summary, recent].filter(Boolean).join("\n\n");
 }
 
 function extractDialogueThinking(events: DefiningDialogue[number]["thinking_events"]) {
@@ -761,9 +1036,15 @@ const STAGE_ONE_SCRIBE_SYSTEM = `你是 ParallelMe 阶段一的问题定义者�
 3. 隐秘的关切（Core Values/Fears）：用户潜意识里真正害怕失去的是什么？
 4. 渴望的终局（Expected Resolution）：用户希望这次圆桌讨论帮自己验证什么？
 
+Key 3 与 Key 4 必须拆开：
+- Key 3 只问“怕失去什么 / 哪个价值或底线被威胁”，不要写成验证任务。
+- Key 4 只问“圆桌最后要产出哪种判断规则、代价排序、边界或观察期”，不要再问用户害怕失去什么。
+- 禁止同一轮同时出现两个都在问“能不能承受某种代价/失去”的问题。
+
 追问要求：
 - 每轮最多问 1-3 个问题。
 - 问题必须高密度，服务于上述四个 Key。
+- 同一轮问题的 purpose 不得重复；如果两个问题会得到同一类答案，只保留更关键的那一个。
 - 可以给用户 2-4 个可选回应，但每个选项都必须是完整自然语言，独立可理解。
 - 不要把选项写成技术 id 的语义承载；id 只是机器字段，label 才是用户选择的真实含义。
 - 如果信息已足够形成议案，不要继续追问。`;
@@ -847,7 +1128,12 @@ ${scribePersonaBlock("brief")}
 - 当你已经能写出一句清楚的“本次议题主句”，并且四个 Key 都能用自然语言说清、互不重复
 - 当 Surface Dilemma、Current Constraints、Core Values/Fears、Expected Resolution 的主要边界已经清楚；仍缺的细节不会改变成案方向
 - 如果缺的是关键边界（例如失败成本、家庭压力、现金流、真正想验证什么），先追问；如果只是枝节不全，可以成案并把判断写成可校对的自然语言
-- 或已追问达到 5 轮
+- 不因为轮次多就强行成案；只有信息足够或用户主动确认时才生成提案
+
+追问去重：
+- 不要问已经在历史里问过、用户也回答过的问题。
+- 同一轮最多一个问题服务 core_fears，最多一个问题服务 expected_resolution。
+- core_fears 问“哪种失去/恐惧/底线最刺痛”；expected_resolution 问“这次圆桌要帮用户产出什么判断规则”。二者不能互相套话。
 
 你只允许输出两类结果：
 - ask_more：readyToPropose=false，并输出 1-3 个高质量追问。
@@ -896,7 +1182,8 @@ ${reasoningMemo || "（没有可用判断过程）"}
 
 请基于以上信息，决定是继续追问还是信息已经足够可以生成提案。如果继续追问，输出 1-3 个问题。`;
 
-  const fallback: ProbeResult = safeProbeFallback(rawInput);
+  const fallback: ProbeResult = safeProbeFallback(rawInput, dialogue, reasoningMemo);
+  let fallbackReason = "";
   try {
     const validated = await generateValidated(
       [
@@ -904,24 +1191,58 @@ ${reasoningMemo || "（没有可用判断过程）"}
         { role: "user", content: userMsg },
       ],
       ProbeResultSchema,
-      { temperature: 0.6, max_tokens: 800, json: true, runtime, fallback, ...handlers },
+      {
+        temperature: 0.6,
+        max_tokens: 800,
+        json: true,
+        runtime,
+        fallback,
+        ...handlers,
+        onFallback: (reason) => {
+          fallbackReason = reason;
+          handlers.onReasoning?.(
+            reason === "no_api_key"
+              ? "没有可用模型配置，先用本地缺口规则生成追问。\n"
+              : "结构化追问生成失败，先用刚才的判断过程和已回答内容生成兜底追问。\n",
+            { source: "probe", mode: "public" },
+          );
+        },
+      },
     );
     const normalized: ProbeResult = {
-      questions: normalizeProbeQuestions(validated.questions),
+      questions: normalizeProbeQuestions(validated.questions, { rawInput, dialogue, reasoningMemo }),
       readyToPropose: validated.readyToPropose,
       thinking: validated.thinking || "",
     };
-    if (shouldForceProbe(rawInput, dialogue, normalized)) {
-      return fallback;
+    if (!normalized.readyToPropose && normalized.questions.length === 0) {
+      const gapFallback = safeProbeFallback(rawInput, dialogue, reasoningMemo);
+      return {
+        ...gapFallback,
+        thinking: `${normalized.thinking || gapFallback.thinking}\n已过滤掉重复追问，改问剩余缺口。`.trim(),
+      };
+    }
+    if (shouldForceProbe(rawInput, dialogue, normalized, reasoningMemo)) {
+      const gapFallback = safeProbeFallback(rawInput, dialogue, reasoningMemo);
+      handlers.onReasoning?.(
+        "刚才的结构化结果说可以成案，但四个 Key 还有关键边界没落稳；我先只补剩余缺口。\n",
+        { source: "probe", mode: "public" },
+      );
+      return {
+        ...gapFallback,
+        thinking: `${normalized.thinking || gapFallback.thinking}\n${gapFallback.thinking}`.trim(),
+      };
     }
     return {
       questions: normalized.questions,
       readyToPropose: normalized.readyToPropose,
-      thinking: normalized.thinking,
+      thinking: [
+        normalized.thinking,
+        fallbackReason ? fallback.thinking : "",
+      ].filter(Boolean).join("\n"),
     };
   } catch (e) {
     console.warn("[generateScribeQuestions] error", e);
-    return fallback;
+    return safeProbeFallback(rawInput, dialogue, reasoningMemo);
   }
 }
 
@@ -945,7 +1266,7 @@ ${scribePersonaBlock("brief")}
 - Key 1 具象化的困惑 / Surface Dilemma（surface_dilemma）：回答“用户面临的选择岔路口是什么？”必须写成真实岔路，不能写成泛泛困扰。
 - Key 2 真实的处境 / Current Constraints（current_constraints）：回答“限制用户做出选择的客观条件是什么？”只收钱、时间、家庭、职业制度、身体状态、失败成本等客观约束。
 - Key 3 隐秘的关切 / Core Values/Fears（core_fears）：回答“用户潜意识里真正害怕失去的是什么？”写价值/恐惧，不替用户贴因果标签。
-- Key 4 渴望的终局 / Expected Resolution（expected_resolution）：回答“用户希望这次圆桌讨论帮自己验证什么？”必须写成验证任务，不许写成“五声会帮你决定/建议”。
+- Key 4 渴望的终局 / Expected Resolution（expected_resolution）：回答“用户希望这次圆桌讨论帮自己验证什么？”必须写成验证任务或判断规则，不许写成“五声会帮你决定/建议”，也不许重复 Key 3 的恐惧/失去。
 
 【关键规则】
 - 即使对话信息有限，每个 Key 也必须基于已有信息做出合理推断和分析，绝不允许写"待补充""待挖掘""待明确""未知"等占位符。
@@ -1166,7 +1487,7 @@ ${scribePersonaBlock("brief")}
 - 具象化的困惑仍必须是 A vs B 或多重选择岔路。
 - 真实的处境只写客观约束。
 - 隐秘的关切要向下追到价值/恐惧，但不能替用户贴因果标签。
-- 渴望的终局要写成“这次圆桌要验证……”式任务，不许替用户决定。
+- 渴望的终局要写成“这次圆桌要验证……”式任务、判断规则、代价排序或观察期，不许替用户决定，也不许复述隐秘关切。
 - 不写“待补充/待确认/未知”等占位。
 - 不写建议句、诊断句、安慰句。
 
@@ -1212,7 +1533,9 @@ ${reasoningMemo || "（没有可用判断过程）"}`;
         : undefined;
     return {
       needMoreInfo: !!validated.needMoreInfo,
-      questions: validated.questions ? normalizeProbeQuestions(validated.questions) : undefined,
+      questions: validated.questions
+        ? normalizeProbeQuestions(validated.questions, { rawInput, dialogue, reasoningMemo })
+        : undefined,
       proposal,
       taskFrame,
       thinking: validated.thinking || "",
@@ -1752,7 +2075,6 @@ export async function generateAlignmentInquiry(
     ? ledger
     : fallbackObservationLedger(taskFrame, issueProposal, roundtable, ledger);
   const fallback = fallbackAlignmentInquiry(taskFrame, issueProposal, activeLedger, inquiryAnswers);
-  const remainingQuestionBudget = Math.max(0, MAX_ALIGNMENT_INQUIRY_QUESTIONS - inquiryAnswers.length);
   const sys = `你是 ParallelMe v1.0 的书记员。五声会谈之后，你要通过少量高密度选择题完成最终确认，为「本心落定」做准备。
 
 ${scribePersonaBlock("inquiry")}
@@ -1763,8 +2085,7 @@ ${scribePersonaBlock("inquiry")}
 - 问题服务最终卡片的五个落点：创造性无望宣判、核心价值主轴提取、痛苦接纳契约、最小阻力行动承诺、正反合。
 - 每轮最多 1-3 题，每题 2-4 个自然语言选项，最后保留“都不准，我自己说”。
 - 如果答案已经足够生成本心落定，readyForReport 设为 true，questions 置空。
-- 如果用户回答揭示新矛盾，可以继续追问，但总题量最多 ${MAX_ALIGNMENT_INQUIRY_QUESTIONS} 个。当前还剩 ${remainingQuestionBudget} 个题量。
-- 如果题量已经用完，必须 readyForReport=true，不要继续发问。
+- 如果用户回答揭示新矛盾，可以继续追问；不要因为轮次多而草率进入报告。
 - 如果缺口很小，只问最能改变最终卡片的一题。
 - 如果用户已经清楚表达反对、修正或承诺，不要围绕同一主题重复追问。
 - 不输出“后台观察”字样，不告诉用户你在引用观察账本。
@@ -1809,15 +2130,16 @@ ${scribePersonaBlock("inquiry")}
       InquiryResultSchema,
       { temperature: 0.45, max_tokens: 2000, json: true, runtime, fallback, ...streamOpts(onPartial) },
     );
-    const normalized = normalizeAlignmentInquiry(validated as any, fallback, activeLedger, remainingQuestionBudget);
-    return remainingQuestionBudget <= 0
-      ? { ...normalized, questions: [], readyForReport: true }
-      : normalized;
+    const normalized = normalizeAlignmentInquiry(
+      validated as any,
+      fallback,
+      activeLedger,
+      inquiryQuestions,
+    );
+    return normalized;
   } catch (e) {
     console.warn("[generateAlignmentInquiry] fallback", e);
-    return remainingQuestionBudget <= 0
-      ? { ...fallback, questions: [], readyForReport: true }
-      : fallback;
+    return fallback;
   }
 }
 
@@ -2082,11 +2404,13 @@ function normalizeAlignmentInquiry(
   parsed: any,
   fallback: InquiryResult,
   ledger: ScribeObservationLedger,
-  remainingQuestionBudget = MAX_ALIGNMENT_INQUIRY_QUESTIONS,
+  previousQuestions: ScribeInquiryQuestion[] = [],
 ): InquiryResult {
+  const previousTexts = previousQuestions.map((question) => question.question);
+  const seenTexts: string[] = [];
   const questions = Array.isArray(parsed.questions)
     ? parsed.questions
-        .slice(0, Math.min(3, Math.max(0, remainingQuestionBudget)))
+        .slice(0, 3)
         .map((q: any, i: number) => ({
           id: String(q.id || `inquiry_${i + 1}`),
           question: String(q.question || "").trim(),
@@ -2099,18 +2423,27 @@ function normalizeAlignmentInquiry(
             }))
             .filter((o: any) => o.label),
         }))
-        .filter((q: ScribeInquiryQuestion) => q.question && q.options.length >= 2)
+        .filter((q: ScribeInquiryQuestion) => {
+          if (!q.question || q.options.length < 2) return false;
+          if (previousTexts.some((text) => areSimilarQuestions(text, q.question))) return false;
+          if (seenTexts.some((text) => areSimilarQuestions(text, q.question))) return false;
+          seenTexts.push(q.question);
+          return true;
+        })
     : [];
-  const fallbackQuestions = remainingQuestionBudget > 0
-    ? fallback.questions.slice(0, Math.min(3, remainingQuestionBudget))
-    : [];
+  const fallbackQuestions = fallback.questions
+    .filter((q) => !previousTexts.some((text) => areSimilarQuestions(text, q.question)))
+    .slice(0, 3);
   const normalizedQuestions = questions.length ? questions : fallbackQuestions;
   for (const q of normalizedQuestions) {
-    if (!q.options.some((o: ScribeInquiryQuestion["options"][number]) => /不准|自己|补/.test(o.label))) {
+    if (!q.options.some((o: ScribeInquiryQuestion["options"][number]) => /不准|自己|补/.test(o.label)) && q.options.length >= 4) {
+      q.options.splice(3, q.options.length - 3, { id: "custom", label: "都不准，我自己说" });
+    } else if (!q.options.some((o: ScribeInquiryQuestion["options"][number]) => /不准|自己|补/.test(o.label))) {
       q.options.push({ id: "custom", label: "都不准，我自己说" });
     }
+    q.options = q.options.slice(0, 4);
   }
-  const ready = remainingQuestionBudget <= 0 || Boolean(parsed.readyForReport) || (questions.length === 0 && fallback.readyForReport);
+  const ready = Boolean(parsed.readyForReport) || (questions.length === 0 && fallback.readyForReport);
   return {
     questions: ready ? [] : normalizedQuestions,
     readyForReport: ready,

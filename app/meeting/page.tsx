@@ -70,8 +70,6 @@ const BIG_STAGES = [
   { id: "settlement", label: "本心落定" },
 ];
 
-const MAX_ALIGNMENT_INQUIRY_QUESTIONS = 12;
-
 const VOICE_COLOR_VAR: Record<VoiceId, string> = {
   lay: "color-seat-rest",
   money: "color-seat-money",
@@ -443,14 +441,6 @@ function MeetingInner() {
   ) {
     if (!taskFrame || busy) return;
 
-    // Roundtable guard: max 12 moves
-    const MAX_ROUNDTABLE_MOVES = 12;
-    if (roundtable.moves.length >= MAX_ROUNDTABLE_MOVES) {
-      setError("圆桌讨论已达上限，请进入下一阶段。");
-      setErrorCode("unknown");
-      setErrorRetryable(false);
-      return;
-    }
     lastActionRef.current = { fn: () => submitRoundtableMove(moveType, payload) };
     setBusy(true);
     clearError();
@@ -541,11 +531,9 @@ function MeetingInner() {
         return;
       }
 
-      const remaining = Math.max(0, MAX_ALIGNMENT_INQUIRY_QUESTIONS - answers.length);
       const known = new Set(questions.map((q) => q.id));
       const nextQuestions = ((json.questions ?? []) as ScribeInquiryQuestion[])
-        .filter((q) => !known.has(q.id))
-        .slice(0, remaining);
+        .filter((q) => !known.has(q.id));
       if (!nextQuestions.length && nextProfile) {
         await requestAlignmentReport(
           nextProfile,
@@ -1422,7 +1410,7 @@ function AlignmentInquiryBoard({
 }) {
   return (
     <DocketPaper
-      stage={`书记员问询 ${Math.min(answeredCount + questions.length, MAX_ALIGNMENT_INQUIRY_QUESTIONS)} / ${MAX_ALIGNMENT_INQUIRY_QUESTIONS}`}
+      stage={`书记员问询 · 已答 ${answeredCount}${questions.length ? ` · 待答 ${questions.length}` : ""}`}
       className="mt-5"
       marginalia="这里不是补背景，而是在确认本心落定前最后几处关键处。"
     >

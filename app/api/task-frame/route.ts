@@ -13,12 +13,10 @@ import {
   type ContextBundle,
   type LlmRuntime,
 } from "@/lib/llm";
+import { compactDialogue } from "@/lib/context-manager";
 import { scribeEventStream, SSE_HEADERS, type ScribeStreamEvent } from "@/lib/agents/events";
 import { runtimeFromProvider } from "@/lib/server-runtime";
 import type { DefiningDialogue, IssueProposal } from "@/lib/v7";
-
-// ─── Agent Loop Guard (参考 smolagents max_steps + graceful degradation) ───
-const MAX_PROBE_TURNS = 5;
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -41,37 +39,11 @@ export async function POST(req: NextRequest) {
 
   // ─── Action: probe — 生成追问 (带上下文压缩 + 循环保护) ───
   if (action === "probe") {
-    // Agent loop guard: max 5 probe turns then force propose
-    const dialogueTurns = dialogue.filter((d) => d.role === "user").length;
-    const forcePropose = dialogueTurns >= MAX_PROBE_TURNS;
-
     const effectiveDialogue = dialogue;
+    const dialogueWasCompacted = compactDialogue(dialogue).wasCompacted;
 
     const stream = scribeEventStream(async (emit) => {
       emit({ type: "narration", stage: "taskFrame", key: "reading" });
-
-      if (forcePropose) {
-        // Graceful degradation: don't ask more, generate proposal from what we have
-        emit({ type: "narration", stage: "taskFrame", key: "proposing" });
-        const proposalResult = await generateIssueProposal(
-          rawInput,
-          effectiveDialogue,
-          context,
-          llmRuntime,
-          modelStream(emit, "proposal"),
-        );
-        emit({ type: "narration", stage: "taskFrame", key: "done" });
-        emit({ type: "result", payload: {
-          action: "propose",
-          readyToPropose: true,
-          proposal: proposalResult.proposal,
-          taskFrame: proposalResult.taskFrame,
-          thinking: `已达 ${MAX_PROBE_TURNS} 轮追问上限，自动生成提案。`,
-          _contextCompacted: false,
-        }});
-        emit({ type: "done" });
-        return;
-      }
 
       const probeResult = await generateScribeQuestions(
         rawInput,
@@ -97,7 +69,7 @@ export async function POST(req: NextRequest) {
           proposal: proposalResult.proposal,
           taskFrame: proposalResult.taskFrame,
           thinking: probeResult.thinking,
-          _contextCompacted: false,
+          _contextCompacted: dialogueWasCompacted,
         }});
       } else {
         emit({ type: "narration", stage: "taskFrame", key: "questioning" });
@@ -106,7 +78,7 @@ export async function POST(req: NextRequest) {
           readyToPropose: false,
           questions: probeResult.questions,
           thinking: probeResult.thinking,
-          _contextCompacted: false,
+          _contextCompacted: dialogueWasCompacted,
         }});
       }
       emit({ type: "done" });

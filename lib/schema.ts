@@ -5,6 +5,13 @@ import { z } from "zod";
 
 // ─── Probe (追问) ───
 
+export const ProbePurposeSchema = z.enum([
+  "surface_dilemma",
+  "current_constraints",
+  "core_fears",
+  "expected_resolution",
+]);
+
 export const ScribeProbeOptionSchema = z.object({
   id: z.string(),
   label: z.string(),
@@ -13,12 +20,12 @@ export const ScribeProbeOptionSchema = z.object({
 export const ScribeQuestionSchema = z.object({
   id: z.string(),
   text: z.string(),
-  options: z.array(ScribeProbeOptionSchema).min(1),
-  purpose: z.string(),
+  options: z.array(ScribeProbeOptionSchema).min(2).max(4),
+  purpose: ProbePurposeSchema,
 });
 
 export const ProbeResultSchema = z.object({
-  questions: z.array(ScribeQuestionSchema).default([]),
+  questions: z.array(ScribeQuestionSchema).max(3).default([]),
   readyToPropose: z.boolean().default(false),
   thinking: z.string().optional().default(""),
 });
@@ -132,7 +139,7 @@ export const InquiryOptionSchema = z.object({
 export const InquiryQuestionSchema = z.object({
   id: z.string(),
   question: z.string(),
-  options: z.array(InquiryOptionSchema).min(1),
+  options: z.array(InquiryOptionSchema).min(2).max(4),
 });
 
 export const AlignmentProfileSchema = z.object({
@@ -151,7 +158,7 @@ export const AlignmentProfileSchema = z.object({
 });
 
 export const InquiryResultSchema = z.object({
-  questions: z.array(InquiryQuestionSchema).default([]),
+  questions: z.array(InquiryQuestionSchema).max(3).default([]),
   readyForReport: z.boolean().default(false),
   alignmentProfile: AlignmentProfileSchema.default({
     falsified_fantasy: "",
