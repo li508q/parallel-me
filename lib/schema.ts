@@ -65,7 +65,7 @@ export const StrictProbeResultSchema = z.object({
   confidence: z.number().min(0).max(1),
   missing_keys: z.array(ProbePurposeSchema).max(4),
   questions: z.array(StrictScribeQuestionSchema).max(3),
-  thinking: z.string().min(20).max(900),
+  thinking: z.string().max(900).optional().default(""),
 }).superRefine((result, ctx) => {
   if (result.action === "ask_more") {
     if (result.readyToPropose) {
@@ -302,7 +302,16 @@ export const StrictInquiryResultSchema = z.object({
   confidence: z.number().min(0).max(1),
   missing_modules: z.array(InquiryModuleSchema).max(5),
   questions: z.array(StrictInquiryQuestionSchema).max(3),
-  alignmentProfile: AlignmentProfileSchema,
+  alignmentProfile: AlignmentProfileSchema.optional().default({
+    falsified_fantasy: "",
+    core_value_axis: "",
+    offended_voices: [],
+    accepted_costs: [],
+    refused_costs: [],
+    unresolved_tensions: [],
+    hegelian_synthesis: { thesis: "", antithesis: "", synthesis: "" },
+    user_self_statements: [],
+  }),
 }).superRefine((result, ctx) => {
   if (result.action === "ask_more") {
     if (result.readyForReport) {

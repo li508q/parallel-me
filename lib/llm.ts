@@ -1154,11 +1154,130 @@ function probeAttemptErrorMessage(error: unknown): string {
   return raw.replace(/\s+/g, " ").slice(0, 360);
 }
 
+function extractJsonObjectCandidates(text: string): string[] {
+  const trimmed = text.trim();
+  const candidates: string[] = [];
+  const fencedMatches = [...trimmed.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi)];
+  for (const match of fencedMatches) {
+    const block = match[1]?.trim();
+    if (block?.startsWith("{")) candidates.push(block);
+  }
+
+  let start = -1;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let index = 0; index < trimmed.length; index += 1) {
+    const char = trimmed[index];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === "\"") {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === "\"") {
+      inString = true;
+      continue;
+    }
+    if (char === "{") {
+      if (depth === 0) start = index;
+      depth += 1;
+      continue;
+    }
+    if (char === "}" && depth > 0) {
+      depth -= 1;
+      if (depth === 0 && start >= 0) {
+        candidates.push(trimmed.slice(start, index + 1));
+        start = -1;
+      }
+    }
+  }
+
+  const unique = [...new Set(candidates.map((candidate) => candidate.trim()).filter(Boolean))];
+  if (!unique.length) {
+    throw new LlmError("模型没有返回 JSON 对象", "parse_error", true);
+  }
+  return unique;
+}
+
+function zodIssueMessages(error: z.ZodError, limit = 8): string[] {
+  return error.issues
+    .slice(0, limit)
+    .map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`);
+}
+
+function validateJsonWithSchema<T>(rawText: string, schema: z.ZodType<T>): T {
+  const candidates = extractJsonObjectCandidates(rawText);
+  const errors: string[] = [];
+  for (const candidate of candidates) {
+    let parsedJson: unknown;
+    try {
+      parsedJson = JSON.parse(candidate);
+    } catch (error: any) {
+      errors.push(`JSON 解析失败：${error?.message || "unknown"}`);
+      continue;
+    }
+    const parsed = schema.safeParse(parsedJson);
+    if (parsed.success) return parsed.data;
+    errors.push(`JSON schema 校验失败：${zodIssueMessages(parsed.error).join("；")}`);
+  }
+
+  throw new LlmError(errors.at(-1) || "JSON schema 校验失败", "parse_error", true);
+}
+
+async function repairJsonObject<T>({
+  rawText,
+  schema,
+  runtime,
+  maxOutputTokens,
+  failurePrefix,
+  errors,
+}: {
+  rawText: string;
+  schema: z.ZodType<T>;
+  runtime?: LlmRuntime;
+  maxOutputTokens: number;
+  failurePrefix: string;
+  errors: string[];
+}): Promise<T> {
+  const { model } = createProvider(runtime);
+  const repairPrompt = `下面是一段本应符合 schema 的 JSON 输出，但它没有通过解析或校验。
+
+错误：
+- ${errors.join("\n- ")}
+
+原始输出：
+${rawText.slice(0, 6000)}
+
+请只返回修复后的完整 JSON 对象：
+- 不要解释
+- 不要使用 Markdown
+- 不要输出代码块
+- 不要新增 schema 之外的字段
+- 保留原本的问题语义，只修复结构和字段`;
+
+  const repaired = await generateText({
+    model,
+    messages: [{ role: "user", content: repairPrompt }],
+    temperature: 0,
+    maxOutputTokens,
+    abortSignal: AbortSignal.timeout(45_000),
+  });
+
+  return validateJsonWithSchema(repaired.text || "", schema);
+}
+
 async function generateStrictObjectAttempt<T>({
   messages,
   schema,
   runtime,
   handlers,
+  source,
   maxOutputTokens,
   missingRuntimeMessage,
   timeoutMessage,
@@ -1168,6 +1287,7 @@ async function generateStrictObjectAttempt<T>({
   schema: z.ZodType<T>;
   runtime?: LlmRuntime;
   handlers: LlmStreamHandlers;
+  source: string;
   maxOutputTokens: number;
   missingRuntimeMessage: string;
   timeoutMessage: string;
@@ -1179,32 +1299,33 @@ async function generateStrictObjectAttempt<T>({
   }
 
   const { model } = createProvider(runtime);
-  const common = {
-    model,
-    messages: messages.map((message) => ({ role: message.role, content: message.content })),
-    schema,
-    temperature: 0.45,
-    maxOutputTokens,
-    abortSignal: AbortSignal.timeout(60_000),
-  };
 
   try {
-    if (handlers.onPartial || handlers.onToken) {
-      const result = streamObject(common);
-      for await (const part of result.fullStream) {
-        if (part.type === "text-delta") {
-          handlers.onToken?.(part.textDelta);
-        } else if (part.type === "object") {
-          handlers.onPartial?.(part.object);
-        } else if (part.type === "error") {
-          throw part.error instanceof Error ? part.error : new Error(String(part.error));
-        }
-      }
-      return (await result.object) as T;
+    const result = await generateText({
+      model,
+      messages: messages.map((message) => ({ role: message.role, content: message.content })),
+      temperature: 0.25,
+      maxOutputTokens,
+      abortSignal: AbortSignal.timeout(60_000),
+    });
+    const rawText = result.text || "";
+    try {
+      return validateJsonWithSchema(rawText, schema);
+    } catch (parseOrSchemaError) {
+      const errors = [probeAttemptErrorMessage(parseOrSchemaError)];
+      handlers.onReasoning?.(
+        `${failurePrefix}，正在做一次 JSON 修复：${errors.join("；")}。\n`,
+        { source, mode: "public" },
+      );
+      return await repairJsonObject({
+        rawText,
+        schema,
+        runtime,
+        maxOutputTokens,
+        failurePrefix,
+        errors,
+      });
     }
-
-    const result = await generateObject(common);
-    return result.object as T;
   } catch (err: any) {
     if (err instanceof LlmError) throw err;
     if (err?.name === "AbortError" || err?.name === "TimeoutError") {
@@ -1226,6 +1347,7 @@ function generateStrictProbeAttempt(
     schema: StrictProbeResultSchema,
     runtime,
     handlers,
+    source: "probe",
     maxOutputTokens: 1100,
     missingRuntimeMessage: "模型配置不可用，无法生成真实追问。请先在设置页接入模型。",
     timeoutMessage: "追问生成超时，模型响应过慢。",
@@ -1442,6 +1564,8 @@ ${scribePersonaBlock("brief")}
 - issue_proposal：readyToPropose=true，questions 为空，表示下一步应生成《议题提案》。
 - 当你犹豫是否足够时，选择 ask_more。
 
+你现在处在第二段调用：上一段 LLM 已经完成 thinking。你的任务不是重新长篇分析，而是把 thinking、原始输入和本地审计转译成 UI 可展示的问题 JSON。
+
 输出必须严格符合 probe_v2 JSON：
 {
   "schema_version": "probe_v2",
@@ -1460,8 +1584,7 @@ ${scribePersonaBlock("brief")}
       ],
       "purpose": "surface_dilemma|current_constraints|core_fears|expected_resolution"
     }
-  ],
-  "thinking": "给 Trace 用的公开工作笔记：说明缺了哪个 Key 的关键边界，为什么要问"
+  ]
 }
 
 字段硬规则：
@@ -1471,7 +1594,8 @@ ${scribePersonaBlock("brief")}
 - confidence 是你对“阶段一材料足以进入下一步”的置信度；ask_more 通常低于 0.75，issue_proposal 通常高于 0.8。
 - 每个问题必须有 3-4 个 options，且恰好一个是 {"id":"custom","label":"都不准，我自己说"}。
 - 每个问题和至少两个非自定义选项必须贴住用户原始输入、已有回答或刚才 thinking 中的具体名词/条件/张力；禁止只写“这件事、这条路、现实条件、选择岔路”这种泛化套话。
-- 禁止输出模板化兜底句，比如“如果先把情绪放旁边……”“这件事里哪个现实条件……”。如果你不知道怎么问，就回到用户原文和 thinking 里找具体张力。`;
+- 禁止输出模板化兜底句，比如“如果先把情绪放旁边……”“这件事里哪个现实条件……”。如果你不知道怎么问，就回到用户原文和 thinking 里找具体张力。
+- 只输出 JSON 对象，不要 Markdown，不要代码块，不要在 JSON 前后添加解释。`;
 
 export async function generateScribeQuestions(
   rawInput: string,
@@ -1503,7 +1627,7 @@ ${reasoningMemo || "（没有可用判断过程）"}
 本地阶段一审计：
 ${probeAuditForPrompt(rawInput, dialogue, reasoningMemo)}
 
-请基于以上信息输出 probe_v2 JSON。你提出的问题会直接展示给用户；宿主不会替你兜底改写问题。`;
+这是第二段“问题生成”调用。请基于 thinking 和审计结果输出 probe_v2 JSON。你提出的问题会直接展示给用户；宿主不会替你兜底改写问题。`;
 
   let lastErrors: string[] = [];
   let lastError: unknown = null;
@@ -2438,6 +2562,8 @@ ${scribePersonaBlock("inquiry")}
 - alignmentProfile 只写自然语言观察和已经被问询或圆桌行为支持的倾向。
 - 黑格尔结构中：thesis 是用户想坚持的主轴，antithesis 是阻碍他承认主轴的现实恐惧和代价，synthesis 是能被用户认领的本心方向。
 
+你现在处在第二段调用：前序上下文已经完成观察和判断。你的任务不是重新长篇分析，而是把议题、圆桌、观察账本和问询审计转译成 UI 可展示的问询 JSON。
+
 输出严格 JSON：
 {
   "schema_version": "inquiry_v2",
@@ -2456,17 +2582,7 @@ ${scribePersonaBlock("inquiry")}
         {"id":"custom","label":"都不准，我自己说","meaning":"用户自述"}
       ]
     }
-  ],
-  "alignmentProfile": {
-    "falsified_fantasy": "",
-    "core_value_axis": "",
-    "offended_voices": [],
-    "accepted_costs": [],
-    "refused_costs": [],
-    "unresolved_tensions": [],
-    "hegelian_synthesis": {"thesis":"","antithesis":"","synthesis":""},
-    "user_self_statements": []
-  }
+  ]
 }
 
 字段硬规则：
@@ -2477,7 +2593,8 @@ ${scribePersonaBlock("inquiry")}
 - 每个问题必须有 module，且服务 missing_modules 里的真实缺口。
 - 每题必须有 3-4 个 options，且恰好一个是 {"id":"custom","label":"都不准，我自己说"}。
 - 问题和选项必须引用本次议题、圆桌发言、用户已回答或观察账本中的具体张力；禁止只写“这件事、这场圆桌、代价、主轴”这种泛化套话。
-- 如果输出不符合 schema 或质量审计，宿主只会重试，不会替你生成兜底问题。`;
+- 如果输出不符合 schema 或质量审计，宿主只会重试，不会替你生成兜底问题。
+- 只输出 JSON 对象，不要 Markdown，不要代码块，不要在 JSON 前后添加解释。`;
 
   const userMsg =
     `本次议题：\n${compactRoundtableBrief(taskFrame, issueProposal)}\n\n` +
@@ -2486,7 +2603,7 @@ ${scribePersonaBlock("inquiry")}
     `已提出的问题：\n${JSON.stringify(inquiryQuestions, null, 2)}\n\n` +
     `用户已回答：\n${JSON.stringify(inquiryAnswers, null, 2)}\n\n` +
     `本地问询审计：\n${inquiryAuditForPrompt(inquiryAnswers, inquiryQuestions)}\n\n` +
-    `请先判断五个落点是否足够，再输出 inquiry_v2 JSON。你提出的问题会直接展示给用户；宿主不会替你兜底改写问题。`;
+    `这是第二段“问询题目生成”调用。请先判断五个落点是否足够，再输出 inquiry_v2 JSON。你提出的问题会直接展示给用户；宿主不会替你兜底改写问题。`;
 
   let lastErrors: string[] = [];
   let lastError: unknown = null;
@@ -2713,6 +2830,7 @@ function generateStrictInquiryAttempt(
     schema: StrictInquiryResultSchema,
     runtime,
     handlers,
+    source: "inquiry",
     maxOutputTokens: 1400,
     missingRuntimeMessage: "模型配置不可用，无法生成真实问询。请先在设置页接入模型。",
     timeoutMessage: "问询生成超时，模型响应过慢。",
