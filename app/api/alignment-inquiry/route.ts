@@ -82,6 +82,8 @@ function modelStream(emit: (event: ScribeStreamEvent) => void, source: string) {
   return {
     onToken: (text: string) => emit({ type: "model_delta", source, text }),
     onPartial: (payload: unknown) => emit({ type: "object_delta", source, payload }),
+    onReasoning: (text: string, meta?: { source?: string; mode?: "native" | "public" }) =>
+      emit({ type: "reasoning_delta", source: meta?.source || source, mode: meta?.mode || "public", text }),
   };
 }
 

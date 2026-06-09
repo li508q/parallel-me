@@ -32,6 +32,92 @@ export const ProbeResultSchema = z.object({
 
 export type ValidatedProbeResult = z.infer<typeof ProbeResultSchema>;
 
+export const StrictScribeProbeOptionSchema = z.object({
+  id: z.string().min(2).max(48).regex(/^[A-Za-z0-9_-]+$/),
+  label: z.string().min(6).max(90),
+});
+
+export const StrictScribeQuestionSchema = z.object({
+  id: z.string().min(3).max(64).regex(/^[A-Za-z0-9_-]+$/),
+  text: z.string().min(14).max(120).refine((text) => /[？?]$/.test(text.trim()), {
+    message: "question text must end with a question mark",
+  }),
+  options: z.array(StrictScribeProbeOptionSchema).min(3).max(4),
+  purpose: ProbePurposeSchema,
+}).superRefine((question, ctx) => {
+  const customOptions = question.options.filter((option) =>
+    /^(都不准|都不对|不准确|我想自己说|我自己说|自己补一句|我自己补一句)/.test(option.label.trim())
+    || option.id === "custom"
+  );
+  if (customOptions.length !== 1) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["options"],
+      message: "each question must include exactly one custom/free-text option",
+    });
+  }
+});
+
+export const StrictProbeResultSchema = z.object({
+  schema_version: z.literal("probe_v2"),
+  action: z.enum(["ask_more", "issue_proposal"]),
+  readyToPropose: z.boolean(),
+  confidence: z.number().min(0).max(1),
+  missing_keys: z.array(ProbePurposeSchema).max(4),
+  questions: z.array(StrictScribeQuestionSchema).max(3),
+  thinking: z.string().min(20).max(900),
+}).superRefine((result, ctx) => {
+  if (result.action === "ask_more") {
+    if (result.readyToPropose) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["readyToPropose"],
+        message: "ask_more requires readyToPropose=false",
+      });
+    }
+    if (result.questions.length < 1) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["questions"],
+        message: "ask_more requires 1-3 questions",
+      });
+    }
+    if (result.missing_keys.length < 1) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["missing_keys"],
+        message: "ask_more requires at least one missing key",
+      });
+    }
+  }
+
+  if (result.action === "issue_proposal") {
+    if (!result.readyToPropose) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["readyToPropose"],
+        message: "issue_proposal requires readyToPropose=true",
+      });
+    }
+    if (result.questions.length !== 0) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["questions"],
+        message: "issue_proposal must not include questions",
+      });
+    }
+    if (result.missing_keys.length !== 0) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["missing_keys"],
+        message: "issue_proposal must not include missing keys",
+      });
+    }
+  }
+});
+
+export type ValidatedStrictProbeResult = z.infer<typeof StrictProbeResultSchema>;
+
 // ─── Issue Proposal (4-Key 议题提案) ───
 
 export const ProposalKeySchema = z.object({
@@ -173,6 +259,101 @@ export const InquiryResultSchema = z.object({
 });
 
 export type ValidatedInquiry = z.infer<typeof InquiryResultSchema>;
+
+export const InquiryModuleSchema = z.enum([
+  "falsified_fantasy",
+  "core_value_axis",
+  "cost_acceptance",
+  "minimum_action",
+  "dialectic_synthesis",
+]);
+
+export const StrictInquiryOptionSchema = z.object({
+  id: z.string().min(2).max(48).regex(/^[A-Za-z0-9_-]+$/),
+  label: z.string().min(6).max(100),
+  meaning: z.string().min(4).max(120).optional(),
+});
+
+export const StrictInquiryQuestionSchema = z.object({
+  id: z.string().min(3).max(64).regex(/^[A-Za-z0-9_-]+$/),
+  module: InquiryModuleSchema,
+  question: z.string().min(14).max(140).refine((text) => /[？?]$/.test(text.trim()), {
+    message: "inquiry question must end with a question mark",
+  }),
+  options: z.array(StrictInquiryOptionSchema).min(3).max(4),
+}).superRefine((question, ctx) => {
+  const customOptions = question.options.filter((option) =>
+    /^(都不准|都不对|不准确|我想自己说|我自己说|自己补一句|我自己补一句)/.test(option.label.trim())
+    || option.id === "custom"
+  );
+  if (customOptions.length !== 1) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["options"],
+      message: "each inquiry question must include exactly one custom/free-text option",
+    });
+  }
+});
+
+export const StrictInquiryResultSchema = z.object({
+  schema_version: z.literal("inquiry_v2"),
+  action: z.enum(["ask_more", "settlement_report"]),
+  readyForReport: z.boolean(),
+  confidence: z.number().min(0).max(1),
+  missing_modules: z.array(InquiryModuleSchema).max(5),
+  questions: z.array(StrictInquiryQuestionSchema).max(3),
+  alignmentProfile: AlignmentProfileSchema,
+}).superRefine((result, ctx) => {
+  if (result.action === "ask_more") {
+    if (result.readyForReport) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["readyForReport"],
+        message: "ask_more requires readyForReport=false",
+      });
+    }
+    if (result.questions.length < 1) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["questions"],
+        message: "ask_more requires 1-3 questions",
+      });
+    }
+    if (result.missing_modules.length < 1) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["missing_modules"],
+        message: "ask_more requires at least one missing module",
+      });
+    }
+  }
+
+  if (result.action === "settlement_report") {
+    if (!result.readyForReport) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["readyForReport"],
+        message: "settlement_report requires readyForReport=true",
+      });
+    }
+    if (result.questions.length !== 0) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["questions"],
+        message: "settlement_report must not include questions",
+      });
+    }
+    if (result.missing_modules.length !== 0) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["missing_modules"],
+        message: "settlement_report must not include missing modules",
+      });
+    }
+  }
+});
+
+export type ValidatedStrictInquiryResult = z.infer<typeof StrictInquiryResultSchema>;
 
 // ─── Heart Settlement (本心落定) ───
 

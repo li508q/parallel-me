@@ -14,13 +14,15 @@ import { compactDialogue, compactRoundtable } from "./context-manager";
 
 import {
   AlignmentReportSchema,
-  ProbeResultSchema,
   ProposalResultSchema,
   RefineResultSchema,
-  InquiryResultSchema,
   ScribeObservationLedgerSchema,
+  StrictInquiryResultSchema,
+  StrictProbeResultSchema,
   TaskFrameResultSchema,
   TasteProfileSchema,
+  type ValidatedStrictInquiryResult,
+  type ValidatedStrictProbeResult,
 } from "./schema";
 
 import { SELVES, type SelfId, SELVES_META } from "./selves";
@@ -578,6 +580,8 @@ export interface ProbeResult {
   questions: ScribeQuestion[];
   readyToPropose: boolean;
   thinking: string;
+  confidence?: number;
+  missingKeys?: ProbePurpose[];
 }
 
 const PROBE_PURPOSES = [
@@ -587,7 +591,7 @@ const PROBE_PURPOSES = [
   "expected_resolution",
 ] as const;
 
-type ProbePurpose = (typeof PROBE_PURPOSES)[number];
+export type ProbePurpose = (typeof PROBE_PURPOSES)[number];
 
 const PROBE_PURPOSE_LABEL: Record<ProbePurpose, string> = {
   surface_dilemma: "选择岔路",
@@ -624,47 +628,6 @@ function textSnippet(text: string, max = 34): string {
     .trim();
   if (clean.length <= max) return clean;
   return `${clean.slice(0, max - 1)}…`;
-}
-
-function extractContextSnippets(text: string, limit = 8): string[] {
-  const seen = new Set<string>();
-  const result: string[] = [];
-  const roughParts = text
-    .replace(/\[[^\]]+\]/g, " ")
-    .split(/[\n。！？!?；;]/)
-    .flatMap((part) => part.length > 46 ? part.split(/[，,]/) : [part]);
-
-  for (const part of roughParts) {
-    const snippet = textSnippet(part, 42);
-    const normalized = normalizeQuestionText(snippet);
-    if (snippet.length < 4 || normalized.length < 4 || seen.has(normalized)) continue;
-    if (/^(都不准|都不对|我自己说|选择|可选回应)$/.test(snippet)) continue;
-    seen.add(normalized);
-    result.push(snippet);
-    if (result.length >= limit) break;
-  }
-  return result;
-}
-
-function firstMatchingSnippet(snippets: string[], pattern: RegExp): string | undefined {
-  return snippets.find((snippet) => pattern.test(snippet));
-}
-
-function contextAnchor(coverage: ProbeCoverage, purpose?: ProbePurpose): string {
-  const snippets = extractContextSnippets(coverage.combined);
-  if (purpose === "surface_dilemma") {
-    return firstMatchingSnippet(snippets, /(还是|要不要|该不该|选择|一边|另一边|回|留|辞|换|分|结|搬|买|卖|vs|VS)/) || snippets[0] || "这件事";
-  }
-  if (purpose === "current_constraints") {
-    return firstMatchingSnippet(snippets, /(\d|钱|收入|时间|父母|家人|身体|工作|合同|签证|年龄|成本|压力)/) || snippets[0] || "现实边界";
-  }
-  if (purpose === "core_fears") {
-    return firstMatchingSnippet(snippets, /(怕|担心|害怕|焦虑|失去|后悔|安全感|自由|体面|价值|关系|亏欠|内疚)/) || snippets[0] || "最刺痛的底线";
-  }
-  if (purpose === "expected_resolution") {
-    return firstMatchingSnippet(snippets, /(希望|想知道|验证|确认|判断|圆桌|结论|下一步|观察期|规则)/) || snippets[0] || "圆桌任务";
-  }
-  return snippets[0] || "这件事";
 }
 
 function optionId(label: string, index: number): string {
@@ -715,112 +678,6 @@ function isBoundaryConfirmation(text: string): boolean {
   return /(一变|什么情况下|边界|底线|最坏|失败成本|代价|不能碰|可以承受|观察期|验证|判断规则|停|继续|扛不住|条件)/.test(text);
 }
 
-function constraintOptionsFromContext(combined: string, anchor: string): string[] {
-  const options: string[] = [];
-  if (/(钱|收入|工资|现金流|存款|房|车|债|成本|亏损|年薪|月薪)/.test(combined)) {
-    options.push("钱、收入或失败成本一变，我的判断会立刻跟着变。");
-  }
-  if (/(父母|爸|妈|家人|伴侣|对象|孩子|亲戚|关系|催婚)/.test(combined)) {
-    options.push("重要关系会被牵动，后果不是我一个人承受。");
-  }
-  if (/(时间|年龄|窗口|期限|合同|签证|考试|项目|offer|机会)/i.test(combined)) {
-    options.push("时间窗口很硬，拖久了或动早了都会改变局面。");
-  }
-  if (/(身体|睡眠|精力|焦虑|抑郁|加班|健康|累| burnout |996)/i.test(combined)) {
-    options.push("身体和精力已经在报警，不能再假装余量无限。");
-  }
-  if (/(工作|老板|同事|岗位|绩效|考公|考研|职业|公司|大厂|国企)/.test(combined)) {
-    options.push("职业制度、岗位或外部评价会限制我能怎么动。");
-  }
-  if (!options.length) {
-    options.push(
-      `围绕「${anchor}」，真正卡住我的是一个还没说透的现实条件。`,
-      "目前最硬的不是感受，而是时间、资源或责任边界。",
-    );
-  }
-  return options;
-}
-
-function fearOptionsFromContext(combined: string, anchor: string): string[] {
-  const options: string[] = [];
-  if (/(安全|稳定|钱|收入|退路|失败|风险)/.test(combined)) {
-    options.push("失去安全感和退路，最后发现自己扛不住。");
-  }
-  if (/(自由|真实|不像自己|理想|生命力|出走|自我)/.test(combined)) {
-    options.push("失去对自己的认可，觉得自己背离了真正想要的活法。");
-  }
-  if (/(父母|家人|伴侣|关系|爱|理解|认可|亏欠|内疚)/.test(combined)) {
-    options.push("失去重要关系里的理解、亲近或基本体面。");
-  }
-  if (/(后悔|错过|来不及|年龄|机会|未来)/.test(combined)) {
-    options.push("失去未来回看时还能认领这一步的底气。");
-  }
-  if (!options.length) {
-    options.push(
-      `如果「${anchor}」处理错，我最怕丢掉某条还没命名的底线。`,
-      "我怕的不是单个选项，而是之后很难再相信自己的判断。",
-    );
-  }
-  return options;
-}
-
-function fallbackProbeQuestionForPurpose(
-  purpose: ProbePurpose,
-  coverage: ProbeCoverage,
-  topic: Topic,
-  followup: boolean,
-): ScribeQuestion {
-  const anchor = contextAnchor(coverage, purpose);
-  const topicNoun = topic === "career"
-    ? "这条职业路"
-    : topic === "family"
-      ? "这件和家人有关的事"
-      : topic === "relationship"
-        ? "这段关系"
-        : topic === "money"
-          ? "这笔现实账"
-          : "这件事";
-  let text = "";
-  let options: string[] = [];
-
-  if (purpose === "surface_dilemma") {
-    text = followup
-      ? `我不复读上一题，只校对岔路：围绕「${anchor}」，现在真正互相拉扯的是哪两边？`
-      : `如果先把情绪放旁边，${topicNoun}最需要被切成哪一个可讨论的选择岔路？`;
-    options = [
-      `继续沿着「${anchor}」现在的惯性往前走。`,
-      `暂停惯性，换一种方向或边界处理「${anchor}」。`,
-      "先设观察期，用一个小事实确认再决定。",
-    ];
-  } else if (purpose === "current_constraints") {
-    text = followup
-      ? `我只补现实边界：关于「${anchor}」，哪一个条件一变，你的判断会立刻跟着变？`
-      : `这件事里，哪个现实条件是真的会卡住选择，而不是单纯让你心烦？`;
-    options = constraintOptionsFromContext(coverage.combined, anchor);
-  } else if (purpose === "core_fears") {
-    text = followup
-      ? `不再问圆桌要产出什么，只问底线：如果「${anchor}」走错，你最怕失去什么？`
-      : `先不谈该选哪边，真正让你心里发紧的是怕哪条底线被拿走？`;
-    options = fearOptionsFromContext(coverage.combined, anchor);
-  } else {
-    text = followup
-      ? `不再追问你怕什么，只定圆桌任务：关于「${anchor}」，最后必须帮你判断哪件事？`
-      : `这次圆桌不是替你做决定，而是要帮你验证哪一种判断规则？`;
-    options = [
-      "把几个代价排出先后：哪个不能碰，哪个可以承受。",
-      `确认一条边界：什么情况下继续处理「${anchor}」，什么情况下停。`,
-      "定一个观察期或下一步验证动作，而不是立刻判终局。",
-    ];
-  }
-
-  return {
-    id: `q_${purpose}_${hashText(text)}`,
-    purpose,
-    text,
-    options: naturalOptions(options),
-  };
-}
-
 interface ProbeCoverage {
   combined: string;
   reasoningMemo: string;
@@ -834,52 +691,6 @@ interface ProbeCoverage {
   rawSignals: Record<ProbePurpose, boolean>;
   has: Record<ProbePurpose, boolean>;
   missing: ProbePurpose[];
-}
-
-function safeProbeFallback(
-  rawInput: string,
-  dialogue: DefiningDialogue = [],
-  reasoningMemo = "",
-): ProbeResult {
-  const coverage = collectProbeCoverage(rawInput, dialogue, reasoningMemo);
-  const blockers = readinessBlockingPurposes(coverage);
-  if (!blockers.length) {
-    return {
-      readyToPropose: true,
-      thinking: "四个 Key 都已经被用户回答覆盖，并且出现了足够的自述展开与边界确认，可以生成议题提案。",
-      questions: [],
-    };
-  }
-
-  const topic = classifyTopic(`${rawInput}\n${coverage.combined}`);
-  const ranked = rankProbePurposes(coverage, blockers);
-  const unansweredPurposes = ranked.filter((purpose) => !coverage.answeredPurposes.has(purpose));
-  const freshPurposes = unansweredPurposes.filter((purpose) => !coverage.askedPurposes.has(purpose));
-  const selectedPurposes = (freshPurposes.length ? freshPurposes : unansweredPurposes.length ? unansweredPurposes : ranked).slice(0, 2);
-  const questions = selectedPurposes
-    .map((purpose) => fallbackProbeQuestionForPurpose(purpose, coverage, topic, coverage.askedPurposes.has(purpose)))
-    .filter((question) => !coverage.askedTexts.some((text) => areSimilarQuestions(text, question.text)));
-
-  const finalQuestions = questions.length
-    ? questions
-    : [
-        fallbackProbeQuestionForPurpose(
-          ranked[0] || "expected_resolution",
-          coverage,
-          topic,
-          true,
-        ),
-      ];
-
-  return {
-    readyToPropose: false,
-    thinking: [
-      "结构化输出不可用时，改用证据质量感知追问。",
-      `当前还不能成案：${readinessIssues(coverage).join("；")}。`,
-      `优先补：${selectedPurposes.map((p) => PROBE_PURPOSE_LABEL[p]).join("、")}。`,
-    ].join("\n"),
-    questions: finalQuestions.slice(0, 2),
-  };
 }
 
 function collectProbeCoverage(
@@ -1166,6 +977,262 @@ function shouldForceProbe(
   return readinessIssues(coverage).length > 0;
 }
 
+function probeAuditForPrompt(rawInput: string, dialogue: DefiningDialogue, reasoningMemo: string): string {
+  const coverage = collectProbeCoverage(rawInput, dialogue, reasoningMemo);
+  const issues = readinessIssues(coverage);
+  const blockers = readinessBlockingPurposes(coverage);
+  const ranked = rankProbePurposes(coverage, blockers);
+  const answered = PROBE_PURPOSES
+    .filter((purpose) => coverage.answeredPurposes.has(purpose))
+    .map((purpose) => PROBE_PURPOSE_LABEL[purpose]);
+  const asked = PROBE_PURPOSES
+    .filter((purpose) => coverage.askedPurposes.has(purpose))
+    .map((purpose) => PROBE_PURPOSE_LABEL[purpose]);
+
+  return [
+    `用户回答数：${coverage.userAnswerCount}/${MIN_PROBE_USER_ANSWERS}`,
+    `用户自然展开数：${coverage.articulatedAnswerCount}/${MIN_ARTICULATED_ANSWERS}`,
+    `边界确认数：${coverage.boundaryAnswerCount}/${MIN_BOUNDARY_CONFIRMATIONS}`,
+    `已经问过：${asked.join("、") || "无"}`,
+    `已经由用户回答覆盖：${answered.join("、") || "无"}`,
+    `本轮仍需补足：${ranked.map((purpose) => `${purpose}（${PROBE_PURPOSE_LABEL[purpose]}）`).join("、") || "无"}`,
+    `不能成案的原因：${issues.join("；") || "四个 Key 已经足够，可以进入提案"}`,
+  ].join("\n");
+}
+
+const FORBIDDEN_PROBE_TEMPLATE_RE =
+  /(如果先把情绪放旁边|这件事里，哪个现实条件是真的会卡住选择|这条职业路最需要被切成|先不谈该选哪边，真正让你心里发紧|这次圆桌不是替你做决定，而是要帮你验证哪一种判断规则|我不复读上一题，只校对岔路|我只补现实边界)/;
+
+const PROBE_ANCHOR_DICTIONARY = [
+  "辞职",
+  "裸辞",
+  "跳槽",
+  "读博",
+  "考博",
+  "博士",
+  "读研",
+  "考研",
+  "考公",
+  "大厂",
+  "国企",
+  "体制",
+  "父母",
+  "爸妈",
+  "稳定",
+  "老家",
+  "月薪",
+  "年薪",
+  "收入",
+  "现金流",
+  "存款",
+  "年龄",
+  "兴趣",
+  "业务",
+  "代码",
+  "code",
+  "AI",
+  "工作",
+  "职业",
+  "offer",
+  "对象",
+  "结婚",
+  "分手",
+  "房",
+  "买房",
+  "孩子",
+  "健康",
+  "睡眠",
+  "加班",
+  "自由",
+  "安全感",
+  "后悔",
+  "来不及",
+] as const;
+
+function extractProbeAnchorTerms(text: string, limit = 12): string[] {
+  const anchors = new Set<string>();
+  const source = text.replace(/\s+/g, " ");
+  const lowerSource = source.toLowerCase();
+
+  for (const term of PROBE_ANCHOR_DICTIONARY) {
+    if (lowerSource.includes(term.toLowerCase())) anchors.add(term);
+  }
+
+  const matches = source.match(/[A-Za-z][A-Za-z0-9.+#-]{1,24}|\d+(?:\.\d+)?(?:w|W|万|k|K|岁|年|个月|月|天)?/g) || [];
+  for (const match of matches) {
+    const cleaned = match.trim();
+    if (cleaned.length < 2) continue;
+    if (/^(the|and|or|vs|api|json|schema|key)$/i.test(cleaned)) continue;
+    anchors.add(cleaned);
+  }
+
+  return [...anchors]
+    .sort((a, b) => b.length - a.length)
+    .slice(0, limit);
+}
+
+function textIncludesAnchor(text: string, anchor: string): boolean {
+  return text.toLowerCase().includes(anchor.toLowerCase());
+}
+
+function validateStrictProbeQuality(
+  strict: ValidatedStrictProbeResult,
+  normalizedQuestions: ScribeQuestion[],
+  rawInput: string,
+  dialogue: DefiningDialogue,
+  reasoningMemo: string,
+): string[] {
+  const errors: string[] = [];
+  const coverage = collectProbeCoverage(rawInput, dialogue, reasoningMemo);
+
+  if (strict.action === "issue_proposal") {
+    const issues = readinessIssues(coverage);
+    if (issues.length) {
+      errors.push(`还不能进入提案：${issues.join("；")}`);
+    }
+    return errors;
+  }
+
+  if (strict.readyToPropose) {
+    errors.push("action=ask_more 时 readyToPropose 必须为 false");
+  }
+
+  if (normalizedQuestions.length < 1) {
+    errors.push("ask_more 必须给出至少一个可展示给用户的追问");
+  }
+
+  const allQuestionText = normalizedQuestions
+    .map((question) => `${question.text} ${question.options.map((option) => option.label).join(" ")}`)
+    .join("\n");
+
+  if (FORBIDDEN_PROBE_TEMPLATE_RE.test(allQuestionText)) {
+    errors.push("追问仍像程序模板，没有体现本轮 thinking 和用户原文");
+  }
+
+  const anchorText = [
+    rawInput,
+    coverage.combined,
+    reasoningMemo,
+  ].filter(Boolean).join("\n");
+  const anchors = extractProbeAnchorTerms(anchorText);
+  const anchorHits = anchors.filter((anchor) => textIncludesAnchor(allQuestionText, anchor));
+  if (anchors.length >= 2 && anchorHits.length === 0) {
+    errors.push(`追问没有引用用户材料里的具体锚点，例如：${anchors.slice(0, 6).join("、")}`);
+  }
+
+  for (const question of normalizedQuestions) {
+    if (coverage.askedTexts.some((text) => areSimilarQuestions(text, question.text))) {
+      errors.push(`追问重复了历史问题：「${question.text}」`);
+    }
+    const nonCustomOptions = question.options.filter((option) => !isCustomFreeTextOption(option));
+    if (nonCustomOptions.length < 2) {
+      errors.push(`问题「${question.text}」缺少至少两个真实可选回应`);
+    }
+    if (!question.options.some(isCustomFreeTextOption)) {
+      errors.push(`问题「${question.text}」缺少“都不准，我自己说”选项`);
+    }
+  }
+
+  const questionPurposeSet = new Set(normalizedQuestions.map((question) => question.purpose));
+  if (questionPurposeSet.size !== normalizedQuestions.length) {
+    errors.push("同一轮追问的 purpose 不能重复");
+  }
+
+  const missingKeys = new Set(strict.missing_keys);
+  for (const question of normalizedQuestions) {
+    const purpose = normalizeProbePurpose(question.purpose);
+    if (strict.missing_keys.length && (!purpose || !missingKeys.has(purpose))) {
+      errors.push(`问题 purpose=${question.purpose} 不在 missing_keys 中`);
+    }
+  }
+
+  return errors;
+}
+
+function probeAttemptErrorMessage(error: unknown): string {
+  const raw = error instanceof Error ? error.message : String(error || "unknown");
+  return raw.replace(/\s+/g, " ").slice(0, 360);
+}
+
+async function generateStrictObjectAttempt<T>({
+  messages,
+  schema,
+  runtime,
+  handlers,
+  maxOutputTokens,
+  missingRuntimeMessage,
+  timeoutMessage,
+  failurePrefix,
+}: {
+  messages: Msg[];
+  schema: z.ZodType<T>;
+  runtime?: LlmRuntime;
+  handlers: LlmStreamHandlers;
+  maxOutputTokens: number;
+  missingRuntimeMessage: string;
+  timeoutMessage: string;
+  failurePrefix: string;
+}): Promise<T> {
+  const rt = resolveRuntime(runtime);
+  if (!rt.apiKey) {
+    throw new LlmError(missingRuntimeMessage, "auth_error", false);
+  }
+
+  const { model } = createProvider(runtime);
+  const common = {
+    model,
+    messages: messages.map((message) => ({ role: message.role, content: message.content })),
+    schema,
+    temperature: 0.45,
+    maxOutputTokens,
+    abortSignal: AbortSignal.timeout(60_000),
+  };
+
+  try {
+    if (handlers.onPartial || handlers.onToken) {
+      const result = streamObject(common);
+      for await (const part of result.fullStream) {
+        if (part.type === "text-delta") {
+          handlers.onToken?.(part.textDelta);
+        } else if (part.type === "object") {
+          handlers.onPartial?.(part.object);
+        } else if (part.type === "error") {
+          throw part.error instanceof Error ? part.error : new Error(String(part.error));
+        }
+      }
+      return (await result.object) as T;
+    }
+
+    const result = await generateObject(common);
+    return result.object as T;
+  } catch (err: any) {
+    if (err instanceof LlmError) throw err;
+    if (err?.name === "AbortError" || err?.name === "TimeoutError") {
+      throw new LlmError(timeoutMessage, "timeout", true);
+    }
+    const status = err?.status || err?.statusCode;
+    if (status) throw classifyHttpError(status, err?.message || "", undefined);
+    throw new LlmError(`${failurePrefix}：${err?.message || "unknown"}`, "parse_error", true);
+  }
+}
+
+function generateStrictProbeAttempt(
+  messages: Msg[],
+  runtime: LlmRuntime | undefined,
+  handlers: LlmStreamHandlers,
+): Promise<ValidatedStrictProbeResult> {
+  return generateStrictObjectAttempt({
+    messages,
+    schema: StrictProbeResultSchema,
+    runtime,
+    handlers,
+    maxOutputTokens: 1100,
+    missingRuntimeMessage: "模型配置不可用，无法生成真实追问。请先在设置页接入模型。",
+    timeoutMessage: "追问生成超时，模型响应过慢。",
+    failurePrefix: "追问结构化生成失败",
+  });
+}
+
 export interface ProposalResult {
   proposal: IssueProposal;
   taskFrame: TaskFrame;
@@ -1375,19 +1442,36 @@ ${scribePersonaBlock("brief")}
 - issue_proposal：readyToPropose=true，questions 为空，表示下一步应生成《议题提案》。
 - 当你犹豫是否足够时，选择 ask_more。
 
-输出严格 JSON：
+输出必须严格符合 probe_v2 JSON：
 {
+  "schema_version": "probe_v2",
+  "action": "ask_more",
+  "readyToPropose": false,
+  "confidence": 0.64,
+  "missing_keys": ["surface_dilemma", "current_constraints"],
   "questions": [
     {
-      "id": "q_xxx",
-      "text": "一句自然语言的追问",
-      "options": [{"id": "opt_a", "label": "一个完整、自然、可独立理解的回应选项"}, {"id": "opt_b", "label": "另一个完整回应选项"}],
+      "id": "q_surface_1",
+      "text": "一句自然语言的追问，必须以问号结尾，并咬住用户原文或刚才 thinking 里的具体张力？",
+      "options": [
+        {"id": "opt_a", "label": "一个完整、自然、可独立理解的回应选项"},
+        {"id": "opt_b", "label": "另一个完整回应选项"},
+        {"id": "custom", "label": "都不准，我自己说"}
+      ],
       "purpose": "surface_dilemma|current_constraints|core_fears|expected_resolution"
     }
   ],
-  "readyToPropose": false,
   "thinking": "给 Trace 用的公开工作笔记：说明缺了哪个 Key 的关键边界，为什么要问"
-}`;
+}
+
+字段硬规则：
+- schema_version 必须是 "probe_v2"。
+- action=ask_more 时：readyToPropose=false，missing_keys 至少 1 个，questions 必须 1-3 个。
+- action=issue_proposal 时：readyToPropose=true，missing_keys=[]，questions=[]。
+- confidence 是你对“阶段一材料足以进入下一步”的置信度；ask_more 通常低于 0.75，issue_proposal 通常高于 0.8。
+- 每个问题必须有 3-4 个 options，且恰好一个是 {"id":"custom","label":"都不准，我自己说"}。
+- 每个问题和至少两个非自定义选项必须贴住用户原始输入、已有回答或刚才 thinking 中的具体名词/条件/张力；禁止只写“这件事、这条路、现实条件、选择岔路”这种泛化套话。
+- 禁止输出模板化兜底句，比如“如果先把情绪放旁边……”“这件事里哪个现实条件……”。如果你不知道怎么问，就回到用户原文和 thinking 里找具体张力。`;
 
 export async function generateScribeQuestions(
   rawInput: string,
@@ -1416,71 +1500,75 @@ ${dialogueText}
 刚才的自然语言判断过程：
 ${reasoningMemo || "（没有可用判断过程）"}
 
-请基于以上信息，决定是继续追问还是信息已经足够可以生成提案。如果继续追问，输出 1-3 个问题。`;
+本地阶段一审计：
+${probeAuditForPrompt(rawInput, dialogue, reasoningMemo)}
 
-  const fallback: ProbeResult = safeProbeFallback(rawInput, dialogue, reasoningMemo);
-  let fallbackReason = "";
-  try {
-    const validated = await generateValidated(
-      [
-        { role: "system", content: SCRIBE_PROBE_SYSTEM + buildContextBlock(ctx) },
-        { role: "user", content: userMsg },
-      ],
-      ProbeResultSchema,
-      {
-        temperature: 0.6,
-        max_tokens: 800,
-        json: true,
-        runtime,
-        fallback,
-        ...handlers,
-        onFallback: (reason) => {
-          fallbackReason = reason;
-          handlers.onReasoning?.(
-            reason === "no_api_key"
-              ? "没有可用模型配置，先用本地缺口规则生成追问。\n"
-              : "结构化追问生成失败，先用刚才的判断过程和已回答内容生成兜底追问。\n",
-            { source: "probe", mode: "public" },
-          );
-        },
-      },
-    );
-    const normalized: ProbeResult = {
-      questions: normalizeProbeQuestions(validated.questions, { rawInput, dialogue, reasoningMemo }),
-      readyToPropose: validated.readyToPropose,
-      thinking: validated.thinking || "",
-    };
-    if (!normalized.readyToPropose && normalized.questions.length === 0) {
-      const gapFallback = safeProbeFallback(rawInput, dialogue, reasoningMemo);
-      return {
-        ...gapFallback,
-        thinking: `${normalized.thinking || gapFallback.thinking}\n已过滤掉重复追问，改问剩余缺口。`.trim(),
-      };
-    }
-    if (shouldForceProbe(rawInput, dialogue, normalized, reasoningMemo)) {
-      const gapFallback = safeProbeFallback(rawInput, dialogue, reasoningMemo);
-      const issues = readinessIssues(collectProbeCoverage(rawInput, dialogue, reasoningMemo));
+请基于以上信息输出 probe_v2 JSON。你提出的问题会直接展示给用户；宿主不会替你兜底改写问题。`;
+
+  let lastErrors: string[] = [];
+  let lastError: unknown = null;
+
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    const repairBlock = lastErrors.length
+      ? `\n\n上一版没有通过校验，请只修复这些问题后重新输出完整 probe_v2 JSON：\n- ${lastErrors.join("\n- ")}`
+      : "";
+    if (attempt > 1) {
       handlers.onReasoning?.(
-        `刚才的结构化结果说可以成案，但阶段一证据还不够：${issues.join("；")}。我先继续追问。\n`,
+        `追问输出还不够稳，正在第 ${attempt} 次重新出题：${lastErrors.join("；")}。\n`,
         { source: "probe", mode: "public" },
       );
-      return {
-        ...gapFallback,
-        thinking: `${normalized.thinking || gapFallback.thinking}\n${gapFallback.thinking}`.trim(),
-      };
     }
-    return {
-      questions: normalized.questions,
-      readyToPropose: normalized.readyToPropose,
-      thinking: [
-        normalized.thinking,
-        fallbackReason ? fallback.thinking : "",
-      ].filter(Boolean).join("\n"),
-    };
-  } catch (e) {
-    console.warn("[generateScribeQuestions] error", e);
-    return safeProbeFallback(rawInput, dialogue, reasoningMemo);
+
+    try {
+      const strict = await generateStrictProbeAttempt(
+        [
+          { role: "system", content: SCRIBE_PROBE_SYSTEM + buildContextBlock(ctx) },
+          { role: "user", content: userMsg + repairBlock },
+        ],
+        runtime,
+        handlers,
+      );
+      const normalizedQuestions = normalizeProbeQuestions(strict.questions, { rawInput, dialogue, reasoningMemo });
+      const qualityErrors = validateStrictProbeQuality(
+        strict,
+        normalizedQuestions,
+        rawInput,
+        dialogue,
+        reasoningMemo,
+      );
+      const normalized: ProbeResult = {
+        questions: normalizedQuestions,
+        readyToPropose: strict.action === "issue_proposal" && strict.readyToPropose,
+        thinking: strict.thinking || reasoningMemo,
+        confidence: strict.confidence,
+        missingKeys: strict.missing_keys,
+      };
+
+      if (shouldForceProbe(rawInput, dialogue, normalized, reasoningMemo)) {
+        const issues = readinessIssues(collectProbeCoverage(rawInput, dialogue, reasoningMemo));
+        qualityErrors.push(`模型判断可以成案，但阶段一证据还不够：${issues.join("；")}。必须改为 ask_more 并生成真实追问`);
+      }
+
+      if (qualityErrors.length) {
+        lastErrors = qualityErrors;
+        continue;
+      }
+
+      return normalized;
+    } catch (error) {
+      lastError = error;
+      lastErrors = [probeAttemptErrorMessage(error)];
+      const retryable = !(error instanceof LlmError) || error.retryable;
+      if (!retryable) break;
+    }
   }
+
+  console.warn("[generateScribeQuestions] strict probe failed", lastError || lastErrors);
+  throw new LlmError(
+    `书记员追问生成连续失败，没有向你展示模板兜底问题。请重试一次或检查模型配置。${lastErrors.length ? `失败原因：${lastErrors.join("；")}` : ""}`,
+    lastError instanceof LlmError ? lastError.code : "parse_error",
+    true,
+  );
 }
 
 const SCRIBE_PROPOSE_SYSTEM = `${STAGE_ONE_SCRIBE_SYSTEM}
@@ -2312,7 +2400,7 @@ export async function generateAlignmentInquiry(
   const activeLedger = ledger?.observations?.length
     ? ledger
     : fallbackObservationLedger(taskFrame, issueProposal, roundtable, ledger);
-  const fallback = fallbackAlignmentInquiry(taskFrame, issueProposal, activeLedger, inquiryAnswers, inquiryQuestions);
+  const handlers = streamOpts(onPartial);
   const sys = `你是 ParallelMe v1.0 的书记员。五声会谈之后，你要通过苏格拉底式诘问与黑格尔式正反合，完成最终确认，为「本心落定」做准备。
 
 ${scribePersonaBlock("inquiry")}
@@ -2352,10 +2440,23 @@ ${scribePersonaBlock("inquiry")}
 
 输出严格 JSON：
 {
-  "questions": [
-    {"id":"snake_case","question":"","options":[{"id":"snake_case","label":"","meaning":""}]}
-  ],
+  "schema_version": "inquiry_v2",
+  "action": "ask_more",
   "readyForReport": false,
+  "confidence": 0.62,
+  "missing_modules": ["core_value_axis", "cost_acceptance"],
+  "questions": [
+    {
+      "id":"inquiry_core_value_1",
+      "module":"falsified_fantasy|core_value_axis|cost_acceptance|minimum_action|dialectic_synthesis",
+      "question":"一句会直接展示给用户的问询，必须以问号结尾？",
+      "options":[
+        {"id":"opt_a","label":"完整自然语言选项","meaning":"这个选项对最终落定的含义"},
+        {"id":"opt_b","label":"另一个完整自然语言选项","meaning":"这个选项对最终落定的含义"},
+        {"id":"custom","label":"都不准，我自己说","meaning":"用户自述"}
+      ]
+    }
+  ],
   "alignmentProfile": {
     "falsified_fantasy": "",
     "core_value_axis": "",
@@ -2366,36 +2467,257 @@ ${scribePersonaBlock("inquiry")}
     "hegelian_synthesis": {"thesis":"","antithesis":"","synthesis":""},
     "user_self_statements": []
   }
-}`;
+}
 
-  try {
-    const validated = await generateValidated(
-      [
-        { role: "system", content: sys + buildContextBlock(ctx) },
-        {
-          role: "user",
-          content:
-            `本次议题：\n${compactRoundtableBrief(taskFrame, issueProposal)}\n\n` +
-            `书记员观察账本：\n${JSON.stringify(activeLedger, null, 2)}\n\n` +
-            `已提出的问题：\n${JSON.stringify(inquiryQuestions, null, 2)}\n\n` +
-            `用户已回答：\n${JSON.stringify(inquiryAnswers, null, 2)}\n\n` +
-            `请先判断五个落点是否足够，再决定继续问询或生成可供本心落定使用的 alignmentProfile。`,
-        },
-      ],
-      InquiryResultSchema,
-      { temperature: 0.45, max_tokens: 2000, json: true, runtime, fallback, ...streamOpts(onPartial) },
-    );
-    const normalized = normalizeAlignmentInquiry(
-      validated as any,
-      fallback,
-      activeLedger,
-      inquiryQuestions,
-    );
-    return normalized;
-  } catch (e) {
-    console.warn("[generateAlignmentInquiry] fallback", e);
-    return fallback;
+字段硬规则：
+- schema_version 必须是 "inquiry_v2"。
+- action=ask_more 时：readyForReport=false，missing_modules 至少 1 个，questions 必须 1-3 个。
+- action=settlement_report 时：readyForReport=true，missing_modules=[]，questions=[]，alignmentProfile 必须足够支撑本心落定。
+- confidence 是你对“已经足够生成本心落定”的置信度；ask_more 通常低于 0.75，settlement_report 通常高于 0.8。
+- 每个问题必须有 module，且服务 missing_modules 里的真实缺口。
+- 每题必须有 3-4 个 options，且恰好一个是 {"id":"custom","label":"都不准，我自己说"}。
+- 问题和选项必须引用本次议题、圆桌发言、用户已回答或观察账本中的具体张力；禁止只写“这件事、这场圆桌、代价、主轴”这种泛化套话。
+- 如果输出不符合 schema 或质量审计，宿主只会重试，不会替你生成兜底问题。`;
+
+  const userMsg =
+    `本次议题：\n${compactRoundtableBrief(taskFrame, issueProposal)}\n\n` +
+    `圆桌记录：\n${serializeRoundtable(roundtable)}\n\n` +
+    `书记员观察账本：\n${JSON.stringify(activeLedger, null, 2)}\n\n` +
+    `已提出的问题：\n${JSON.stringify(inquiryQuestions, null, 2)}\n\n` +
+    `用户已回答：\n${JSON.stringify(inquiryAnswers, null, 2)}\n\n` +
+    `本地问询审计：\n${inquiryAuditForPrompt(inquiryAnswers, inquiryQuestions)}\n\n` +
+    `请先判断五个落点是否足够，再输出 inquiry_v2 JSON。你提出的问题会直接展示给用户；宿主不会替你兜底改写问题。`;
+
+  let lastErrors: string[] = [];
+  let lastError: unknown = null;
+
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    const repairBlock = lastErrors.length
+      ? `\n\n上一版没有通过校验，请只修复这些问题后重新输出完整 inquiry_v2 JSON：\n- ${lastErrors.join("\n- ")}`
+      : "";
+    if (attempt > 1) {
+      handlers.onReasoning?.(
+        `问询输出还不够稳，正在第 ${attempt} 次重新出题：${lastErrors.join("；")}。\n`,
+        { source: "inquiry", mode: "public" },
+      );
+    }
+
+    try {
+      const strict = await generateStrictInquiryAttempt(
+        [
+          { role: "system", content: sys + buildContextBlock(ctx) },
+          { role: "user", content: userMsg + repairBlock },
+        ],
+        runtime,
+        handlers,
+      );
+      const normalized = normalizeStrictAlignmentInquiry(strict, activeLedger);
+      const qualityErrors = validateStrictInquiryQuality(
+        strict,
+        normalized,
+        taskFrame,
+        issueProposal,
+        roundtable,
+        activeLedger,
+        inquiryQuestions,
+        inquiryAnswers,
+      );
+
+      if (qualityErrors.length) {
+        lastErrors = qualityErrors;
+        continue;
+      }
+
+      return normalized;
+    } catch (error) {
+      lastError = error;
+      lastErrors = [probeAttemptErrorMessage(error)];
+      const retryable = !(error instanceof LlmError) || error.retryable;
+      if (!retryable) break;
+    }
   }
+
+  console.warn("[generateAlignmentInquiry] strict inquiry failed", lastError || lastErrors);
+  throw new LlmError(
+    `书记员问询生成连续失败，没有向你展示模板兜底问题。请重试一次或检查模型配置。${lastErrors.length ? `失败原因：${lastErrors.join("；")}` : ""}`,
+    lastError instanceof LlmError ? lastError.code : "parse_error",
+    lastError instanceof LlmError ? lastError.retryable : true,
+  );
+}
+
+function inquiryAuditForPrompt(
+  answers: ScribeInquiryAnswer[],
+  previousQuestions: ScribeInquiryQuestion[],
+): string {
+  const coverage = collectInquiryCoverage(answers, previousQuestions);
+  const issues = inquiryReadinessIssues(coverage);
+  const asked = previousQuestions
+    .map(inferInquiryModule)
+    .filter((module): module is InquiryModule => Boolean(module))
+    .map((module) => INQUIRY_MODULE_LABEL[module]);
+  const answered = [...coverage.answeredModules].map((module) => INQUIRY_MODULE_LABEL[module]);
+
+  return [
+    `用户问询回答数：${coverage.answerCount}/${MIN_INQUIRY_ANSWERS}`,
+    `用户完整表述数：${coverage.articulatedAnswerCount}/${MIN_INQUIRY_ARTICULATED_ANSWERS}`,
+    `已经问过模块：${asked.join("、") || "无"}`,
+    `已经由用户回答覆盖：${answered.join("、") || "无"}`,
+    `本轮仍需补足：${coverage.missing.map((module) => `${module}（${INQUIRY_MODULE_LABEL[module]}）`).join("、") || "无"}`,
+    `不能落定的原因：${issues.join("；") || "五个落点已足够，可以进入本心落定"}`,
+  ].join("\n");
+}
+
+function emptyAlignmentProfile(): AlignmentProfile {
+  return {
+    falsified_fantasy: "",
+    core_value_axis: "",
+    offended_voices: [],
+    accepted_costs: [],
+    refused_costs: [],
+    unresolved_tensions: [],
+    hegelian_synthesis: { thesis: "", antithesis: "", synthesis: "" },
+    user_self_statements: [],
+  };
+}
+
+function normalizeStrictAlignmentInquiry(
+  strict: ValidatedStrictInquiryResult,
+  ledger: ScribeObservationLedger,
+): InquiryResult {
+  const questions = strict.action === "settlement_report"
+    ? []
+    : strict.questions.map((question) => ({
+        id: question.id.includes(question.module)
+          ? question.id
+          : inquiryQuestionId(question.module, question.question),
+        question: question.question.trim(),
+        options: question.options.map((option) => ({
+          id: option.id,
+          label: option.label.trim(),
+          meaning: option.meaning?.trim(),
+        })),
+      }));
+
+  return {
+    questions,
+    readyForReport: strict.action === "settlement_report" && strict.readyForReport,
+    alignmentProfile: normalizeAlignmentProfile(strict.alignmentProfile, emptyAlignmentProfile()),
+    ledger,
+  };
+}
+
+const FORBIDDEN_INQUIRY_TEMPLATE_RE =
+  /(围绕「.*」.*既要又要|这张本心落定如果只能优先服务一条主轴|为了更靠近「.*」，你此刻愿意先吞下|如果不靠继续想，接下来 24 小时内哪个动作最能验证|把这场圆桌合成一句你能认领的话)/;
+
+function inquiryAnchorSource(
+  taskFrame: TaskFrame,
+  issueProposal: IssueProposal | undefined,
+  roundtable: RoundtableRecord,
+  ledger: ScribeObservationLedger,
+  inquiryAnswers: ScribeInquiryAnswer[],
+): string {
+  const ledgerText = [
+    ...ledger.observations.map((observation) => observation.observation),
+    ...ledger.observations.flatMap((observation) => observation.evidence),
+    ...ledger.unanswered_questions.map((question) => `${question.question} ${question.why_it_matters || ""}`),
+    ...Object.values(ledger.module_signals).flat(),
+  ].join("\n");
+  const answerText = inquiryAnswers
+    .map((answer) => [answer.question, answer.selected_label, answer.custom_text].filter(Boolean).join("\n"))
+    .join("\n");
+  return [
+    compactRoundtableBrief(taskFrame, issueProposal),
+    serializeRoundtable(roundtable),
+    ledgerText,
+    answerText,
+  ].filter(Boolean).join("\n");
+}
+
+function validateStrictInquiryQuality(
+  strict: ValidatedStrictInquiryResult,
+  normalized: InquiryResult,
+  taskFrame: TaskFrame,
+  issueProposal: IssueProposal | undefined,
+  roundtable: RoundtableRecord,
+  ledger: ScribeObservationLedger,
+  previousQuestions: ScribeInquiryQuestion[],
+  inquiryAnswers: ScribeInquiryAnswer[],
+): string[] {
+  const errors: string[] = [];
+  const coverage = collectInquiryCoverage(inquiryAnswers, previousQuestions);
+
+  if (strict.action === "settlement_report") {
+    const issues = inquiryReadinessIssues(coverage);
+    if (issues.length) {
+      errors.push(`还不能进入本心落定：${issues.join("；")}`);
+    }
+    return errors;
+  }
+
+  if (strict.readyForReport) {
+    errors.push("action=ask_more 时 readyForReport 必须为 false");
+  }
+  if (normalized.questions.length < 1) {
+    errors.push("ask_more 必须给出至少一个可展示给用户的问询");
+  }
+
+  const allQuestionText = normalized.questions
+    .map((question) => `${question.question} ${question.options.map((option) => option.label).join(" ")}`)
+    .join("\n");
+  if (FORBIDDEN_INQUIRY_TEMPLATE_RE.test(allQuestionText)) {
+    errors.push("问询仍像程序模板，没有体现本轮圆桌和用户答案里的具体张力");
+  }
+
+  const anchors = extractProbeAnchorTerms(inquiryAnchorSource(taskFrame, issueProposal, roundtable, ledger, inquiryAnswers));
+  const anchorHits = anchors.filter((anchor) => textIncludesAnchor(allQuestionText, anchor));
+  if (anchors.length >= 2 && anchorHits.length === 0) {
+    errors.push(`问询没有引用本轮材料里的具体锚点，例如：${anchors.slice(0, 6).join("、")}`);
+  }
+
+  const previousTexts = previousQuestions.map((question) => question.question);
+  for (const question of normalized.questions) {
+    if (previousTexts.some((text) => areSimilarQuestions(text, question.question))) {
+      errors.push(`问询重复了历史问题：「${question.question}」`);
+    }
+    const nonCustomOptions = question.options.filter((option) => !isCustomFreeTextOption(option));
+    if (nonCustomOptions.length < 2) {
+      errors.push(`问题「${question.question}」缺少至少两个真实可选回应`);
+    }
+    if (!question.options.some(isCustomFreeTextOption)) {
+      errors.push(`问题「${question.question}」缺少“都不准，我自己说”选项`);
+    }
+  }
+
+  const modules = strict.questions.map((question) => question.module);
+  if (new Set(modules).size !== modules.length) {
+    errors.push("同一轮问询的 module 不能重复");
+  }
+
+  const missing = new Set(strict.missing_modules);
+  for (const question of strict.questions) {
+    if (strict.missing_modules.length && !missing.has(question.module)) {
+      errors.push(`问题 module=${question.module} 不在 missing_modules 中`);
+    }
+  }
+
+  return errors;
+}
+
+function generateStrictInquiryAttempt(
+  messages: Msg[],
+  runtime: LlmRuntime | undefined,
+  handlers: LlmStreamHandlers,
+): Promise<ValidatedStrictInquiryResult> {
+  return generateStrictObjectAttempt({
+    messages,
+    schema: StrictInquiryResultSchema,
+    runtime,
+    handlers,
+    maxOutputTokens: 1400,
+    missingRuntimeMessage: "模型配置不可用，无法生成真实问询。请先在设置页接入模型。",
+    timeoutMessage: "问询生成超时，模型响应过慢。",
+    failurePrefix: "问询结构化生成失败",
+  });
 }
 
 export async function generateAlignmentReport(
@@ -3234,204 +3556,8 @@ function inquiryReadinessIssues(coverage: InquiryCoverage): string[] {
   return issues;
 }
 
-function issueAnchorForInquiry(taskFrame: TaskFrame, issueProposal?: IssueProposal): string {
-  return textSnippet(
-    issueProposal?.issue_sentence ||
-    issueProposal?.expected_resolution.content ||
-    taskFrame.visible.central_question ||
-    taskFrame.visible.problem_definition ||
-    "这件事",
-    40,
-  );
-}
-
 function inquiryQuestionId(module: InquiryModule, text: string): string {
   return `inquiry_${module}_${hashText(text)}`;
-}
-
-function inquiryOptions(labels: string[]): ScribeInquiryQuestion["options"] {
-  return naturalOptions(labels).map((option) => ({
-    id: option.id,
-    label: option.label,
-  }));
-}
-
-function buildFallbackInquiryQuestion({
-  module,
-  taskFrame,
-  issueProposal,
-  ledger,
-  coverage,
-  followup,
-}: {
-  module: InquiryModule;
-  taskFrame: TaskFrame;
-  issueProposal?: IssueProposal;
-  ledger: ScribeObservationLedger;
-  coverage: InquiryCoverage;
-  followup: boolean;
-}): ScribeInquiryQuestion {
-  const anchor = issueAnchorForInquiry(taskFrame, issueProposal);
-  const firstUnanswered = ledger.unanswered_questions.find((q) => q.question);
-  const coreSignal = textSnippet(
-    ledger.module_signals.core_values[0] ||
-    issueProposal?.expected_resolution.content ||
-    taskFrame.visible.central_question ||
-    anchor,
-    34,
-  );
-  const costSignals = (
-    ledger.module_signals.cost_acceptance.length
-      ? ledger.module_signals.cost_acceptance
-      : taskFrame.visible.main_concerns
-  ).filter(Boolean);
-  const firstCost = textSnippet(costSignals[0] || "一部分声音暂时不能被完整安抚", 32);
-  const secondCost = textSnippet(costSignals[1] || "短期里别人未必理解这一步", 32);
-
-  if (module === "falsified_fantasy") {
-    const question = firstUnanswered && !followup
-      ? `圆桌里还有一句没被你接住：「${textSnippet(firstUnanswered.question, 46)}」这背后，哪一种完美解最需要先放下？`
-      : `围绕「${anchor}」，哪一种“既要又要”已经不太可能同时成立？`;
-    return {
-      id: inquiryQuestionId(module, question),
-      question,
-      options: inquiryOptions([
-        `不能既完整保住「${anchor}」，又完全不付任何代价。`,
-        "不能让所有重要的人立刻理解，同时又完全不改变自己。",
-        "不能只靠继续想，把不确定性变成一个绝对正确答案。",
-      ]),
-    };
-  }
-
-  if (module === "core_value_axis") {
-    const question = followup
-      ? `我不再问你要放下什么，只校对主轴：如果只能优先服务一件事，它更像什么？`
-      : `这张本心落定如果只能优先服务一条主轴，关于「${anchor}」它应该先保护什么？`;
-    return {
-      id: inquiryQuestionId(module, question),
-      question,
-      options: inquiryOptions([
-        `先保护「${coreSignal}」这条主轴。`,
-        "先保护自己的选择权和可持续余量。",
-        "先保护重要关系里的诚实边界，而不是表面和平。",
-      ]),
-    };
-  }
-
-  if (module === "cost_acceptance") {
-    const question = followup
-      ? `主轴已经更清楚了；为了靠近它，哪一种不舒服你愿意先明着承担？`
-      : `为了更靠近「${coreSignal}」，你此刻愿意先吞下哪一种具体的痛？`;
-    return {
-      id: inquiryQuestionId(module, question),
-      question,
-      options: inquiryOptions([
-        `我愿意先承受：${firstCost}。`,
-        `我愿意先承受：${secondCost}。`,
-        "我愿意承受短期里没有最终答案，只先验证一个小事实。",
-      ]),
-    };
-  }
-
-  if (module === "dialectic_synthesis") {
-    const question = followup
-      ? `最后校对正反合：你既想守住什么，又必须承认什么现实，然后愿意先怎样走一步？`
-      : `把这场圆桌合成一句你能认领的话：一方面你想守住什么，另一方面你必须承认什么代价，所以现在先怎么做？`;
-    return {
-      id: inquiryQuestionId(module, question),
-      question,
-      options: inquiryOptions([
-        `我想守住「${coreSignal}」，同时承认${firstCost}，所以先做一个小验证。`,
-        "我想守住自己的选择权，同时承认短期不会所有声音都满意，所以先给自己一个清楚边界。",
-        "我想守住重要关系里的诚实，同时承认对方可能不理解，所以先把能说清的事实说清。",
-      ]),
-    };
-  }
-
-  const question = followup
-    ? `最后只落到动作：24 小时内做哪一步，能让「${anchor}」从脑内变成现实线索？`
-    : `如果不靠继续想，接下来 24 小时内哪个动作最能验证「${anchor}」？`;
-  return {
-    id: inquiryQuestionId(module, question),
-    question,
-    options: inquiryOptions([
-      "写下一个可回看的事实清单或判断表，先不在脑子里打转。",
-      "向一个相关的人发一条确认边界或信息的消息。",
-      "用 20 分钟算清最硬的时间、钱或失败成本。",
-    ]),
-  };
-}
-
-function fallbackAlignmentInquiry(
-  taskFrame: TaskFrame,
-  issueProposal: IssueProposal | undefined,
-  ledger: ScribeObservationLedger,
-  answers: ScribeInquiryAnswer[],
-  previousQuestions: ScribeInquiryQuestion[] = [],
-): InquiryResult {
-  const coverage = collectInquiryCoverage(answers, previousQuestions);
-  const readinessIssues = inquiryReadinessIssues(coverage);
-  const readyForReport = readinessIssues.length === 0;
-  const askedModules = new Set(
-    previousQuestions
-      .map(inferInquiryModule)
-      .filter((module): module is InquiryModule => Boolean(module)),
-  );
-  const missing = coverage.missing.length
-    ? coverage.missing
-    : INQUIRY_MODULES;
-  const selectedModules = missing
-    .sort((a, b) => {
-      const aAsked = askedModules.has(a) ? 1 : 0;
-      const bAsked = askedModules.has(b) ? 1 : 0;
-      return aAsked - bAsked;
-    })
-    .slice(0, answers.length ? 1 : 3);
-  const questions = readyForReport
-    ? []
-    : selectedModules
-        .map((module) => buildFallbackInquiryQuestion({
-          module,
-          taskFrame,
-          issueProposal,
-          ledger,
-          coverage,
-          followup: askedModules.has(module),
-        }))
-        .filter((question) => !coverage.previousTexts.some((text) => areSimilarQuestions(text, question.question)));
-  if (!readyForReport && questions.length === 0) {
-    const module = missing[0] || "minimum_action";
-    const anchor = issueAnchorForInquiry(taskFrame, issueProposal);
-    questions.push({
-      id: inquiryQuestionId(module, `${module}_${answers.length}_${anchor}`),
-      question: `我不再给你重复选项，只补「${INQUIRY_MODULE_LABEL[module]}」：关于「${anchor}」，你现在最确定、最愿意认领的一句话是什么？`,
-      options: inquiryOptions([
-        "我说一条已经能承认的现实。",
-        "我说一条真正想保护的主轴。",
-        "我说一条正反合：我想守什么、承认什么、先做什么。",
-      ]),
-    });
-  }
-  const core = ledger.module_signals.core_values[0] || taskFrame.visible.central_question;
-  return {
-    questions,
-    readyForReport,
-    ledger,
-    alignmentProfile: {
-      falsified_fantasy: ledger.module_signals.creative_hopelessness[0] || taskFrame.visible.core_conflict,
-      core_value_axis: core,
-      offended_voices: ["money", "filial", "lay"].filter((id) => isVoiceId(id)) as VoiceId[],
-      accepted_costs: coverage.userStatements.length ? coverage.userStatements : ledger.module_signals.cost_acceptance,
-      refused_costs: [],
-      unresolved_tensions: [taskFrame.visible.core_conflict].filter(Boolean),
-      hegelian_synthesis: {
-        thesis: core,
-        antithesis: ledger.module_signals.creative_hopelessness[0] || taskFrame.visible.core_conflict,
-        synthesis: `先承认${issueProposal?.expected_resolution.content || taskFrame.visible.central_question}`,
-      },
-      user_self_statements: coverage.userStatements,
-    },
-  };
 }
 
 function fallbackAlignmentReport(
