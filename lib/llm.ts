@@ -596,6 +596,19 @@ const PROBE_PURPOSE_LABEL: Record<ProbePurpose, string> = {
   expected_resolution: "圆桌验证任务",
 };
 
+const MIN_PROBE_USER_ANSWERS = 4;
+const MIN_ARTICULATED_ANSWERS = 1;
+const MIN_BOUNDARY_CONFIRMATIONS = 1;
+
+interface ProbePurposeEvidence {
+  answered: boolean;
+  selectedCount: number;
+  articulatedCount: number;
+  snippets: string[];
+}
+
+type ProbeEvidenceMap = Record<ProbePurpose, ProbePurposeEvidence>;
+
 function hashText(text: string): string {
   let hash = 0;
   for (let i = 0; i < text.length; i += 1) {
@@ -673,6 +686,33 @@ function naturalOptions(labels: string[]): ScribeProbeOption[] {
     .map((label, index) => ({ id: optionId(label, index), label }));
 
   return [...options, { id: "custom", label: "都不准，我自己说" }];
+}
+
+function emptyProbeEvidence(): ProbeEvidenceMap {
+  return PROBE_PURPOSES.reduce((acc, purpose) => {
+    acc[purpose] = {
+      answered: false,
+      selectedCount: 0,
+      articulatedCount: 0,
+      snippets: [],
+    };
+    return acc;
+  }, {} as ProbeEvidenceMap);
+}
+
+function isArticulatedAnswer(answer: ScribeAnswer, selectedLabel: string): boolean {
+  const free = answer.free_text?.trim() || "";
+  if (free.length >= 8) return true;
+  if (!selectedLabel || isGenericProbeChoice(selectedLabel)) return false;
+  return selectedLabel.length >= 22;
+}
+
+function isGenericProbeChoice(text: string): boolean {
+  return /^(都不准|都不对|不准确|我想自己说|我自己说|自己补一句|我自己补一句)/.test(text.trim());
+}
+
+function isBoundaryConfirmation(text: string): boolean {
+  return /(一变|什么情况下|边界|底线|最坏|失败成本|代价|不能碰|可以承受|观察期|验证|判断规则|停|继续|扛不住|条件)/.test(text);
 }
 
 function constraintOptionsFromContext(combined: string, anchor: string): string[] {
@@ -785,9 +825,13 @@ interface ProbeCoverage {
   combined: string;
   reasoningMemo: string;
   userAnswerCount: number;
+  articulatedAnswerCount: number;
+  boundaryAnswerCount: number;
   askedPurposes: Set<ProbePurpose>;
   answeredPurposes: Set<ProbePurpose>;
   askedTexts: string[];
+  evidence: ProbeEvidenceMap;
+  rawSignals: Record<ProbePurpose, boolean>;
   has: Record<ProbePurpose, boolean>;
   missing: ProbePurpose[];
 }
@@ -798,18 +842,20 @@ function safeProbeFallback(
   reasoningMemo = "",
 ): ProbeResult {
   const coverage = collectProbeCoverage(rawInput, dialogue, reasoningMemo);
-  if (!coverage.missing.length) {
+  const blockers = readinessBlockingPurposes(coverage);
+  if (!blockers.length) {
     return {
       readyToPropose: true,
-      thinking: "四个 Key 的主要边界已经足够清楚，不再追问，直接生成议题提案。",
+      thinking: "四个 Key 都已经被用户回答覆盖，并且出现了足够的自述展开与边界确认，可以生成议题提案。",
       questions: [],
     };
   }
 
   const topic = classifyTopic(`${rawInput}\n${coverage.combined}`);
-  const ranked = rankProbePurposes(coverage);
-  const freshPurposes = ranked.filter((purpose) => !coverage.askedPurposes.has(purpose));
-  const selectedPurposes = (freshPurposes.length ? freshPurposes : ranked).slice(0, 2);
+  const ranked = rankProbePurposes(coverage, blockers);
+  const unansweredPurposes = ranked.filter((purpose) => !coverage.answeredPurposes.has(purpose));
+  const freshPurposes = unansweredPurposes.filter((purpose) => !coverage.askedPurposes.has(purpose));
+  const selectedPurposes = (freshPurposes.length ? freshPurposes : unansweredPurposes.length ? unansweredPurposes : ranked).slice(0, 2);
   const questions = selectedPurposes
     .map((purpose) => fallbackProbeQuestionForPurpose(purpose, coverage, topic, coverage.askedPurposes.has(purpose)))
     .filter((question) => !coverage.askedTexts.some((text) => areSimilarQuestions(text, question.text)));
@@ -827,7 +873,11 @@ function safeProbeFallback(
 
   return {
     readyToPropose: false,
-    thinking: `结构化输出不可用时，改用缺口感知追问。当前优先补：${selectedPurposes.map((p) => PROBE_PURPOSE_LABEL[p]).join("、")}。`,
+    thinking: [
+      "结构化输出不可用时，改用证据质量感知追问。",
+      `当前还不能成案：${readinessIssues(coverage).join("；")}。`,
+      `优先补：${selectedPurposes.map((p) => PROBE_PURPOSE_LABEL[p]).join("、")}。`,
+    ].join("\n"),
     questions: finalQuestions.slice(0, 2),
   };
 }
@@ -841,7 +891,10 @@ function collectProbeCoverage(
   const askedPurposes = new Set<ProbePurpose>();
   const answeredPurposes = new Set<ProbePurpose>();
   const askedTexts: string[] = [];
+  const evidence = emptyProbeEvidence();
   const textParts = [rawInput];
+  let articulatedAnswerCount = 0;
+  let boundaryAnswerCount = 0;
 
   for (const entry of dialogue) {
     if (entry.role === "scribe" && entry.question) {
@@ -855,51 +908,127 @@ function collectProbeCoverage(
 
     if (entry.role === "user" && entry.answer) {
       const question = questionById.get(entry.answer.question_id);
+      const selectedLabel = entry.answer.selected_option_label
+        || question?.options.find((option) => option.id === entry.answer?.selected_option_id)?.label
+        || "";
       const answerText = [
         entry.answer.question_text,
-        entry.answer.selected_option_label,
+        selectedLabel,
         entry.answer.free_text,
       ].filter(Boolean).join(" ");
       textParts.push(answerText);
 
       const purpose = normalizeProbePurpose(question?.purpose) || inferProbePurpose(entry.answer.question_text || "");
-      if (purpose && answerText.trim()) answeredPurposes.add(purpose);
+      if (purpose && answerText.trim()) {
+        answeredPurposes.add(purpose);
+        const purposeEvidence = evidence[purpose];
+        purposeEvidence.answered = true;
+        if (selectedLabel && !isGenericProbeChoice(selectedLabel)) {
+          purposeEvidence.selectedCount += 1;
+        }
+        if (isArticulatedAnswer(entry.answer, selectedLabel)) {
+          purposeEvidence.articulatedCount += 1;
+          articulatedAnswerCount += 1;
+        }
+        if (isBoundaryConfirmation(answerText)) {
+          boundaryAnswerCount += 1;
+        }
+        const snippet = textSnippet(entry.answer.free_text || selectedLabel || answerText, 48);
+        if (snippet) purposeEvidence.snippets.push(snippet);
+      }
     }
   }
 
   const combined = textParts.filter(Boolean).join("\n");
   const userAnswerCount = dialogue.filter((entry) => entry.role === "user").length;
+  const rawSignals: Record<ProbePurpose, boolean> = {
+    surface_dilemma: /(还是|要不要|该不该|留在|回|考公|辞职|选择|一边|另一边|vs|VS|还是说|A|B|哪条路|岔路)/.test(combined),
+    current_constraints: /(\d|月薪|年薪|收入|房|钱|父母|妈妈|母亲|老家|大厂|稳定|压力|年龄|时间|健康|婚|孩子|债|存款|合同|签证|身体|睡眠|失败成本|现金流)/.test(combined),
+    core_fears: /(害怕|担心|怕|焦虑|愧疚|不甘心|后悔|自由|体面|安全感|价值|身份|尊严|掌控|亏欠|内疚|想证明|不想失去|失去|底线)/.test(combined),
+    expected_resolution: /(希望|想让|想知道|验证|确认|看清|圆桌|讨论|帮我|判断规则|产出|结论|代价排序|观察期|下一步验证)/.test(combined),
+  };
   const has: Record<ProbePurpose, boolean> = {
-    surface_dilemma:
-      answeredPurposes.has("surface_dilemma") ||
-      /(还是|要不要|该不该|留在|回|考公|辞职|选择|一边|另一边|vs|VS|还是说|A|B|哪条路|岔路)/.test(combined),
-    current_constraints:
-      answeredPurposes.has("current_constraints") ||
-      /(\d|月薪|年薪|收入|房|钱|父母|妈妈|母亲|老家|大厂|稳定|压力|年龄|时间|健康|婚|孩子|债|存款|合同|签证|身体|睡眠|失败成本|现金流)/.test(combined),
-    core_fears:
-      answeredPurposes.has("core_fears") ||
-      /(害怕|担心|怕|焦虑|愧疚|不甘心|后悔|自由|体面|安全感|价值|身份|尊严|掌控|亏欠|内疚|想证明|不想失去|失去|底线)/.test(combined),
-    expected_resolution:
-      answeredPurposes.has("expected_resolution") ||
-      /(希望|想让|想知道|验证|确认|看清|圆桌|讨论|帮我|判断规则|产出|结论|代价排序|观察期|下一步验证)/.test(combined),
+    surface_dilemma: answeredPurposes.has("surface_dilemma") || rawSignals.surface_dilemma,
+    current_constraints: answeredPurposes.has("current_constraints") || rawSignals.current_constraints,
+    core_fears: answeredPurposes.has("core_fears") || rawSignals.core_fears,
+    expected_resolution: answeredPurposes.has("expected_resolution") || rawSignals.expected_resolution,
   };
 
   return {
     combined,
     reasoningMemo,
     userAnswerCount,
+    articulatedAnswerCount,
+    boundaryAnswerCount,
     askedPurposes,
     answeredPurposes,
     askedTexts,
+    evidence,
+    rawSignals,
     has,
     missing: PROBE_PURPOSES.filter((purpose) => !has[purpose]),
   };
 }
 
-function rankProbePurposes(coverage: ProbeCoverage): ProbePurpose[] {
+function readinessBlockingPurposes(coverage: ProbeCoverage): ProbePurpose[] {
+  const blockers: ProbePurpose[] = [];
+
+  for (const purpose of PROBE_PURPOSES) {
+    if (!coverage.answeredPurposes.has(purpose)) {
+      blockers.push(purpose);
+    }
+  }
+
+  if (coverage.userAnswerCount < MIN_PROBE_USER_ANSWERS) {
+    for (const purpose of PROBE_PURPOSES) {
+      if (!coverage.answeredPurposes.has(purpose)) blockers.push(purpose);
+    }
+  }
+
+  if (coverage.articulatedAnswerCount < MIN_ARTICULATED_ANSWERS) {
+    blockers.push("core_fears", "surface_dilemma");
+  }
+
+  if (coverage.boundaryAnswerCount < MIN_BOUNDARY_CONFIRMATIONS) {
+    blockers.push("current_constraints", "expected_resolution");
+  }
+
+  return dedupeProbePurposes(blockers);
+}
+
+function readinessIssues(coverage: ProbeCoverage): string[] {
+  const issues: string[] = [];
+  const unanswered = PROBE_PURPOSES.filter((purpose) => !coverage.answeredPurposes.has(purpose));
+  if (unanswered.length) {
+    issues.push(`还有 ${unanswered.map((purpose) => PROBE_PURPOSE_LABEL[purpose]).join("、")} 没有被用户亲口确认`);
+  }
+  if (coverage.userAnswerCount < MIN_PROBE_USER_ANSWERS) {
+    issues.push(`用户回答只有 ${coverage.userAnswerCount} 条，少于阶段一最低探索门槛 ${MIN_PROBE_USER_ANSWERS} 条`);
+  }
+  if (coverage.articulatedAnswerCount < MIN_ARTICULATED_ANSWERS) {
+    issues.push("还缺至少一处用户自己的展开，不能只靠点选项成案");
+  }
+  if (coverage.boundaryAnswerCount < MIN_BOUNDARY_CONFIRMATIONS) {
+    issues.push("还缺现实边界或最坏情形测试");
+  }
+  return issues;
+}
+
+function dedupeProbePurposes(purposes: ProbePurpose[]): ProbePurpose[] {
+  const seen = new Set<ProbePurpose>();
+  const result: ProbePurpose[] = [];
+  for (const purpose of purposes) {
+    if (seen.has(purpose)) continue;
+    seen.add(purpose);
+    result.push(purpose);
+  }
+  return result;
+}
+
+function rankProbePurposes(coverage: ProbeCoverage, purposes: ProbePurpose[] = coverage.missing): ProbePurpose[] {
   const scores = new Map<ProbePurpose, number>();
   const reasoning = coverage.reasoningMemo;
-  for (const purpose of coverage.missing) {
+  for (const purpose of purposes) {
     let score = 10;
     if (!coverage.askedPurposes.has(purpose)) score += 3;
     if (coverage.answeredPurposes.has(purpose)) score -= 6;
@@ -914,7 +1043,7 @@ function rankProbePurposes(coverage: ProbeCoverage): ProbePurpose[] {
     if (purpose === "expected_resolution" && /(验证|圆桌|讨论任务|希望|产出|判断规则|要确认什么)/.test(reasoning)) score += 5;
     scores.set(purpose, score);
   }
-  return [...coverage.missing].sort((a, b) => (scores.get(b) || 0) - (scores.get(a) || 0));
+  return [...purposes].sort((a, b) => (scores.get(b) || 0) - (scores.get(a) || 0));
 }
 
 function normalizeProbePurpose(value: unknown): ProbePurpose | null {
@@ -1034,16 +1163,7 @@ function shouldForceProbe(
 ): boolean {
   if (!result.readyToPropose) return false;
   const coverage = collectProbeCoverage(rawInput, dialogue, reasoningMemo);
-  if (!coverage.missing.length) return false;
-  if (
-    coverage.userAnswerCount >= 3 &&
-    coverage.has.surface_dilemma &&
-    coverage.has.current_constraints &&
-    (coverage.has.core_fears || coverage.has.expected_resolution)
-  ) {
-    return false;
-  }
-  return true;
+  return readinessIssues(coverage).length > 0;
 }
 
 export interface ProposalResult {
@@ -1124,11 +1244,13 @@ interface ScribeReasoningInput {
 
 const STAGE_ONE_SCRIBE_SYSTEM = `你是 ParallelMe 阶段一的问题定义者：一位深谙金字塔原理的架构师。
 
-面对用户模糊、情绪化、甚至自相矛盾的初始输入，你的任务是自下而上地收集信息，自上而下地构建逻辑，最终输出一份结构化的《议题提案》。
+面对用户模糊、情绪化、甚至自相矛盾的初始输入，你的任务不是尽快填满 4-Key 表格，而是防止一个尚未被用户说清的问题过早进入五声圆桌。你要自下而上充分激发用户表达，再自上而下收束成一份结构化的《议题提案》。
 
 核心交互策略：
+- 金字塔原理：先找本次议题的中心问题，再把事实、约束、价值冲突和圆桌任务分层放好。不要把同一件事换四种说法。
 - 剥洋葱法：拒绝表面叙事。当用户只说焦虑、纠结、委屈或想逃开时，不提供建议，而是追问那股感受背后具体是哪类担忧。
 - 边界测试：通过极端假设逼近真实想法。例如把钱、时间、失败成本、家庭期待、关系后果推到边界，观察用户真正不能失去什么。
+- 完整确认：原始输入里的关键词只能算线索，不能算用户已经确认。你必须让用户亲口确认关键事实、关键代价、关键害怕和这次圆桌要验证的任务。
 
 阶段一只做一件事：完成问题定义。你不替用户做决定，不给建议，不做临床判断，不安慰，也不进入五声圆桌。
 
@@ -1152,10 +1274,13 @@ Key 3 与 Key 4 必须拆开：
 追问要求：
 - 每轮最多问 1-3 个问题。
 - 问题必须高密度，服务于上述四个 Key。
+- 优先问会打开用户表达的问题，而不是让用户用一个抽象选项快速过关。
+- 如果用户只点选项、没有展开，下一轮要追问“为什么是这个 / 哪个条件一变会改变判断 / 这句话里最刺痛的是哪一层”。
 - 同一轮问题的 purpose 不得重复；如果两个问题会得到同一类答案，只保留更关键的那一个。
 - 可以给用户 2-4 个可选回应，但每个选项都必须是完整自然语言，独立可理解。
 - 不要把选项写成技术 id 的语义承载；id 只是机器字段，label 才是用户选择的真实含义。
-- 如果信息已足够形成议案，不要继续追问。`;
+- 成案前必须做审计：四个 Key 是否都被用户回答覆盖？是否至少做过一次现实边界或最坏情形测试？是否至少出现过一处用户自己的自然语言展开？如果没有，继续追问。
+- 宁可多问一轮，也不要让一个还没被用户说开的困惑伪装成已经清楚的议题。`;
 
 async function streamScribeReasoning(input: ScribeReasoningInput): Promise<string> {
   if (!input.onReasoning) return "";
@@ -1233,10 +1358,12 @@ const SCRIBE_PROBE_SYSTEM = `${STAGE_ONE_SCRIBE_SYSTEM}
 ${scribePersonaBlock("brief")}
 
 判断何时结束追问：
-- 当你已经能写出一句清楚的“本次议题主句”，并且四个 Key 都能用自然语言说清、互不重复
-- 当 Surface Dilemma、Current Constraints、Core Values/Fears、Expected Resolution 的主要边界已经清楚；仍缺的细节不会改变成案方向
-- 如果缺的是关键边界（例如失败成本、家庭压力、现金流、真正想验证什么），先追问；如果只是枝节不全，可以成案并把判断写成可校对的自然语言
-- 不因为轮次多就强行成案；只有信息足够或用户主动确认时才生成提案
+- 不以关键词覆盖作为成案标准。原始输入里的“考公 / 月薪 / 回老家 / 分手 / 买房”等只能说明有线索，不能说明用户已经把问题定义清楚。
+- 只有当四个 Key 都已经被用户回答覆盖，并且回答里出现了至少一处用户自己的展开、至少一次现实边界或最坏情形测试，才允许 readyToPropose=true。
+- 如果 Surface Dilemma 或 Current Constraints 只是从原始输入推断出来，但没有被用户确认，必须继续追问。
+- 如果 Core Values/Fears 只是一个抽象词（安全感、自由、体面等），继续剥洋葱追问它在这件事里的具体含义。
+- 如果 Expected Resolution 只是“想知道怎么选”，继续追问圆桌要产出哪种判断规则、边界、代价排序或观察期。
+- 不因为模型已经能写出漂亮提案就成案；阶段一的标准是用户材料充分，不是文案可生成。
 
 追问去重：
 - 不要问已经在历史里问过、用户也回答过的问题。
@@ -1246,6 +1373,7 @@ ${scribePersonaBlock("brief")}
 你只允许输出两类结果：
 - ask_more：readyToPropose=false，并输出 1-3 个高质量追问。
 - issue_proposal：readyToPropose=true，questions 为空，表示下一步应生成《议题提案》。
+- 当你犹豫是否足够时，选择 ask_more。
 
 输出严格 JSON：
 {
@@ -1331,8 +1459,9 @@ ${reasoningMemo || "（没有可用判断过程）"}
     }
     if (shouldForceProbe(rawInput, dialogue, normalized, reasoningMemo)) {
       const gapFallback = safeProbeFallback(rawInput, dialogue, reasoningMemo);
+      const issues = readinessIssues(collectProbeCoverage(rawInput, dialogue, reasoningMemo));
       handlers.onReasoning?.(
-        "刚才的结构化结果说可以成案，但四个 Key 还有关键边界没落稳；我先只补剩余缺口。\n",
+        `刚才的结构化结果说可以成案，但阶段一证据还不够：${issues.join("；")}。我先继续追问。\n`,
         { source: "probe", mode: "public" },
       );
       return {
@@ -1364,6 +1493,7 @@ ${scribePersonaBlock("brief")}
 - MECE：四个 Key 要相互独立、共同穷尽，不要把同一件事换个说法重复写四遍。
 - 案由优先：先写出一句“本次议题主句”，再展开四个 Key。
 - 只定义问题，不回答用户该怎么选。
+- 以用户已经说出和确认过的材料为主。书记员可以做结构化概括，但不能把未经确认的猜测写成既定事实。
 
 本次议题主句（issue_sentence）：
 - 一句话写清“这次圆桌的案由”，不是标题，不是摘要，不是建议。
@@ -1377,8 +1507,8 @@ ${scribePersonaBlock("brief")}
 - Key 4 渴望的终局 / Expected Resolution（expected_resolution）：回答“用户希望这次圆桌讨论帮自己验证什么？”必须写成验证任务或判断规则，不许写成“五声会帮你决定/建议”，也不许重复 Key 3 的恐惧/失去。
 
 【关键规则】
-- 即使对话信息有限，每个 Key 也必须基于已有信息做出合理推断和分析，绝不允许写"待补充""待挖掘""待明确""未知"等占位符。
-- 宁可给出一个基于推理的初步分析（即使不完全准确），也不能留空或写占位文字。
+- 如果某个判断来自书记员推断而非用户明说，必须写成可校对的温和表述，例如“看起来更像是……”，不要装作用户已经确认。
+- 绝不允许写"待补充""待挖掘""待明确""未知"等占位符；如果信息确实不足，说明前一阶段不该调用你，但你仍要用已有材料写成可校对草案。
 - 不要把议题提前改写成解决方案；书记员先定义问题，再把它交给五声圆桌。
 - 没有建议句、诊断句、安慰句。禁止“你应该/我建议/你需要做/最好的选择是/这说明你有某种心理问题”。
 - value 必须是完整人话句，不是概念短语。用户看到后的自然动作应该是“校对”，不是“继续解释一大段”。
@@ -2183,20 +2313,37 @@ export async function generateAlignmentInquiry(
     ? ledger
     : fallbackObservationLedger(taskFrame, issueProposal, roundtable, ledger);
   const fallback = fallbackAlignmentInquiry(taskFrame, issueProposal, activeLedger, inquiryAnswers, inquiryQuestions);
-  const sys = `你是 ParallelMe v1.0 的书记员。五声会谈之后，你要通过少量高密度选择题完成最终确认，为「本心落定」做准备。
+  const sys = `你是 ParallelMe v1.0 的书记员。五声会谈之后，你要通过苏格拉底式诘问与黑格尔式正反合，完成最终确认，为「本心落定」做准备。
 
 ${scribePersonaBlock("inquiry")}
 
 任务：
-- 只基于确认后的议题和书记员观察账本发问。
+- 只基于确认后的议题、圆桌行为和书记员观察账本发问。
 - 优先处理五声已经问过、但用户没有回应的关键问题。
 - 问题服务最终卡片的五个落点：创造性无望宣判、核心价值主轴提取、痛苦接纳契约、最小阻力行动承诺、正反合。
+- 问询不是审讯，也不是补表格；它要让用户越聊越明了：看见自己在圆桌里偏向了谁、回避了什么、真正想守住什么、愿意吞下什么痛、下一步能做什么。
 - 每轮最多 1-3 题，每题 2-4 个自然语言选项，最后保留“都不准，我自己说”。
-- 如果答案已经足够生成本心落定，readyForReport 设为 true，questions 置空。
+- 如果答案已经足够生成本心落定，readyForReport 设为 true，questions 置空；如果只是模型能写出结论，但用户还没亲口确认关键落点，继续问。
 - 如果用户回答揭示新矛盾，可以继续追问；不要因为轮次多而草率进入报告。
 - 如果缺口很小，只问最能改变最终卡片的一题。
 - 如果用户已经清楚表达反对、修正或承诺，不要围绕同一主题重复追问。
 - 不输出“后台观察”字样，不告诉用户你在引用观察账本。
+
+苏格拉底式诘问：
+- 问出用户答案背后的假设：如果这个假设不成立，用户还会怎么选？
+- 问出用户回避的代价：这条路真正要失去什么，用户是否愿意承认？
+- 问出行动偏好：用户在圆桌中追问、反驳、沉默或选择的方向，暴露了什么偏好？
+- 问出可证伪标准：什么现实信号会让用户承认“我该调整”？
+
+黑格尔正反合：
+- 正：用户真正想坚持的核心价值主轴。
+- 反：阻碍用户承认主轴的现实恐惧、关系压力、失败成本或必须接纳的痛。
+- 合：一句用户能认领的方向，不抹平冲突，但能把主轴、代价和下一步行动合在一起。
+
+成案前审计：
+- 创造性无望、核心价值主轴、痛苦接纳、最小行动、正反合五个落点都必须被用户回答覆盖。
+- 至少有足够问询量和一处用户自己的完整表述，不能只靠点选项进入报告。
+- 当你犹豫是否足够时，继续问“最后一个会改变落定质量的问题”。
 
 规则：
 - 不做建议，不替用户选择，不做临床诊断。
@@ -2287,6 +2434,8 @@ ${scribePersonaBlock("settlement")}
 
 规则：
 - 文案可以锋利，但必须来自账本和用户回答的线索。
+- 最后一针见血的价值来自最终问询：不要只复述圆桌立场，要写出用户在问询里亲口承认的幻想、主轴、代价和动作。
+- 正反合不能写成折中鸡汤；它必须同时保留“我想守住什么”“我不得不承认什么”“我现在先怎样行动”。
 - 不说“后台观察”，不展示 schema，不写 confidence，不写选项 id。
 - 不做临床诊断，不把失眠、焦虑等归因为唯一原因，除非用户明确这样说。
 - 不输出“清明句”“本心对齐报告”“清明落定”等旧产品词。
@@ -2551,7 +2700,7 @@ function normalizeAlignmentInquiry(
     }
     q.options = q.options.slice(0, 4);
   }
-  const ready = Boolean(parsed.readyForReport) || (questions.length === 0 && fallback.readyForReport);
+  const ready = fallback.readyForReport;
   return {
     questions: ready ? [] : normalizedQuestions,
     readyForReport: ready,
@@ -2971,19 +3120,35 @@ type InquiryModule =
   | "falsified_fantasy"
   | "core_value_axis"
   | "cost_acceptance"
-  | "minimum_action";
+  | "minimum_action"
+  | "dialectic_synthesis";
 
 const INQUIRY_MODULE_LABEL: Record<InquiryModule, string> = {
   falsified_fantasy: "完美解证伪",
   core_value_axis: "核心价值主轴",
   cost_acceptance: "痛苦接纳",
   minimum_action: "最小行动",
+  dialectic_synthesis: "正反合整合",
 };
+
+const INQUIRY_MODULES: InquiryModule[] = [
+  "falsified_fantasy",
+  "core_value_axis",
+  "cost_acceptance",
+  "minimum_action",
+  "dialectic_synthesis",
+];
+
+const MIN_INQUIRY_ANSWERS = 4;
+const MIN_INQUIRY_ARTICULATED_ANSWERS = 1;
 
 interface InquiryCoverage {
   combinedAnswers: string;
   userStatements: string[];
   previousTexts: string[];
+  answerCount: number;
+  articulatedAnswerCount: number;
+  answeredModules: Set<InquiryModule>;
   covered: Record<InquiryModule, boolean>;
   missing: InquiryModule[];
 }
@@ -3001,25 +3166,47 @@ function collectInquiryCoverage(
     .filter((q) => answeredQuestionIds.has(q.id))
     .map((q) => q.question)
     .join("\n");
+  const questionById = new Map(previousQuestions.map((question) => [question.id, question]));
+  const answeredModules = new Set<InquiryModule>();
+  let articulatedAnswerCount = 0;
+
+  for (const answer of answers) {
+    const question = questionById.get(answer.question_id);
+    const module = question ? inferInquiryModule(question) : null;
+    if (module) answeredModules.add(module);
+    const text = `${answer.selected_label || ""}\n${answer.custom_text || ""}`.trim();
+    if (isArticulatedInquiryAnswer(text)) articulatedAnswerCount += 1;
+  }
+
   const combined = `${combinedAnswers}\n${answeredQuestionText}`;
-  const covered: Record<InquiryModule, boolean> = {
-    falsified_fantasy:
-      /(falsified_fantasy|放下|不存在|不可能|完美|既要又要|无望|幻想|承认.*不能|不能同时)/.test(combined),
-    core_value_axis:
-      /(core_value_axis|主轴|最重要|优先|宁可|价值|底线|保护|真正要|我想要|我在乎)/.test(combined),
-    cost_acceptance:
-      /(cost_acceptance|愿意|接受|接纳|吞下|承受|代价|痛|损失|不舒服|短期|比较|误解)/.test(combined),
-    minimum_action:
-      /(minimum_action|24|今天|今晚|明天|下一步|动作|完成标准|写下|发一条|算清|约|记录|确认)/.test(combined),
+  const signalCovered: Record<InquiryModule, boolean> = {
+    falsified_fantasy: /(falsified_fantasy|放下|不存在|不可能|完美|既要又要|无望|幻想|承认.*不能|不能同时)/.test(combined),
+    core_value_axis: /(core_value_axis|主轴|最重要|优先|宁可|价值|底线|保护|真正要|我想要|我在乎)/.test(combined),
+    cost_acceptance: /(cost_acceptance|愿意|接受|接纳|吞下|承受|代价|痛|损失|不舒服|短期|比较|误解)/.test(combined),
+    minimum_action: /(minimum_action|24|今天|今晚|明天|下一步|动作|完成标准|写下|发一条|算清|约|记录|确认)/.test(combined),
+    dialectic_synthesis: /(正反合|thesis|antithesis|synthesis|一方面|另一方面|但我仍然|虽然|可是|同时承认|整合|合起来|我愿意承认)/.test(combined),
   };
+  const covered = INQUIRY_MODULES.reduce((acc, module) => {
+    acc[module] = answeredModules.has(module) || signalCovered[module];
+    return acc;
+  }, {} as Record<InquiryModule, boolean>);
 
   return {
     combinedAnswers,
     userStatements,
     previousTexts: previousQuestions.map((question) => question.question),
+    answerCount: answers.length,
+    articulatedAnswerCount,
+    answeredModules,
     covered,
-    missing: (Object.keys(covered) as InquiryModule[]).filter((module) => !covered[module]),
+    missing: INQUIRY_MODULES.filter((module) => !answeredModules.has(module)),
   };
+}
+
+function isArticulatedInquiryAnswer(text: string): boolean {
+  const clean = text.trim();
+  if (!clean || /^(都不准|都不对|不准确|我想自己说|我自己说|自己补一句|我说一条)/.test(clean)) return false;
+  return clean.length >= 24;
 }
 
 function inferInquiryModule(question: ScribeInquiryQuestion): InquiryModule | null {
@@ -3028,7 +3215,23 @@ function inferInquiryModule(question: ScribeInquiryQuestion): InquiryModule | nu
   if (/(core|value|主轴|价值|底线|优先|保护)/.test(text)) return "core_value_axis";
   if (/(cost|pain|accept|代价|痛|接纳|承受|愿意)/.test(text)) return "cost_acceptance";
   if (/(minimum|action|commit|24|动作|下一步|完成标准)/.test(text)) return "minimum_action";
+  if (/(dialectic|synthesis|正反合|正|反|合|整合|一方面|另一方面|同时承认)/.test(text)) return "dialectic_synthesis";
   return null;
+}
+
+function inquiryReadinessIssues(coverage: InquiryCoverage): string[] {
+  const issues: string[] = [];
+  const missing = INQUIRY_MODULES.filter((module) => !coverage.answeredModules.has(module));
+  if (missing.length) {
+    issues.push(`还有 ${missing.map((module) => INQUIRY_MODULE_LABEL[module]).join("、")} 没有被用户回答确认`);
+  }
+  if (coverage.answerCount < MIN_INQUIRY_ANSWERS) {
+    issues.push(`用户问询回答只有 ${coverage.answerCount} 条，少于最低澄清门槛 ${MIN_INQUIRY_ANSWERS} 条`);
+  }
+  if (coverage.articulatedAnswerCount < MIN_INQUIRY_ARTICULATED_ANSWERS) {
+    issues.push("还缺至少一处用户自己的完整表述，不能只靠点选项落定");
+  }
+  return issues;
 }
 
 function issueAnchorForInquiry(taskFrame: TaskFrame, issueProposal?: IssueProposal): string {
@@ -3130,6 +3333,21 @@ function buildFallbackInquiryQuestion({
     };
   }
 
+  if (module === "dialectic_synthesis") {
+    const question = followup
+      ? `最后校对正反合：你既想守住什么，又必须承认什么现实，然后愿意先怎样走一步？`
+      : `把这场圆桌合成一句你能认领的话：一方面你想守住什么，另一方面你必须承认什么代价，所以现在先怎么做？`;
+    return {
+      id: inquiryQuestionId(module, question),
+      question,
+      options: inquiryOptions([
+        `我想守住「${coreSignal}」，同时承认${firstCost}，所以先做一个小验证。`,
+        "我想守住自己的选择权，同时承认短期不会所有声音都满意，所以先给自己一个清楚边界。",
+        "我想守住重要关系里的诚实，同时承认对方可能不理解，所以先把能说清的事实说清。",
+      ]),
+    };
+  }
+
   const question = followup
     ? `最后只落到动作：24 小时内做哪一步，能让「${anchor}」从脑内变成现实线索？`
     : `如果不靠继续想，接下来 24 小时内哪个动作最能验证「${anchor}」？`;
@@ -3152,7 +3370,8 @@ function fallbackAlignmentInquiry(
   previousQuestions: ScribeInquiryQuestion[] = [],
 ): InquiryResult {
   const coverage = collectInquiryCoverage(answers, previousQuestions);
-  const readyForReport = coverage.missing.length === 0;
+  const readinessIssues = inquiryReadinessIssues(coverage);
+  const readyForReport = readinessIssues.length === 0;
   const askedModules = new Set(
     previousQuestions
       .map(inferInquiryModule)
@@ -3160,14 +3379,14 @@ function fallbackAlignmentInquiry(
   );
   const missing = coverage.missing.length
     ? coverage.missing
-    : (Object.keys(INQUIRY_MODULE_LABEL) as InquiryModule[]);
+    : INQUIRY_MODULES;
   const selectedModules = missing
     .sort((a, b) => {
       const aAsked = askedModules.has(a) ? 1 : 0;
       const bAsked = askedModules.has(b) ? 1 : 0;
       return aAsked - bAsked;
     })
-    .slice(0, answers.length ? 1 : 2);
+    .slice(0, answers.length ? 1 : 3);
   const questions = readyForReport
     ? []
     : selectedModules
@@ -3185,11 +3404,11 @@ function fallbackAlignmentInquiry(
     const anchor = issueAnchorForInquiry(taskFrame, issueProposal);
     questions.push({
       id: inquiryQuestionId(module, `${module}_${answers.length}_${anchor}`),
-      question: `我不再给你重复选项，只补「${INQUIRY_MODULE_LABEL[module]}」：关于「${anchor}」，你现在最确定的一句话是什么？`,
+      question: `我不再给你重复选项，只补「${INQUIRY_MODULE_LABEL[module]}」：关于「${anchor}」，你现在最确定、最愿意认领的一句话是什么？`,
       options: inquiryOptions([
         "我说一条已经能承认的现实。",
         "我说一条真正想保护的主轴。",
-        "我说一个 24 小时内能做的小动作。",
+        "我说一条正反合：我想守什么、承认什么、先做什么。",
       ]),
     });
   }
