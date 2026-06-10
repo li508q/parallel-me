@@ -1324,6 +1324,63 @@ function generateStrictProbeAttempt(
   });
 }
 
+interface StrictScribeLoopInput<TStrict, TResult> {
+  handlers: LlmStreamHandlers;
+  retrySource: string;
+  retryNotice: string;
+  schemaLabel: string;
+  failureLogLabel: string;
+  failureMessage: string;
+  maxAttempts?: number;
+  generate: (repairBlock: string) => Promise<TStrict>;
+  accept: (strict: TStrict) => { result: TResult; errors: string[] };
+}
+
+async function runStrictScribeLoop<TStrict, TResult>({
+  handlers,
+  retrySource,
+  retryNotice,
+  schemaLabel,
+  failureLogLabel,
+  failureMessage,
+  maxAttempts = 3,
+  generate,
+  accept,
+}: StrictScribeLoopInput<TStrict, TResult>): Promise<TResult> {
+  let lastErrors: string[] = [];
+  let lastError: unknown = null;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const repairBlock = lastErrors.length
+      ? `\n\n上一版没有通过校验，请只修复这些问题后重新输出完整 ${schemaLabel} JSON：\n- ${lastErrors.join("\n- ")}`
+      : "";
+    if (attempt > 1) {
+      handlers.onReasoning?.(retryNotice, { source: retrySource, mode: "public" });
+    }
+
+    try {
+      const strict = await generate(repairBlock);
+      const accepted = accept(strict);
+      if (accepted.errors.length) {
+        lastErrors = accepted.errors;
+        continue;
+      }
+      return accepted.result;
+    } catch (error) {
+      if (error instanceof LlmError && !error.retryable) throw error;
+      lastError = error;
+      lastErrors = [probeAttemptErrorMessage(error)];
+    }
+  }
+
+  console.warn(`[${failureLogLabel}] strict generation failed`, lastError || lastErrors);
+  throw new LlmError(
+    failureMessage,
+    lastError instanceof LlmError ? lastError.code : "parse_error",
+    lastError instanceof LlmError ? lastError.retryable : true,
+  );
+}
+
 export interface ProposalResult {
   proposal: IssueProposal;
   taskFrame: TaskFrame;
@@ -1625,28 +1682,22 @@ ${probeAuditForPrompt(rawInput, dialogue, reasoningMemo)}
 
 这是第二段“问题生成”调用。请基于 thinking 和审计结果输出 probe_v2 JSON。你提出的问题会直接展示给用户；宿主不会替你兜底改写问题。`;
 
-  let lastErrors: string[] = [];
-  let lastError: unknown = null;
-
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
-    const repairBlock = lastErrors.length
-      ? `\n\n上一版没有通过校验，请只修复这些问题后重新输出完整 probe_v2 JSON：\n- ${lastErrors.join("\n- ")}`
-      : "";
-    if (attempt > 1) {
-      handlers.onReasoning?.(
-        "我再校对一遍问题，让它更贴近你的原话。\n",
-        { source: "probe", mode: "public" },
-      );
-    }
-
-    try {
-      const strict = await generateStrictProbeAttempt(
+  return runStrictScribeLoop({
+    handlers,
+    retrySource: "probe",
+    retryNotice: "我再校对一遍问题，让它更贴近你的原话。\n",
+    schemaLabel: "probe_v2",
+    failureLogLabel: "generateScribeQuestions",
+    failureMessage: "书记员追问连续没有整理成可展示的问题。请重试一次；如果持续出现，可以换一个更稳定的模型配置。",
+    generate: (repairBlock) =>
+      generateStrictProbeAttempt(
         [
           { role: "system", content: SCRIBE_PROBE_SYSTEM + buildContextBlock(ctx) },
           { role: "user", content: userMsg + repairBlock },
         ],
         runtime,
-      );
+      ),
+    accept: (strict) => {
       const normalizedQuestions = normalizeProbeQuestions(strict.questions, { rawInput, dialogue, reasoningMemo });
       const qualityErrors = validateStrictProbeQuality(
         strict,
@@ -1668,26 +1719,9 @@ ${probeAuditForPrompt(rawInput, dialogue, reasoningMemo)}
         qualityErrors.push(`模型判断可以成案，但阶段一证据还不够：${issues.join("；")}。必须改为 ask_more 并生成真实追问`);
       }
 
-      if (qualityErrors.length) {
-        lastErrors = qualityErrors;
-        continue;
-      }
-
-      return normalized;
-    } catch (error) {
-      lastError = error;
-      lastErrors = [probeAttemptErrorMessage(error)];
-      const retryable = !(error instanceof LlmError) || error.retryable;
-      if (!retryable) break;
-    }
-  }
-
-  console.warn("[generateScribeQuestions] strict probe failed", lastError || lastErrors);
-  throw new LlmError(
-    "书记员追问连续没有整理成可展示的问题。请重试一次；如果持续出现，可以换一个更稳定的模型配置。",
-    lastError instanceof LlmError ? lastError.code : "parse_error",
-    true,
-  );
+      return { result: normalized, errors: qualityErrors };
+    },
+  });
 }
 
 const SCRIBE_PROPOSE_SYSTEM = `${STAGE_ONE_SCRIBE_SYSTEM}
@@ -2617,28 +2651,22 @@ ${scribePersonaBlock("inquiry")}
     `刚才的自然语言判断过程：\n${reasoningMemo || "（没有可用判断过程）"}\n\n` +
     `这是第二段“问询题目生成”调用。请先判断五个落点是否足够，再输出 inquiry_v2 JSON。你提出的问题会直接展示给用户；宿主不会替你兜底改写问题。`;
 
-  let lastErrors: string[] = [];
-  let lastError: unknown = null;
-
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
-    const repairBlock = lastErrors.length
-      ? `\n\n上一版没有通过校验，请只修复这些问题后重新输出完整 inquiry_v2 JSON：\n- ${lastErrors.join("\n- ")}`
-      : "";
-    if (attempt > 1) {
-      handlers.onReasoning?.(
-        "我再校对一遍问询，让它更贴近刚才圆桌里的真实张力。\n",
-        { source: "inquiry", mode: "public" },
-      );
-    }
-
-    try {
-      const strict = await generateStrictInquiryAttempt(
+  return runStrictScribeLoop({
+    handlers,
+    retrySource: "inquiry",
+    retryNotice: "我再校对一遍问询，让它更贴近刚才圆桌里的真实张力。\n",
+    schemaLabel: "inquiry_v2",
+    failureLogLabel: "generateAlignmentInquiry",
+    failureMessage: "书记员问询连续没有整理成可展示的问题。请重试一次；如果持续出现，可以换一个更稳定的模型配置。",
+    generate: (repairBlock) =>
+      generateStrictInquiryAttempt(
         [
           { role: "system", content: sys + buildContextBlock(ctx) },
           { role: "user", content: userMsg + repairBlock },
         ],
         runtime,
-      );
+      ),
+    accept: (strict) => {
       const normalized = normalizeStrictAlignmentInquiry(strict, activeLedger);
       const qualityErrors = validateStrictInquiryQuality(
         strict,
@@ -2651,26 +2679,9 @@ ${scribePersonaBlock("inquiry")}
         inquiryAnswers,
       );
 
-      if (qualityErrors.length) {
-        lastErrors = qualityErrors;
-        continue;
-      }
-
-      return normalized;
-    } catch (error) {
-      lastError = error;
-      lastErrors = [probeAttemptErrorMessage(error)];
-      const retryable = !(error instanceof LlmError) || error.retryable;
-      if (!retryable) break;
-    }
-  }
-
-  console.warn("[generateAlignmentInquiry] strict inquiry failed", lastError || lastErrors);
-  throw new LlmError(
-    "书记员问询连续没有整理成可展示的问题。请重试一次；如果持续出现，可以换一个更稳定的模型配置。",
-    lastError instanceof LlmError ? lastError.code : "parse_error",
-    lastError instanceof LlmError ? lastError.retryable : true,
-  );
+      return { result: normalized, errors: qualityErrors };
+    },
+  });
 }
 
 function inquiryAuditForPrompt(

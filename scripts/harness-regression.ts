@@ -88,6 +88,28 @@ check("strict probe schema rejects malformed display questions", () => {
   assert.throws(() => validateJsonWithSchema(raw, StrictProbeResultSchema), /schema 校验失败/);
 });
 
+check("strict probe schema rejects duplicated custom options", () => {
+  const raw = JSON.stringify({
+    schema_version: "probe_v2",
+    action: "ask_more",
+    readyToPropose: false,
+    confidence: 0.4,
+    missing_keys: ["current_constraints"],
+    questions: [{
+      id: "q_constraints",
+      text: "如果先不谈读博热情，现实里最先卡住你的约束是哪一个？",
+      purpose: "current_constraints",
+      options: [
+        { id: "opt_a", label: "我最担心辞职后现金流撑不住" },
+        { id: "custom", label: "都不准，我自己说" },
+        { id: "custom_2", label: "我想自己说另一条" },
+      ],
+    }],
+  });
+
+  assert.throws(() => validateJsonWithSchema(raw, StrictProbeResultSchema), /exactly one custom/);
+});
+
 check("strict inquiry schema accepts contextual UI questions", () => {
   const raw = JSON.stringify({
     schema_version: "inquiry_v2",
