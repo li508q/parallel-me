@@ -2361,7 +2361,8 @@ ${scribePersonaBlock("inquiry")}
 - action=ask_more 时：readyForReport=false，missing_modules 至少 1 个，questions 必须 1-3 个。
 - action=settlement_report 时：readyForReport=true，missing_modules=[]，questions=[]，alignmentProfile 必须足够支撑本心落定。
 - confidence 是你对“已经足够生成本心落定”的置信度；ask_more 必须 <= 0.74，settlement_report 必须 >= 0.75。
-- 每个问题必须有 module，且服务 missing_modules 里的真实缺口。
+- 每个问题必须有 module，且必须属于 missing_modules；同一轮不要重复追问同一个 module。
+- settlement_report 的 alignmentProfile 必须写实：falsified_fantasy、core_value_axis、accepted_costs、user_self_statements、hegelian_synthesis.thesis/antithesis/synthesis 都必须来自用户已回答材料，不能留空。
 - 每题必须有 3-4 个 options，且恰好一个是 {"id":"custom","label":"都不准，我自己说"}。
 - 问题和选项必须引用本次议题、圆桌发言、用户已回答或观察账本中的具体张力；禁止只写“这件事、这场圆桌、代价、主轴”这种泛化套话。
 - 如果输出不符合 schema 或质量审计，宿主只会重试，不会替你生成兜底问题。

@@ -605,6 +605,65 @@ check("strict inquiry schema rejects contradictory confidence", () => {
   assert.throws(() => validateJsonWithSchema(reportTooLow, StrictInquiryResultSchema), /confidence >= 0\.75/);
 });
 
+check("strict inquiry schema rejects off-target missing modules", () => {
+  const raw = JSON.stringify({
+    schema_version: "inquiry_v2",
+    action: "ask_more",
+    readyForReport: false,
+    confidence: 0.48,
+    missing_modules: ["core_value_axis"],
+    questions: [{
+      id: "inquiry_action_1",
+      module: "minimum_action",
+      question: "如果先不决定读博，你今晚能用哪个小动作验证自己不是一时心烦？",
+      options: [
+        { id: "opt_a", label: "写出读博真正想研究的三个问题", meaning: "验证研究主轴" },
+        { id: "opt_b", label: "记录业务代码最耗竭的三个触发点", meaning: "验证厌倦来源" },
+        { id: "custom", label: "都不准，我自己说", meaning: "用户自述" },
+      ],
+    }],
+  });
+
+  assert.throws(() => validateJsonWithSchema(raw, StrictInquiryResultSchema), /question module must be included/);
+});
+
+check("strict inquiry schema requires complete settlement profile", () => {
+  const missingProfile = JSON.stringify({
+    schema_version: "inquiry_v2",
+    action: "settlement_report",
+    readyForReport: true,
+    confidence: 0.82,
+    missing_modules: [],
+    questions: [],
+  });
+  const completeProfile = JSON.stringify({
+    schema_version: "inquiry_v2",
+    action: "settlement_report",
+    readyForReport: true,
+    confidence: 0.86,
+    missing_modules: [],
+    questions: [],
+    alignmentProfile: {
+      falsified_fantasy: "读博不会自动消除业务代码带来的枯燥和逃离感。",
+      core_value_axis: "先守住主动选择和长期投入的能力。",
+      offended_voices: ["money", "filial"],
+      accepted_costs: ["接受收入不确定和父母对稳定的担心"],
+      refused_costs: ["拒绝继续只靠惯性处理业务代码"],
+      unresolved_tensions: ["读博可能是长期主轴，也可能只是逃离厌倦"],
+      hegelian_synthesis: {
+        thesis: "我想守住主动选择和长期投入。",
+        antithesis: "父母稳定期待、收入风险和厌倦情绪都还在。",
+        synthesis: "我先用一周观察期验证读博是否真的服务主动选择，而不是把它当作逃离按钮。",
+      },
+      user_self_statements: ["我怕的不是单个选项，而是之后很难再相信自己的判断。"],
+    },
+  });
+
+  assert.throws(() => validateJsonWithSchema(missingProfile, StrictInquiryResultSchema), /falsified fantasy/);
+  const parsed = validateJsonWithSchema(completeProfile, StrictInquiryResultSchema);
+  assert.equal(parsed.action, "settlement_report");
+});
+
 check("strict alignment report schema accepts grounded settlement card", () => {
   const raw = JSON.stringify({
     schema_version: "alignment_report_v2",

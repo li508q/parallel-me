@@ -587,6 +587,10 @@ export const StrictInquiryQuestionSchema = z.object({
   }
 });
 
+function hasMeaningfulString(value: string | undefined, minLength = 6): boolean {
+  return typeof value === "string" && value.trim().length >= minLength;
+}
+
 export const StrictInquiryResultSchema = z.object({
   schema_version: z.literal("inquiry_v2"),
   action: z.enum(["ask_more", "settlement_report"]),
@@ -634,6 +638,24 @@ export const StrictInquiryResultSchema = z.object({
         message: "ask_more requires at least one missing module",
       });
     }
+    const missingModules = new Set(result.missing_modules);
+    const questionModules = result.questions.map((question) => question.module);
+    if (new Set(questionModules).size !== questionModules.length) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["questions"],
+        message: "ask_more questions must cover distinct missing modules",
+      });
+    }
+    result.questions.forEach((question, index) => {
+      if (!missingModules.has(question.module)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["questions", index, "module"],
+          message: "question module must be included in missing_modules",
+        });
+      }
+    });
   }
 
   if (result.action === "settlement_report") {
@@ -663,6 +685,56 @@ export const StrictInquiryResultSchema = z.object({
         code: "custom",
         path: ["missing_modules"],
         message: "settlement_report must not include missing modules",
+      });
+    }
+    const profile = result.alignmentProfile;
+    if (!hasMeaningfulString(profile.falsified_fantasy, 8)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["alignmentProfile", "falsified_fantasy"],
+        message: "settlement_report requires a concrete falsified fantasy",
+      });
+    }
+    if (!hasMeaningfulString(profile.core_value_axis, 8)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["alignmentProfile", "core_value_axis"],
+        message: "settlement_report requires a concrete core value axis",
+      });
+    }
+    if (profile.accepted_costs.length < 1) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["alignmentProfile", "accepted_costs"],
+        message: "settlement_report requires at least one accepted cost",
+      });
+    }
+    if (profile.user_self_statements.length < 1) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["alignmentProfile", "user_self_statements"],
+        message: "settlement_report requires at least one user self statement",
+      });
+    }
+    if (!hasMeaningfulString(profile.hegelian_synthesis.thesis, 8)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["alignmentProfile", "hegelian_synthesis", "thesis"],
+        message: "settlement_report requires a thesis",
+      });
+    }
+    if (!hasMeaningfulString(profile.hegelian_synthesis.antithesis, 8)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["alignmentProfile", "hegelian_synthesis", "antithesis"],
+        message: "settlement_report requires an antithesis",
+      });
+    }
+    if (!hasMeaningfulString(profile.hegelian_synthesis.synthesis, 16)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["alignmentProfile", "hegelian_synthesis", "synthesis"],
+        message: "settlement_report requires a concrete synthesis",
       });
     }
   }
