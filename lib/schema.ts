@@ -68,6 +68,13 @@ export const StrictProbeResultSchema = z.object({
   thinking: z.string().max(900).optional().default(""),
 }).superRefine((result, ctx) => {
   if (result.action === "ask_more") {
+    if (result.confidence > 0.74) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["confidence"],
+        message: "ask_more requires confidence <= 0.74",
+      });
+    }
     if (result.readyToPropose) {
       ctx.addIssue({
         code: "custom",
@@ -92,6 +99,13 @@ export const StrictProbeResultSchema = z.object({
   }
 
   if (result.action === "issue_proposal") {
+    if (result.confidence < 0.75) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["confidence"],
+        message: "issue_proposal requires confidence >= 0.75",
+      });
+    }
     if (!result.readyToPropose) {
       ctx.addIssue({
         code: "custom",
@@ -314,6 +328,13 @@ export const StrictInquiryResultSchema = z.object({
   }),
 }).superRefine((result, ctx) => {
   if (result.action === "ask_more") {
+    if (result.confidence > 0.74) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["confidence"],
+        message: "ask_more requires confidence <= 0.74",
+      });
+    }
     if (result.readyForReport) {
       ctx.addIssue({
         code: "custom",
@@ -338,6 +359,13 @@ export const StrictInquiryResultSchema = z.object({
   }
 
   if (result.action === "settlement_report") {
+    if (result.confidence < 0.75) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["confidence"],
+        message: "settlement_report requires confidence >= 0.75",
+      });
+    }
     if (!result.readyForReport) {
       ctx.addIssue({
         code: "custom",

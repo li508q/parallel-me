@@ -110,6 +110,37 @@ check("strict probe schema rejects duplicated custom options", () => {
   assert.throws(() => validateJsonWithSchema(raw, StrictProbeResultSchema), /exactly one custom/);
 });
 
+check("strict probe schema rejects contradictory confidence", () => {
+  const askMoreTooHigh = JSON.stringify({
+    schema_version: "probe_v2",
+    action: "ask_more",
+    readyToPropose: false,
+    confidence: 0.91,
+    missing_keys: ["core_fears"],
+    questions: [{
+      id: "q_core",
+      text: "如果读博和留下都不完美，你最怕失去的那条底线到底是什么？",
+      purpose: "core_fears",
+      options: [
+        { id: "opt_a", label: "我怕失去还能认真选择自己的感觉" },
+        { id: "opt_b", label: "我怕失去父母眼里稳定可靠的身份" },
+        { id: "custom", label: "都不准，我自己说" },
+      ],
+    }],
+  });
+  const proposalTooLow = JSON.stringify({
+    schema_version: "probe_v2",
+    action: "issue_proposal",
+    readyToPropose: true,
+    confidence: 0.62,
+    missing_keys: [],
+    questions: [],
+  });
+
+  assert.throws(() => validateJsonWithSchema(askMoreTooHigh, StrictProbeResultSchema), /confidence <= 0\.74/);
+  assert.throws(() => validateJsonWithSchema(proposalTooLow, StrictProbeResultSchema), /confidence >= 0\.75/);
+});
+
 check("strict inquiry schema accepts contextual UI questions", () => {
   const raw = JSON.stringify({
     schema_version: "inquiry_v2",
@@ -132,4 +163,45 @@ check("strict inquiry schema accepts contextual UI questions", () => {
   const parsed = validateJsonWithSchema(raw, StrictInquiryResultSchema);
   assert.equal(parsed.schema_version, "inquiry_v2");
   assert.equal(parsed.questions[0]?.module, "core_value_axis");
+});
+
+check("strict inquiry schema rejects contradictory confidence", () => {
+  const askMoreTooHigh = JSON.stringify({
+    schema_version: "inquiry_v2",
+    action: "ask_more",
+    readyForReport: false,
+    confidence: 0.88,
+    missing_modules: ["cost_acceptance"],
+    questions: [{
+      id: "inquiry_cost_1",
+      module: "cost_acceptance",
+      question: "如果这一个月验证后发现科研也很枯燥，你愿意承认并吞下哪一种代价？",
+      options: [
+        { id: "opt_a", label: "我愿意吞下继续留在业务代码里的不甘", meaning: "用户接受留下的痛" },
+        { id: "opt_b", label: "我愿意吞下读博后收入和关系压力的痛", meaning: "用户接受转向的痛" },
+        { id: "custom", label: "都不准，我自己说", meaning: "用户自述" },
+      ],
+    }],
+  });
+  const reportTooLow = JSON.stringify({
+    schema_version: "inquiry_v2",
+    action: "settlement_report",
+    readyForReport: true,
+    confidence: 0.63,
+    missing_modules: [],
+    questions: [],
+    alignmentProfile: {
+      falsified_fantasy: "读博不会自动消除枯燥。",
+      core_value_axis: "自主选择感。",
+      offended_voices: [],
+      accepted_costs: [],
+      refused_costs: [],
+      unresolved_tensions: [],
+      hegelian_synthesis: { thesis: "想守住主动选择", antithesis: "现实成本仍在", synthesis: "先用观察期验证" },
+      user_self_statements: [],
+    },
+  });
+
+  assert.throws(() => validateJsonWithSchema(askMoreTooHigh, StrictInquiryResultSchema), /confidence <= 0\.74/);
+  assert.throws(() => validateJsonWithSchema(reportTooLow, StrictInquiryResultSchema), /confidence >= 0\.75/);
 });

@@ -1646,7 +1646,7 @@ ${scribePersonaBlock("brief")}
 - schema_version 必须是 "probe_v2"。
 - action=ask_more 时：readyToPropose=false，missing_keys 至少 1 个，questions 必须 1-3 个。
 - action=issue_proposal 时：readyToPropose=true，missing_keys=[]，questions=[]。
-- confidence 是你对“阶段一材料足以进入下一步”的置信度；ask_more 通常低于 0.75，issue_proposal 通常高于 0.8。
+- confidence 是你对“阶段一材料足以进入下一步”的置信度；ask_more 必须 <= 0.74，issue_proposal 必须 >= 0.75。
 - 每个问题必须有 3-4 个 options，且恰好一个是 {"id":"custom","label":"都不准，我自己说"}。
 - 每个问题和至少两个非自定义选项必须贴住用户原始输入、已有回答或刚才 thinking 中的具体名词/条件/张力；禁止只写“这件事、这条路、现实条件、选择岔路”这种泛化套话。
 - 禁止输出模板化兜底句，比如“如果先把情绪放旁边……”“这件事里哪个现实条件……”。如果你不知道怎么问，就回到用户原文和 thinking 里找具体张力。
@@ -2620,7 +2620,7 @@ ${scribePersonaBlock("inquiry")}
 - schema_version 必须是 "inquiry_v2"。
 - action=ask_more 时：readyForReport=false，missing_modules 至少 1 个，questions 必须 1-3 个。
 - action=settlement_report 时：readyForReport=true，missing_modules=[]，questions=[]，alignmentProfile 必须足够支撑本心落定。
-- confidence 是你对“已经足够生成本心落定”的置信度；ask_more 通常低于 0.75，settlement_report 通常高于 0.8。
+- confidence 是你对“已经足够生成本心落定”的置信度；ask_more 必须 <= 0.74，settlement_report 必须 >= 0.75。
 - 每个问题必须有 module，且服务 missing_modules 里的真实缺口。
 - 每题必须有 3-4 个 options，且恰好一个是 {"id":"custom","label":"都不准，我自己说"}。
 - 问题和选项必须引用本次议题、圆桌发言、用户已回答或观察账本中的具体张力；禁止只写“这件事、这场圆桌、代价、主轴”这种泛化套话。
