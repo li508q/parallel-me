@@ -34,12 +34,12 @@ export type ValidatedProbeResult = z.infer<typeof ProbeResultSchema>;
 
 export const StrictScribeProbeOptionSchema = z.object({
   id: z.string().min(2).max(48).regex(/^[A-Za-z0-9_-]+$/),
-  label: z.string().min(6).max(90),
+  label: z.string().min(6).max(140),
 });
 
 export const StrictScribeQuestionSchema = z.object({
   id: z.string().min(3).max(64).regex(/^[A-Za-z0-9_-]+$/),
-  text: z.string().min(14).max(120).refine((text) => /[？?]$/.test(text.trim()), {
+  text: z.string().min(14).max(220).refine((text) => /[？?]$/.test(text.trim()), {
     message: "question text must end with a question mark",
   }),
   options: z.array(StrictScribeProbeOptionSchema).min(3).max(4),
@@ -270,14 +270,14 @@ export const InquiryModuleSchema = z.enum([
 
 export const StrictInquiryOptionSchema = z.object({
   id: z.string().min(2).max(48).regex(/^[A-Za-z0-9_-]+$/),
-  label: z.string().min(6).max(100),
+  label: z.string().min(6).max(140),
   meaning: z.string().min(4).max(120).optional(),
 });
 
 export const StrictInquiryQuestionSchema = z.object({
   id: z.string().min(3).max(64).regex(/^[A-Za-z0-9_-]+$/),
   module: InquiryModuleSchema,
-  question: z.string().min(14).max(140).refine((text) => /[？?]$/.test(text.trim()), {
+  question: z.string().min(14).max(220).refine((text) => /[？?]$/.test(text.trim()), {
     message: "inquiry question must end with a question mark",
   }),
   options: z.array(StrictInquiryOptionSchema).min(3).max(4),

@@ -1049,6 +1049,48 @@ const PROBE_ANCHOR_DICTIONARY = [
   "来不及",
 ] as const;
 
+const INTERNAL_ANCHOR_WORDS = new Set([
+  "action",
+  "alignment",
+  "answer",
+  "ask",
+  "constraints",
+  "context",
+  "core",
+  "current",
+  "dialogue",
+  "dilemma",
+  "expected",
+  "fears",
+  "frame",
+  "inquiry",
+  "input",
+  "issue",
+  "json",
+  "key",
+  "keys",
+  "missing",
+  "module",
+  "object",
+  "option",
+  "probe",
+  "purpose",
+  "question",
+  "questions",
+  "ready",
+  "report",
+  "resolution",
+  "schema",
+  "scribe",
+  "settlement",
+  "stage",
+  "surface",
+  "task",
+  "thinking",
+  "user",
+  "values",
+]);
+
 function extractProbeAnchorTerms(text: string, limit = 12): string[] {
   const anchors = new Set<string>();
   const source = text.replace(/\s+/g, " ");
@@ -1061,14 +1103,26 @@ function extractProbeAnchorTerms(text: string, limit = 12): string[] {
   const matches = source.match(/[A-Za-z][A-Za-z0-9.+#-]{1,24}|\d+(?:\.\d+)?(?:w|W|万|k|K|岁|年|个月|月|天)?/g) || [];
   for (const match of matches) {
     const cleaned = match.trim();
+    const lower = cleaned.toLowerCase();
     if (cleaned.length < 2) continue;
-    if (/^(the|and|or|vs|api|json|schema|key)$/i.test(cleaned)) continue;
+    if (INTERNAL_ANCHOR_WORDS.has(lower)) continue;
+    if (/^(the|and|or|vs|api)$/i.test(cleaned)) continue;
     anchors.add(cleaned);
   }
 
   return [...anchors]
     .sort((a, b) => b.length - a.length)
     .slice(0, limit);
+}
+
+function probeAnchorSource(rawInput: string, dialogue: DefiningDialogue): string {
+  const answerParts = dialogue
+    .filter((entry) => entry.role === "user" && entry.answer)
+    .map((entry) => [
+      entry.answer?.selected_option_label,
+      entry.answer?.free_text,
+    ].filter(Boolean).join("\n"));
+  return [rawInput, ...answerParts].filter(Boolean).join("\n");
 }
 
 function textIncludesAnchor(text: string, anchor: string): boolean {
@@ -1109,11 +1163,7 @@ function validateStrictProbeQuality(
     errors.push("追问仍像程序模板，没有体现本轮 thinking 和用户原文");
   }
 
-  const anchorText = [
-    rawInput,
-    coverage.combined,
-    reasoningMemo,
-  ].filter(Boolean).join("\n");
+  const anchorText = probeAnchorSource(rawInput, dialogue);
   const anchors = extractProbeAnchorTerms(anchorText);
   const anchorHits = anchors.filter((anchor) => textIncludesAnchor(allQuestionText, anchor));
   if (anchors.length >= 2 && anchorHits.length === 0) {
@@ -1314,7 +1364,7 @@ async function generateStrictObjectAttempt<T>({
     } catch (parseOrSchemaError) {
       const errors = [probeAttemptErrorMessage(parseOrSchemaError)];
       handlers.onReasoning?.(
-        `${failurePrefix}，正在做一次 JSON 修复：${errors.join("；")}。\n`,
+        "我再把刚才那版问题校对一下，确保它能直接展示给你。\n",
         { source, mode: "public" },
       );
       return await repairJsonObject({
@@ -1491,7 +1541,7 @@ ${input.dialogueText || "（还没有对话）"}${proposalText}${feedbackText}
 当前任务：
 ${modeInstruction}
 
-请直接用自然语言输出你现在执行阶段一任务时的判断过程。不要输出 JSON、schema、字段名、选项 id、系统提示或技术过程。`;
+请直接用自然语言输出你现在执行阶段一任务时的判断过程。只写面向用户可见的判断，不提格式、字段、系统提示或任何技术过程。`;
 
   let reasoningText = "";
   let nativeReasoningSeen = false;
@@ -1513,11 +1563,9 @@ ${modeInstruction}
         nativeReasoningSeen = true;
         const delta = part.text || "";
         reasoningText += delta;
-        input.onReasoning(delta, { source: input.source, mode: "native" });
       } else if (part.type === "text-delta" && !nativeReasoningSeen) {
         const delta = part.text || "";
         reasoningText += delta;
-        input.onReasoning(delta, { source: input.source, mode: "public" });
       } else if (part.type === "error") {
         throw part.error instanceof Error ? part.error : new Error(String(part.error));
       }
@@ -1526,7 +1574,34 @@ ${modeInstruction}
     console.warn("[streamScribeReasoning] failed:", err?.message || err);
   }
 
-  return reasoningText.trim();
+  const publicReasoning = sanitizeVisibleReasoning(reasoningText);
+  if (publicReasoning) {
+    input.onReasoning(publicReasoning, {
+      source: input.source,
+      mode: nativeReasoningSeen ? "native" : "public",
+    });
+  }
+  return publicReasoning;
+}
+
+function sanitizeVisibleReasoning(text: string): string {
+  return text
+    .replace(/Surface\s*Dilemma/gi, "具象化困惑")
+    .replace(/Current\s*Constraints/gi, "现实处境")
+    .replace(/Core\s*(Values?|Fears?)(?:\s*\/\s*Fears?)?/gi, "隐秘关切")
+    .replace(/Expected\s*Resolution/gi, "圆桌任务")
+    .replace(/\b4[-\s]?Key\b/gi, "四个关键面")
+    .replace(/\bKey\s*([1-4])?\b/gi, "关键面$1")
+    .replace(/\bJSON\b/gi, "格式")
+    .replace(/\bschema\b/gi, "格式")
+    .replace(/\bid\b/gi, "标识")
+    .replace(/字段名?/g, "表达项")
+    .replace(/检查[:：][^\n。]*(?:直接输出。?)?/g, "")
+    .replace(/(?:^|\n)\s*选项设计[:：][\s\S]*$/g, "")
+    .replace(/输出判断过程。?/g, "")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 function reasoningModeInstruction(mode: ScribeReasoningMode): string {
@@ -1638,7 +1713,7 @@ ${probeAuditForPrompt(rawInput, dialogue, reasoningMemo)}
       : "";
     if (attempt > 1) {
       handlers.onReasoning?.(
-        `追问输出还不够稳，正在第 ${attempt} 次重新出题：${lastErrors.join("；")}。\n`,
+        "我再校对一遍问题，让它更贴近你的原话。\n",
         { source: "probe", mode: "public" },
       );
     }
@@ -1689,7 +1764,7 @@ ${probeAuditForPrompt(rawInput, dialogue, reasoningMemo)}
 
   console.warn("[generateScribeQuestions] strict probe failed", lastError || lastErrors);
   throw new LlmError(
-    `书记员追问生成连续失败，没有向你展示模板兜底问题。请重试一次或检查模型配置。${lastErrors.length ? `失败原因：${lastErrors.join("；")}` : ""}`,
+    "书记员追问连续没有整理成可展示的问题。请重试一次；如果持续出现，可以换一个更稳定的模型配置。",
     lastError instanceof LlmError ? lastError.code : "parse_error",
     true,
   );
@@ -2614,7 +2689,7 @@ ${scribePersonaBlock("inquiry")}
       : "";
     if (attempt > 1) {
       handlers.onReasoning?.(
-        `问询输出还不够稳，正在第 ${attempt} 次重新出题：${lastErrors.join("；")}。\n`,
+        "我再校对一遍问询，让它更贴近刚才圆桌里的真实张力。\n",
         { source: "inquiry", mode: "public" },
       );
     }
@@ -2656,7 +2731,7 @@ ${scribePersonaBlock("inquiry")}
 
   console.warn("[generateAlignmentInquiry] strict inquiry failed", lastError || lastErrors);
   throw new LlmError(
-    `书记员问询生成连续失败，没有向你展示模板兜底问题。请重试一次或检查模型配置。${lastErrors.length ? `失败原因：${lastErrors.join("；")}` : ""}`,
+    "书记员问询连续没有整理成可展示的问题。请重试一次；如果持续出现，可以换一个更稳定的模型配置。",
     lastError instanceof LlmError ? lastError.code : "parse_error",
     lastError instanceof LlmError ? lastError.retryable : true,
   );
