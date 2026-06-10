@@ -78,6 +78,24 @@ check("anchor extraction keeps user material and ignores harness vocabulary", ()
   assert.equal(anchors.includes("core_value_axis"), false);
 });
 
+check("inquiry anchor extraction ignores settlement module vocabulary", () => {
+  const anchors = extractAnchorTerms(
+    "falsified_fantasy core_value_axis cost_acceptance minimum_action dialectic_synthesis action=ask_more 读博 28 岁 父母 稳定 code",
+    { dictionary: ["读博", "父母", "稳定", "code"], limit: 12 },
+  );
+
+  assert.ok(anchors.includes("读博"));
+  assert.ok(anchors.includes("父母"));
+  assert.ok(anchors.includes("稳定"));
+  assert.ok(anchors.includes("code"));
+  assert.ok(anchors.includes("28"));
+  assert.equal(anchors.includes("core_value_axis"), false);
+  assert.equal(anchors.includes("cost_acceptance"), false);
+  assert.equal(anchors.includes("minimum_action"), false);
+  assert.equal(anchors.includes("dialectic_synthesis"), false);
+  assert.equal(anchors.includes("ask_more"), false);
+});
+
 check("JSON extraction tolerates prose and fenced objects", () => {
   const raw = `先说一句废话。
 \`\`\`json

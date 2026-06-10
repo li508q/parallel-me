@@ -15,11 +15,11 @@ export type ScribeStreamEvent =
   | { type: "object_delta"; source: string; payload: unknown }
   | { type: "tool"; name: string; state: "called" | "completed"; detail?: string }
   | { type: "llm_call_started"; operation: string; attempt: number; source?: string }
-  | { type: "validation_failed"; operation: string; attempt: number; errors: string[] }
-  | { type: "repair_started"; operation: string; attempt: number; errors: string[] }
-  | { type: "fallback_used"; operation: string; policy: string; reason: string; errors?: string[] }
-  | { type: "retry_scheduled"; operation: string; attempt: number; delayMs: number; reason: string }
-  | { type: "recoverable_error"; operation: string; code?: string; message: string; retryable?: boolean }
+  | { type: "validation_failed"; operation: string; attempt: number; errors: string[]; source?: string }
+  | { type: "repair_started"; operation: string; attempt: number; errors: string[]; source?: string }
+  | { type: "fallback_used"; operation: string; policy: string; reason: string; errors?: string[]; source?: string }
+  | { type: "retry_scheduled"; operation: string; attempt: number; delayMs: number; reason: string; source?: string }
+  | { type: "recoverable_error"; operation: string; code?: string; message: string; retryable?: boolean; source?: string }
   | { type: "decision"; prompt: string; options: Array<{ id: string; label: string; subtitle?: string }> }
   | { type: "result"; payload: unknown }
   | { type: "error"; message: string; code?: string; retryable?: boolean }

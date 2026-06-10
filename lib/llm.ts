@@ -46,6 +46,7 @@ import {
 
 import { SELVES, type SelfId, SELVES_META } from "./selves";
 import { scribePersonaBlock } from "./scribe";
+import type { ScribeStreamEvent } from "./agents/events";
 import {
   VOICE_IDS,
   isVoiceId,
@@ -247,6 +248,7 @@ export interface LlmStreamHandlers {
   onPartial?: (partial: unknown) => void;
   onToken?: (delta: string) => void;
   onReasoning?: (delta: string, meta?: { source?: string; mode?: "native" | "public" }) => void;
+  onEvent?: (event: ScribeStreamEvent) => void;
   onFallback?: (reason: string) => void;
 }
 
@@ -1177,6 +1179,12 @@ function strictRepairGuidance(errors: string[]): string[] {
     if (/贴住用户原文|具体名词|具体锚点|用户材料|具体名词、数字、关系/.test(error)) {
       guidance.add("题干和至少两个选项必须引用用户原文或回答里的具体名词、数字、关系。");
     }
+    if (/本轮议题|圆桌发言|用户回答|观察账本|具体张力/.test(error)) {
+      guidance.add("问询题干和选项必须引用本轮议题、圆桌发言、用户回答或观察账本里的具体张力。");
+    }
+    if (/内部标记|技术词/.test(error)) {
+      guidance.add("用户可见内容不要出现内部标记、英文模块名、格式说明或技术词。");
+    }
     if (/固定模板|程序模板|模板/.test(error)) {
       guidance.add("不要使用固定句式；从用户刚说的话里挑具体张力重新发问。");
     }
@@ -1194,6 +1202,9 @@ function strictRepairGuidance(errors: string[]): string[] {
     }
     if (/阶段一证据还不够|还不能进入提案|继续向用户/.test(error)) {
       guidance.add("当前材料还不能进入提案，请继续向用户追问事实、边界或圆桌要验证的规则。");
+    }
+    if (/不能进入本心落定|继续问询|已经可以进入本心落定/.test(error)) {
+      guidance.add("当前材料还不能生成本心落定，请继续问最能改变最终结论的那个缺口。");
     }
     if (/占位符|建议口吻|待补充|待挖掘|未知|不清楚/.test(error)) {
       guidance.add("不要写占位符、建议句或诊断句；改成用户可以校对的具体表述。");
@@ -1219,6 +1230,10 @@ function strictRepairBlock(errors: string[]): string {
     "",
     "不要解释，不要复述这些要求，不要输出任何自检文字。",
   ].join("\n");
+}
+
+function publicHarnessErrors(errors: string[]): string[] {
+  return strictRepairGuidance(errors);
 }
 
 async function repairJsonObject<T>({
@@ -1513,7 +1528,23 @@ async function runStrictScribeLoop<TStrict, TResult>({
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     const repairBlock = strictRepairBlock(lastErrors);
+    if (attempt === 1) {
+      handlers.onEvent?.({
+        type: "llm_call_started",
+        operation: failureLogLabel,
+        attempt,
+        source: retrySource,
+      });
+    }
     if (attempt > 1) {
+      const publicErrors = publicHarnessErrors(lastErrors);
+      handlers.onEvent?.({
+        type: "repair_started",
+        operation: failureLogLabel,
+        attempt,
+        errors: publicErrors,
+        source: retrySource,
+      });
       handlers.onReasoning?.(retryNotice, { source: retrySource, mode: "public" });
     }
 
@@ -1522,6 +1553,13 @@ async function runStrictScribeLoop<TStrict, TResult>({
       const accepted = accept(strict);
       if (accepted.errors.length) {
         lastErrors = accepted.errors;
+        handlers.onEvent?.({
+          type: "validation_failed",
+          operation: failureLogLabel,
+          attempt,
+          errors: publicHarnessErrors(accepted.errors),
+          source: retrySource,
+        });
         continue;
       }
       return accepted.result;
@@ -1529,6 +1567,14 @@ async function runStrictScribeLoop<TStrict, TResult>({
       if (error instanceof LlmError && !error.retryable) throw error;
       lastError = error;
       lastErrors = [probeAttemptErrorMessage(error)];
+      handlers.onEvent?.({
+        type: "recoverable_error",
+        operation: failureLogLabel,
+        code: error instanceof LlmError ? error.code : "parse_error",
+        message: "模型输出还没有整理成稳定结果，正在重试。",
+        retryable: true,
+        source: retrySource,
+      });
     }
   }
 
@@ -2928,7 +2974,7 @@ function inquiryAuditForPrompt(
     `用户完整表述数：${coverage.articulatedAnswerCount}/${MIN_INQUIRY_ARTICULATED_ANSWERS}`,
     `已经问过模块：${asked.join("、") || "无"}`,
     `已经由用户回答覆盖：${answered.join("、") || "无"}`,
-    `本轮仍需补足：${coverage.missing.map((module) => `${module}（${INQUIRY_MODULE_LABEL[module]}）`).join("、") || "无"}`,
+    `本轮仍需补足：${coverage.missing.map((module) => INQUIRY_MODULE_LABEL[module]).join("、") || "无"}`,
     `不能落定的原因：${issues.join("；") || "五个落点已足够，可以进入本心落定"}`,
   ].join("\n");
 }
@@ -3017,29 +3063,32 @@ function validateStrictInquiryQuality(
   if (strict.action === "settlement_report") {
     const issues = inquiryReadinessIssues(coverage);
     if (issues.length) {
-      errors.push(`还不能进入本心落定：${issues.join("；")}`);
+      errors.push(`用户材料还不能进入本心落定：${issues.join("；")}`);
     }
     return errors;
   }
 
   if (strict.readyForReport) {
-    errors.push("action=ask_more 时 readyForReport 必须为 false");
+    errors.push("继续问询时不要同时宣称已经可以进入本心落定。");
   }
   if (normalized.questions.length < 1) {
-    errors.push("ask_more 必须给出至少一个可展示给用户的问询");
+    errors.push("继续问询时必须给出至少一个能直接展示给用户的问题。");
   }
 
   const allQuestionText = normalized.questions
     .map((question) => `${question.question} ${question.options.map((option) => option.label).join(" ")}`)
     .join("\n");
   if (FORBIDDEN_INQUIRY_TEMPLATE_RE.test(allQuestionText)) {
-    errors.push("问询仍像程序模板，没有体现本轮圆桌和用户答案里的具体张力");
+    errors.push("问询仍像固定模板，没有体现这轮圆桌和用户答案里的具体张力。");
+  }
+  if (hasVisibleReasoningLeak(allQuestionText)) {
+    errors.push("问询问题或选项包含内部标记或技术词。");
   }
 
   const anchors = extractProbeAnchorTerms(inquiryAnchorSource(taskFrame, issueProposal, roundtable, ledger, inquiryAnswers));
   const anchorHits = anchors.filter((anchor) => textIncludesAnchor(allQuestionText, anchor));
   if (anchors.length >= 2 && anchorHits.length === 0) {
-    errors.push(`问询没有引用本轮材料里的具体锚点，例如：${anchors.slice(0, 6).join("、")}`);
+    errors.push("问询没有贴住本轮议题、圆桌发言、用户回答或观察账本里的具体张力。");
   }
 
   const previousTexts = previousQuestions.map((question) => question.question);
@@ -3058,13 +3107,13 @@ function validateStrictInquiryQuality(
 
   const modules = strict.questions.map((question) => question.module);
   if (new Set(modules).size !== modules.length) {
-    errors.push("同一轮问询的 module 不能重复");
+    errors.push("同一轮不要重复追问同一个落点。");
   }
 
   const missing = new Set(strict.missing_modules);
   for (const question of strict.questions) {
     if (strict.missing_modules.length && !missing.has(question.module)) {
-      errors.push(`问题 module=${question.module} 不在 missing_modules 中`);
+      errors.push(`问题「${question.question}」偏离了本轮仍需补足的落点。`);
     }
   }
 

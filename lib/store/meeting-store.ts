@@ -278,6 +278,8 @@ export const useMeetingStore = create<MeetingStore>((set, get) => ({
             set({ streamNarration: "书记员正在把刚才那版改得更贴近你的原话。" });
           } else if (event.type === "retry_scheduled") {
             set({ streamNarration: "这一句没听清，让书记员再试一次。" });
+          } else if (event.type === "recoverable_error") {
+            set({ streamNarration: "模型这版还不够稳，书记员正在重新整理。" });
           } else if (event.type === "fallback_used") {
             set({ streamNarration: "书记员先用保守版本接住这一轮。" });
           } else if (event.type === "error") {
