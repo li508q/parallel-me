@@ -21,16 +21,24 @@ import {
   StrictAlignmentReportSchema,
   StrictProposalResultSchema,
   StrictRefineResultSchema,
+  StrictDuelQuestionSchema,
+  StrictDuelResponseSchema,
+  StrictRoundtableVoiceTurnSchema,
   StrictScribeObservationLedgerSchema,
+  StrictVoiceOpeningPayloadResultSchema,
   StrictInquiryResultSchema,
   StrictProbeResultSchema,
   TaskFrameResultSchema,
   TasteProfileSchema,
   type ValidatedStrictAlignmentReport,
+  type ValidatedStrictDuelQuestion,
+  type ValidatedStrictDuelResponse,
   type ValidatedStrictInquiryResult,
   type ValidatedStrictProposalResult,
   type ValidatedStrictRefineResult,
+  type ValidatedStrictRoundtableVoiceTurn,
   type ValidatedStrictScribeObservationLedger,
+  type ValidatedStrictVoiceOpeningPayloadResult,
   type ValidatedStrictProbeResult,
 } from "./schema";
 
@@ -323,27 +331,6 @@ export async function chat(
 // ─── Schema-Validated Generation (Vercel AI SDK generateObject) ───
 
 import { z } from "zod";
-
-const VoiceOpeningPayloadResultSchema = z.object({
-  thesis: z.string().default(""),
-  pull: z.string().default(""),
-  concern: z.string().default(""),
-  protected_value: z.string().default(""),
-  task_evidence: z.string().default(""),
-});
-
-const VoiceTurnTextResultSchema = z.object({
-  text: z.string().default(""),
-  refers_to: z.array(z.string()).optional().default([]),
-});
-
-const DuelQuestionResultSchema = z.object({
-  question: z.string().default(""),
-});
-
-const DuelResponseResultSchema = z.object({
-  response: z.string().default(""),
-});
 
 /**
  * Generate LLM output with Zod schema validation via AI SDK generateObject.
@@ -1265,6 +1252,7 @@ async function generateStrictObjectAttempt<T>({
   failurePrefix,
   schemaName,
   schemaDescription,
+  temperature,
 }: {
   messages: Msg[];
   schema: z.ZodType<T>;
@@ -1275,6 +1263,7 @@ async function generateStrictObjectAttempt<T>({
   failurePrefix: string;
   schemaName?: string;
   schemaDescription?: string;
+  temperature?: number;
 }): Promise<T> {
   const rt = resolveRuntime(runtime);
   if (!rt.apiKey) {
@@ -1291,7 +1280,7 @@ async function generateStrictObjectAttempt<T>({
       schema,
       schemaName,
       schemaDescription,
-      temperature: 0.18,
+      temperature: temperature ?? 0.18,
       maxOutputTokens,
       abortSignal: AbortSignal.timeout(60_000),
       experimental_repairText: async ({ text, error }) =>
@@ -1364,6 +1353,78 @@ function generateStrictRefineAttempt(
     failurePrefix: "议题提案修正结构化生成失败",
     schemaName: "proposal_refine_v2",
     schemaDescription: "ParallelMe 阶段一议题提案修正，选择继续追问或输出更新后的 4-Key 提案。",
+  });
+}
+
+function generateStrictVoiceOpeningAttempt(
+  messages: Msg[],
+  runtime: LlmRuntime | undefined,
+): Promise<ValidatedStrictVoiceOpeningPayloadResult> {
+  return generateStrictObjectAttempt({
+    messages,
+    schema: StrictVoiceOpeningPayloadResultSchema,
+    runtime,
+    maxOutputTokens: 700,
+    missingRuntimeMessage: "模型配置不可用，无法生成五声开场。请先在设置页接入模型。",
+    timeoutMessage: "五声开场生成超时，模型响应过慢。",
+    failurePrefix: "五声开场结构化生成失败",
+    schemaName: "voice_opening_v2",
+    schemaDescription: "ParallelMe 五声圆桌单个声音的结构化开场立论。",
+    temperature: 0.5,
+  });
+}
+
+function generateStrictRoundtableVoiceTurnAttempt(
+  messages: Msg[],
+  runtime: LlmRuntime | undefined,
+): Promise<ValidatedStrictRoundtableVoiceTurn> {
+  return generateStrictObjectAttempt({
+    messages,
+    schema: StrictRoundtableVoiceTurnSchema,
+    runtime,
+    maxOutputTokens: 700,
+    missingRuntimeMessage: "模型配置不可用，无法生成圆桌发言。请先在设置页接入模型。",
+    timeoutMessage: "圆桌发言生成超时，模型响应过慢。",
+    failurePrefix: "圆桌发言结构化生成失败",
+    schemaName: "roundtable_voice_turn_v2",
+    schemaDescription: "ParallelMe 五声圆桌自由讨论阶段的单声发言。",
+    temperature: 0.58,
+  });
+}
+
+function generateStrictDuelQuestionAttempt(
+  messages: Msg[],
+  runtime: LlmRuntime | undefined,
+): Promise<ValidatedStrictDuelQuestion> {
+  return generateStrictObjectAttempt({
+    messages,
+    schema: StrictDuelQuestionSchema,
+    runtime,
+    maxOutputTokens: 450,
+    missingRuntimeMessage: "模型配置不可用，无法生成两声追问。请先在设置页接入模型。",
+    timeoutMessage: "两声追问生成超时，模型响应过慢。",
+    failurePrefix: "两声追问结构化生成失败",
+    schemaName: "duel_question_v2",
+    schemaDescription: "ParallelMe 五声圆桌中一个声音向另一个声音发出的定向追问。",
+    temperature: 0.56,
+  });
+}
+
+function generateStrictDuelResponseAttempt(
+  messages: Msg[],
+  runtime: LlmRuntime | undefined,
+): Promise<ValidatedStrictDuelResponse> {
+  return generateStrictObjectAttempt({
+    messages,
+    schema: StrictDuelResponseSchema,
+    runtime,
+    maxOutputTokens: 600,
+    missingRuntimeMessage: "模型配置不可用，无法生成两声回应。请先在设置页接入模型。",
+    timeoutMessage: "两声回应生成超时，模型响应过慢。",
+    failurePrefix: "两声回应结构化生成失败",
+    schemaName: "duel_response_v2",
+    schemaDescription: "ParallelMe 五声圆桌中一个声音对另一个声音追问的回应。",
+    temperature: 0.56,
   });
 }
 
@@ -2108,7 +2169,6 @@ async function generateOpeningTurnForVoice(
   at: number,
 ): Promise<VoiceOpeningTurn> {
   const voice = SELVES[voiceId];
-  const fallback = fallbackOpeningPayload(voiceId, taskFrame);
   const sys = `${voice.system_prompt}
 
 你正在参加 ParallelMe 五声圆桌的第一轮立论。
@@ -2117,6 +2177,7 @@ async function generateOpeningTurnForVoice(
 
 请输出严格 JSON：
 {
+  "schema_version": "voice_opening_v2",
   "thesis": "当下的痛苦本质是什么，≤36字",
   "pull": "第一步必须做什么，≤32字",
   "concern": "需要承受什么无可挽回的代价，≤36字",
@@ -2126,13 +2187,12 @@ async function generateOpeningTurnForVoice(
 
 禁止输出 JSON 以外的任何文字。`;
 
-  const validated = await generateValidated(
+  const validated = await generateStrictVoiceOpeningAttempt(
     [
       { role: "system", content: sys + buildContextBlock(ctx) },
       { role: "user", content: `用户确认后的入桌材料：\n${brief}` },
     ],
-    VoiceOpeningPayloadResultSchema,
-    { temperature: 0.68, max_tokens: 700, json: true, runtime, fallback },
+    runtime,
   );
   return normalizeOpeningTurn(voiceId, validated, at);
 }
@@ -2183,7 +2243,6 @@ async function generateParallelVoiceMove(
         userText: input.userText,
         ctx,
         runtime,
-        fallbackText: fallbackContinuationText(voiceId, input),
         parallelBatch: true,
       }),
     ),
@@ -2233,7 +2292,6 @@ async function generateSingleVoiceMove(
       userText: input.userText,
       ctx,
       runtime,
-      fallbackText: fallbackContinuationText(voiceId, input),
       parallelBatch: false,
     });
     return {
@@ -2268,10 +2326,6 @@ async function generateDuelVoiceMove(
   if (!input.fromVoiceId || !input.toVoiceId) return fallback;
 
   const move = createRoundtableMove(input);
-  const fallbackDuel = fallback.turns[0]?.duel;
-  const questionFallback =
-    fallbackDuel?.question || `${voiceName(input.toVoiceId)}，如果只听你，什么代价会被你轻轻放过去？`;
-  const responseFallback = fallbackDuel?.response || `我承认有代价，但我守的是${SELVES[input.toVoiceId].core_value}。`;
 
   try {
     const question = await generateDuelQuestion(
@@ -2281,7 +2335,6 @@ async function generateDuelVoiceMove(
       history,
       ctx,
       runtime,
-      questionFallback,
     );
     const response = await generateDuelResponse(
       input.toVoiceId,
@@ -2291,7 +2344,6 @@ async function generateDuelVoiceMove(
       history,
       ctx,
       runtime,
-      responseFallback,
     );
     return {
       move,
@@ -2327,7 +2379,6 @@ async function generateVoiceTurnText({
   userText,
   ctx,
   runtime,
-  fallbackText,
   parallelBatch,
 }: {
   voiceId: VoiceId;
@@ -2337,7 +2388,6 @@ async function generateVoiceTurnText({
   userText?: string;
   ctx?: ContextBundle;
   runtime?: LlmRuntime;
-  fallbackText: string;
   parallelBatch: boolean;
 }): Promise<{ text: string; refers_to: VoiceId[] }> {
   const voice = SELVES[voiceId];
@@ -2376,9 +2426,9 @@ ${participationRules}
 - text ≤120 字，必须像这一声真的在圆桌上说话。
 
 输出严格 JSON：
-{"text":"你的本轮发言","refers_to":["money"]}`;
+{"schema_version":"roundtable_voice_turn_v2","text":"你的本轮发言","refers_to":["money"]}`;
 
-  const validated = await generateValidated(
+  const validated = await generateStrictRoundtableVoiceTurnAttempt(
     [
       { role: "system", content: sys + buildContextBlock(ctx) },
       {
@@ -2386,10 +2436,9 @@ ${participationRules}
         content: `用户确认后的入桌材料：\n${brief}\n\n完整圆桌历史：\n${history}`,
       },
     ],
-    VoiceTurnTextResultSchema,
-    { temperature: 0.76, max_tokens: 650, json: true, runtime, fallback: { text: fallbackText, refers_to: [] } },
+    runtime,
   );
-  const text = String(validated.text || "").trim() || fallbackText;
+  const text = String(validated.text || "").trim();
   return {
     text,
     refers_to: parallelBatch
@@ -2407,7 +2456,6 @@ async function generateDuelQuestion(
   history: string,
   ctx: ContextBundle | undefined,
   runtime: LlmRuntime | undefined,
-  fallbackQuestion: string,
 ): Promise<string> {
   const from = SELVES[fromVoiceId];
   const sys = `${from.system_prompt}
@@ -2420,17 +2468,16 @@ async function generateDuelQuestion(
 - 可以直接指出你担心的代价，但不要攻击人格和身份。
 - 只输出一个问题，≤80 字。
 
-输出严格 JSON：{"question":"..."}`;
+输出严格 JSON：{"schema_version":"duel_question_v2","question":"..."}`;
 
-  const validated = await generateValidated(
+  const validated = await generateStrictDuelQuestionAttempt(
     [
       { role: "system", content: sys + buildContextBlock(ctx) },
       { role: "user", content: `用户确认后的入桌材料：\n${brief}\n\n完整圆桌历史：\n${history}` },
     ],
-    DuelQuestionResultSchema,
-    { temperature: 0.78, max_tokens: 450, json: true, runtime, fallback: { question: fallbackQuestion } },
+    runtime,
   );
-  return String(validated.question || "").trim() || fallbackQuestion;
+  return String(validated.question || "").trim();
 }
 
 async function generateDuelResponse(
@@ -2441,7 +2488,6 @@ async function generateDuelResponse(
   history: string,
   ctx: ContextBundle | undefined,
   runtime: LlmRuntime | undefined,
-  fallbackResponse: string,
 ): Promise<{ response: string }> {
   const to = SELVES[toVoiceId];
   const sys = `${to.system_prompt}
@@ -2455,9 +2501,9 @@ async function generateDuelResponse(
 - 回应必须承接完整历史和对方问题。
 - response ≤110 字。
 
-输出严格 JSON：{"response":"..."}`;
+输出严格 JSON：{"schema_version":"duel_response_v2","response":"..."}`;
 
-  const validated = await generateValidated(
+  const validated = await generateStrictDuelResponseAttempt(
     [
       { role: "system", content: sys + buildContextBlock(ctx) },
       {
@@ -2465,17 +2511,10 @@ async function generateDuelResponse(
         content: `用户确认后的入桌材料：\n${brief}\n\n完整圆桌历史：\n${history}\n\n对方的问题：\n${question}`,
       },
     ],
-    DuelResponseResultSchema,
-    {
-      temperature: 0.76,
-      max_tokens: 600,
-      json: true,
-      runtime,
-      fallback: { response: fallbackResponse },
-    },
+    runtime,
   );
   return {
-    response: String(validated.response || "").trim() || fallbackResponse,
+    response: String(validated.response || "").trim(),
   };
 }
 

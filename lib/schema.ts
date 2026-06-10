@@ -323,6 +323,68 @@ export const OpeningTurnsResultSchema = z.object({
 
 export type ValidatedOpeningTurns = z.infer<typeof OpeningTurnsResultSchema>;
 
+const RoundtableVoiceIdSchema = z.enum(["lay", "money", "roam", "filial", "future"]);
+
+export const StrictVoiceOpeningPayloadResultSchema = z.object({
+  schema_version: z.literal("voice_opening_v2"),
+  thesis: z.string().min(6).max(80),
+  pull: z.string().min(6).max(80),
+  concern: z.string().min(6).max(90),
+  protected_value: z.string().min(4).max(60),
+  task_evidence: z.string().min(4).max(90),
+}).superRefine((opening, ctx) => {
+  const combined = [opening.thesis, opening.pull, opening.concern, opening.protected_value, opening.task_evidence].join("\n");
+  if (/建议你|我建议|大家都有道理|作为AI|作为助手|无法判断|待补充|未知/.test(combined)) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["thesis"],
+      message: "opening turn must be in-character and concrete",
+    });
+  }
+});
+
+export type ValidatedStrictVoiceOpeningPayloadResult = z.infer<typeof StrictVoiceOpeningPayloadResultSchema>;
+
+export const StrictRoundtableVoiceTurnSchema = z.object({
+  schema_version: z.literal("roundtable_voice_turn_v2"),
+  text: z.string().min(10).max(220),
+  refers_to: z.array(RoundtableVoiceIdSchema).max(4).default([]),
+}).superRefine((turn, ctx) => {
+  if (/建议你|我建议|大家都有道理|作为AI|作为助手|无法判断|待补充|未知/.test(turn.text)) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["text"],
+      message: "roundtable turn must be in-character and must not use generic advice tone",
+    });
+  }
+});
+
+export type ValidatedStrictRoundtableVoiceTurn = z.infer<typeof StrictRoundtableVoiceTurnSchema>;
+
+export const StrictDuelQuestionSchema = z.object({
+  schema_version: z.literal("duel_question_v2"),
+  question: z.string().min(10).max(160).refine((text) => /[？?]$/.test(text.trim()), {
+    message: "duel question must end with a question mark",
+  }),
+});
+
+export type ValidatedStrictDuelQuestion = z.infer<typeof StrictDuelQuestionSchema>;
+
+export const StrictDuelResponseSchema = z.object({
+  schema_version: z.literal("duel_response_v2"),
+  response: z.string().min(10).max(220),
+}).superRefine((response, ctx) => {
+  if (/建议你|我建议|大家都有道理|作为AI|作为助手|无法判断|待补充|未知/.test(response.response)) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["response"],
+      message: "duel response must be in-character and must not use generic advice tone",
+    });
+  }
+});
+
+export type ValidatedStrictDuelResponse = z.infer<typeof StrictDuelResponseSchema>;
+
 // ─── Roundtable Move (圆桌推进) ───
 
 export const RoundtableTurnSchema = z.object({

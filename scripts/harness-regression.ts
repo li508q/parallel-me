@@ -11,7 +11,11 @@ import {
   StrictInquiryResultSchema,
   StrictProposalResultSchema,
   StrictRefineResultSchema,
+  StrictDuelQuestionSchema,
+  StrictDuelResponseSchema,
+  StrictRoundtableVoiceTurnSchema,
   StrictScribeObservationLedgerSchema,
+  StrictVoiceOpeningPayloadResultSchema,
   StrictProbeResultSchema,
 } from "../lib/schema.ts";
 
@@ -301,6 +305,59 @@ check("strict refine schema rejects contradictory action payloads", () => {
 
   assert.throws(() => validateJsonWithSchema(askMoreWithProposal, StrictRefineResultSchema), /schema 校验失败/);
   assert.throws(() => validateJsonWithSchema(updateWithoutProposal, StrictRefineResultSchema), /requires proposal/);
+});
+
+check("strict roundtable schemas accept grounded voice outputs", () => {
+  const opening = validateJsonWithSchema(JSON.stringify({
+    schema_version: "voice_opening_v2",
+    thesis: "厌倦正在逼你重看方向。",
+    pull: "先把读博验证成事实。",
+    concern: "稳定感会被短期摇动。",
+    protected_value: "主动选择的能力",
+    task_evidence: "每天打开 code 就提不起兴趣",
+  }), StrictVoiceOpeningPayloadResultSchema);
+  const turn = validateJsonWithSchema(JSON.stringify({
+    schema_version: "roundtable_voice_turn_v2",
+    text: "我不反对读博，但先把安全垫算清；不然你会把自由变成另一种被动。",
+    refers_to: ["roam"],
+  }), StrictRoundtableVoiceTurnSchema);
+  const question = validateJsonWithSchema(JSON.stringify({
+    schema_version: "duel_question_v2",
+    question: "出走的我，如果读博也很枯燥，你还坚持它是出口吗？",
+  }), StrictDuelQuestionSchema);
+  const response = validateJsonWithSchema(JSON.stringify({
+    schema_version: "duel_response_v2",
+    response: "我坚持的不是读博标签，而是别让业务惯性继续替他决定方向。",
+  }), StrictDuelResponseSchema);
+
+  assert.equal(opening.schema_version, "voice_opening_v2");
+  assert.equal(turn.refers_to[0], "roam");
+  assert.match(question.question, /？$/);
+  assert.match(response.response, /方向/);
+});
+
+check("strict roundtable schemas reject empty or generic advice outputs", () => {
+  const badOpening = JSON.stringify({
+    schema_version: "voice_opening_v2",
+    thesis: "",
+    pull: "我建议你慢慢考虑。",
+    concern: "未知",
+    protected_value: "",
+    task_evidence: "待补充",
+  });
+  const badTurn = JSON.stringify({
+    schema_version: "roundtable_voice_turn_v2",
+    text: "大家都有道理，我建议你综合考虑。",
+    refers_to: [],
+  });
+  const badQuestion = JSON.stringify({
+    schema_version: "duel_question_v2",
+    question: "你怎么看",
+  });
+
+  assert.throws(() => validateJsonWithSchema(badOpening, StrictVoiceOpeningPayloadResultSchema), /schema 校验失败/);
+  assert.throws(() => validateJsonWithSchema(badTurn, StrictRoundtableVoiceTurnSchema), /schema 校验失败/);
+  assert.throws(() => validateJsonWithSchema(badQuestion, StrictDuelQuestionSchema), /schema 校验失败/);
 });
 
 check("strict observation ledger schema accepts grounded hidden ledger", () => {
