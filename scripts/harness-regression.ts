@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import {
   extractAnchorTerms,
   extractJsonObjectCandidates,
@@ -129,6 +130,30 @@ check("strict repair guidance turns schema errors into user-safe instructions", 
   assert.match(guidance, /题干压缩成一句清楚的问句/);
   assert.match(guidance, /不同缺口|落点|信息/);
   assert.doesNotMatch(guidance, /questions\.0\.text|core_value_axis|missing_modules|JSON schema/);
+});
+
+check("legacy task-frame fallback path stays retired", () => {
+  const llmSource = readFileSync(new URL("../lib/llm.ts", import.meta.url), "utf8");
+  const taskFrameRoute = readFileSync(new URL("../app/api/task-frame/route.ts", import.meta.url), "utf8");
+  const streamRoute = readFileSync(new URL("../app/api/task-frame/stream/route.ts", import.meta.url), "utf8");
+
+  assert.doesNotMatch(llmSource, /generateValidated\(|generateTaskFrame|fallbackTaskFrame|fallbackChoiceCards/);
+  assert.match(taskFrameRoute, /Use probe, propose, or refine/);
+  assert.doesNotMatch(taskFrameRoute, /generateTaskFrame|choiceAnswers/);
+  assert.match(streamRoute, /status:\s*410/);
+});
+
+check("runtime generation paths do not use scripted fallbacks", () => {
+  const llmSource = readFileSync(new URL("../lib/llm.ts", import.meta.url), "utf8");
+  const eventSource = readFileSync(new URL("../lib/agents/events.ts", import.meta.url), "utf8");
+  const storeSource = readFileSync(new URL("../lib/store/meeting-store.ts", import.meta.url), "utf8");
+
+  assert.doesNotMatch(
+    llmSource,
+    /fallbackOpeningTurns|fallbackOpeningPayload|fallbackRoundtableMove|fallbackContinuationText|fallbackObservationLedger|fallbackAlignmentReport|Promise\.allSettled\(/,
+  );
+  assert.doesNotMatch(eventSource, /fallback_used/);
+  assert.doesNotMatch(storeSource, /fallback_used|保守版本/);
 });
 
 check("JSON extraction tolerates prose and fenced objects", () => {

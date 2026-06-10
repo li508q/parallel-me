@@ -735,46 +735,6 @@ export const StrictAlignmentReportSchema = z.object({
 
 export type ValidatedStrictAlignmentReport = z.infer<typeof StrictAlignmentReportSchema>;
 
-// ─── TaskFrame (legacy choice-card path) ───
-
-export const VisibleTaskFrameSchema = z.object({
-  problem_definition: z.string().default(""),
-  current_state: z.string().default(""),
-  key_facts: z.array(z.string()).default([]),
-  main_choices: z.array(z.string()).default([]),
-  core_conflict: z.string().default(""),
-  central_question: z.string().default(""),
-  main_concerns: z.array(z.string()).default([]),
-  discussion_focus: z.string().default(""),
-});
-
-export const TaskFrameSchema = z.object({
-  visible: VisibleTaskFrameSchema,
-  internal: z.record(z.string(), z.unknown()).default({}),
-});
-
-export const ChoiceOptionSchema = z.object({
-  id: z.string(),
-  label: z.string(),
-  derived_kv: z.record(z.string(), z.string()).optional(),
-});
-
-export const ChoiceCardSchema = z.object({
-  id: z.string(),
-  question: z.string(),
-  options: z.array(ChoiceOptionSchema).default([]),
-});
-
-export const TaskFrameResultSchema = z.object({
-  choiceCards: z.array(ChoiceCardSchema).default([]),
-  taskFrame: TaskFrameSchema,
-});
-
-export const RoundtableRawResultSchema = z.object({
-  turns: z.array(z.record(z.string(), z.unknown())).optional().default([]),
-  duel: z.record(z.string(), z.unknown()).optional(),
-});
-
 export const StrictTasteProfileSchema = z.object({
   schema_version: z.literal("taste_profile_v2"),
   themes: z.array(z.string().min(1).max(8)).min(3).max(5),

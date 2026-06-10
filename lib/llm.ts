@@ -3,19 +3,18 @@
 // invisible scribe observation -> scribe inquiry -> alignment report.
 //
 // Production patterns applied:
-// - Vercel AI SDK (generateText / generateObject) for LLM calls
+// - Vercel AI SDK for text streaming plus strict object generation via llm-strict
 // - LlmError typed error class with error codes
 // - Exponential backoff retry with rate-limit header respect
-// - Schema validation via AI SDK generateObject (auto-repair built-in)
+// - Schema validation and repair via the shared strict LLM harness
 
-import { generateText, generateObject, streamObject, streamText } from "ai";
+import { generateText, streamText } from "ai";
 import { createProvider } from "./ai-provider";
 import { compactDialogue, compactRoundtable } from "./context-manager";
 import {
   extractAnchorTerms,
   hasVisibleReasoningLeak,
   sanitizeVisibleReasoning,
-  validateJsonWithSchema,
 } from "./llm-harness";
 import {
   generateStrictObjectAttempt,
@@ -34,7 +33,6 @@ import {
   StrictVoiceOpeningPayloadResultSchema,
   StrictInquiryResultSchema,
   StrictProbeResultSchema,
-  TaskFrameResultSchema,
   type ValidatedStrictAlignmentReport,
   type ValidatedStrictDuelQuestion,
   type ValidatedStrictDuelResponse,
@@ -48,7 +46,7 @@ import {
   type ValidatedStrictProbeResult,
 } from "./schema";
 
-import { SELVES, type SelfId, SELVES_META } from "./selves";
+import { SELVES, SELVES_META } from "./selves";
 import { scribePersonaBlock } from "./scribe";
 import type { ScribeStreamEvent } from "./agents/events";
 import {
@@ -58,8 +56,6 @@ import {
   proposalToTaskFrame,
   type AlignmentProfile,
   type AlignmentReport,
-  type ChoiceAnswer,
-  type ChoiceCard,
   type DefiningDialogue,
   type IssueProposal,
   type ProposalKey,
@@ -74,9 +70,7 @@ import {
   type ScribeProbeOption,
   type ScribeQuestion,
   type TaskFrame,
-  type VisibleTaskFrame,
   type VoiceId,
-  type VoiceOpeningPayload,
   type VoiceOpeningTurn,
 } from "./v7";
 
@@ -179,19 +173,6 @@ export interface ContextBundle {
   tasteProfile?: string;
 }
 
-export type Topic =
-  | "career"
-  | "relationship"
-  | "family"
-  | "money"
-  | "lifestyle"
-  | "general";
-
-export interface TaskFrameResult {
-  choiceCards: ChoiceCard[];
-  taskFrame: TaskFrame;
-}
-
 export interface RoundtableMoveInput {
   moveType: RoundtableMoveType;
   taskFrame: TaskFrame;
@@ -223,15 +204,6 @@ function resolveRuntime(rt?: LlmRuntime) {
     baseUrl: rt?.baseUrl || ENV_API_BASE,
     model: rt?.model || ENV_MODEL,
   };
-}
-
-export function classifyTopic(text: string): Topic {
-  if (/(辞职|跳槽|升职|考公|考研|加班|裸辞|副业|失业|996|班味|大厂|国企|体制|offer|工作|老板|同事|kpi|okr)/i.test(text)) return "career";
-  if (/(对象|男友|女友|分手|结婚|离婚|相亲|暗恋|表白|前任|喜欢|爱|男朋友|女朋友|搭子|断联)/i.test(text)) return "relationship";
-  if (/(妈|爸|爹|娘|父母|爸妈|家里|老家|亲戚|表哥|表姐|阿姨|舅舅|过年|春节|断亲|催婚)/i.test(text)) return "family";
-  if (/(房|车|彩礼|工资|存款|理财|股票|基金|花钱|借钱|存钱|月光|负债|月薪|年薪|收入)/i.test(text)) return "money";
-  if (/(健身|减肥|游民|清迈|大理|gap|间隔年|出走|搬|住|生活|睡眠|脱发|焦虑|抑郁|emo)/i.test(text)) return "lifestyle";
-  return "general";
 }
 
 // ─── Chat with Retry (主流实践: exponential backoff + rate-limit header) ───
@@ -336,95 +308,6 @@ export async function chat(
   throw lastError ?? new LlmError("重试耗尽", "unknown", false);
 }
 
-// ─── Schema-Validated Generation (Vercel AI SDK generateObject) ───
-
-import { z } from "zod";
-
-/**
- * Generate LLM output with Zod schema validation via AI SDK generateObject.
- * AI SDK handles JSON parsing, validation, and auto-repair internally.
- * Falls back to provided default on any failure.
- */
-export async function generateValidated<T>(
-  messages: Msg[],
-  schema: z.ZodType<T>,
-  opts: ChatOpts & { fallback: T },
-): Promise<T> {
-  const rt = resolveRuntime(opts?.runtime);
-  if (!rt.apiKey) {
-    console.warn("[generateValidated] no API key, using fallback");
-    opts.onFallback?.("no_api_key");
-    return opts.fallback;
-  }
-
-  const { model } = createProvider(opts?.runtime);
-  const timeoutMs = opts?.timeoutMs ?? 60_000;
-  const maxRetries = opts?.maxRetries ?? 2;
-
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    try {
-      const prompt = splitAiSdkPrompt(messages);
-      if (opts.onPartial || opts.onToken) {
-        const result = streamObject({
-          model,
-          ...prompt,
-          schema,
-          temperature: opts?.temperature ?? 0.75,
-          maxOutputTokens: opts?.max_tokens ?? 600,
-          abortSignal: AbortSignal.timeout(timeoutMs),
-        });
-
-        for await (const part of result.fullStream) {
-          if (part.type === "text-delta") {
-            opts.onToken?.(part.textDelta);
-          } else if (part.type === "object") {
-            opts.onPartial?.(part.object);
-          } else if (part.type === "error") {
-            throw part.error instanceof Error ? part.error : new Error(String(part.error));
-          }
-        }
-
-        return (await result.object) as T;
-      }
-
-      const result = await generateObject({
-        model,
-        ...prompt,
-        schema,
-        temperature: opts?.temperature ?? 0.75,
-        maxOutputTokens: opts?.max_tokens ?? 600,
-        abortSignal: AbortSignal.timeout(timeoutMs),
-      });
-      return result.object;
-    } catch (err: any) {
-      if (err instanceof LlmError) {
-        if (err.retryable && attempt < maxRetries) {
-          const delay = err.retryAfterMs ?? Math.min(1000 * 2 ** attempt, 30_000);
-          await sleep(delay);
-          continue;
-        }
-        break;
-      }
-      // Map AI SDK errors
-      const status = err?.status || err?.statusCode;
-      if (status === 429 && attempt < maxRetries) {
-        await sleep(Math.min(2000 * 2 ** attempt, 30_000));
-        continue;
-      }
-      if (status >= 500 && attempt < maxRetries) {
-        await sleep(Math.min(1000 * 2 ** attempt, 15_000));
-        continue;
-      }
-      console.warn(`[generateValidated] attempt ${attempt + 1} failed:`, err?.message);
-      break;
-    }
-  }
-
-  console.warn("[generateValidated] all attempts failed, using fallback");
-  opts.onFallback?.("generation_failed");
-  return opts.fallback;
-}
-
 function buildContextBlock(ctx?: ContextBundle): string {
   if (!ctx) return "";
   const parts: string[] = [];
@@ -508,92 +391,6 @@ function serializeRoundtable(roundtable: RoundtableRecord): string {
 
 function id(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
-}
-
-export async function generateTaskFrame(
-  rawInput: string,
-  choiceAnswers: ChoiceAnswer[] = [],
-  ctx?: ContextBundle,
-  runtime?: LlmRuntime,
-  onPartial?: StreamHandlerArg,
-): Promise<TaskFrameResult> {
-  const fallback = fallbackTaskFrame(rawInput, choiceAnswers);
-  const answersText = choiceAnswers.length
-    ? choiceAnswers
-        .map(
-          (a, i) =>
-            `${i + 1}. ${a.question}\n选择：${a.custom_text || a.selected_label}\nKV：${JSON.stringify(a.derived_kv || {})}`,
-        )
-        .join("\n\n")
-    : "（还没有选择卡答案）";
-
-  const sys = `你是 ParallelMe v1.0 的书记员。你的任务是把用户原始输入整理成“本次议题”，并设计少量高密度选择卡。
-
-${scribePersonaBlock("brief")}
-
-产品原则：
-- 书记员半显性，不是第六声。
-- 敢于把处境命名清楚，但只用用户能改写的人话，不用心理学术语压人。
-- 用户懒，所以选项要高密度：一个选择应能更新多个 KV。
-- 不做长追问，不逐字段拷问。
-- 可见字段要自然、锋利、可被用户改写。
-
-输出严格 JSON：
-{
-  "choiceCards": [
-    {
-      "id": "snake_case",
-      "question": "一句高密度问题",
-      "options": [
-        {"id": "snake_case", "label": "用户能直接点选的自然语言", "derived_kv": {"key":"value"}}
-      ]
-    }
-  ],
-  "taskFrame": {
-    "visible": {
-      "problem_definition": "",
-      "current_state": "",
-      "key_facts": [],
-      "main_choices": [],
-      "core_conflict": "",
-      "central_question": "",
-      "main_concerns": [],
-      "discussion_focus": ""
-    },
-    "internal": {
-      "facts": [],
-      "parties": [],
-      "options": [],
-      "state_tags": {"clarity":"low|medium|high","decision_readiness":"exploring|leaning|testing|not_ready","urgency":"low|medium|high","emotional_charge":"low|medium|high"},
-      "value_axes": [],
-      "pressure_sources": [],
-      "concern_notes": [],
-      "source_labels": {},
-      "choice_answers": []
-    }
-  }
-}
-
-字段要求：
-- choiceCards 2-4 张，每张 3-5 个选项，最后一个选项必须接近“都不准，我补一句”。
-- central_question 尽量用“我能不能……”或“我是不是……”，不要复述表层选项。
-- source_labels 只能用：读出 / 我猜的 / 你说的。
-- evidence_status 只能用：raw_explicit / user_selected / user_confirmed / user_edited / model_inferred / not_clear。`;
-
-  try {
-    const validated = await generateValidated(
-      [
-        { role: "system", content: sys + buildContextBlock(ctx) },
-        { role: "user", content: `原始输入：\n${rawInput}\n\n选择卡答案：\n${answersText}` },
-      ],
-      TaskFrameResultSchema,
-      { temperature: 0.45, max_tokens: 1800, json: true, runtime, fallback: fallback as any, ...streamOpts(onPartial) },
-    );
-    return normalizeTaskFrameResult(validated, rawInput, choiceAnswers, fallback);
-  } catch (e) {
-    console.warn("[generateTaskFrame] fallback", e);
-    return fallback;
-  }
 }
 
 // ─── 议题定义阶段重构：对话式追问 + 4-Key 提案 ───
@@ -2015,17 +1812,11 @@ export async function generateOpeningTurns(
 ): Promise<VoiceOpeningTurn[]> {
   const brief = compactRoundtableBrief(taskFrame, issueProposal);
   const now = Date.now();
-  const results = await Promise.allSettled(
+  return Promise.all(
     VOICE_IDS.map((vid, index) =>
       generateOpeningTurnForVoice(vid, taskFrame, brief, ctx, runtime, now + index),
     ),
   );
-  return VOICE_IDS.map((vid, index) => {
-    const result = results[index];
-    if (result.status === "fulfilled") return result.value;
-    console.warn(`[generateOpeningTurns] ${vid} fallback`, result.reason);
-    return normalizeOpeningTurn(vid, fallbackOpeningPayload(vid, taskFrame), now + index);
-  });
 }
 
 async function generateOpeningTurnForVoice(
@@ -2071,23 +1862,22 @@ export async function generateRoundtableMove(
   runtime?: LlmRuntime,
   onPartial?: StreamHandlerArg,
 ): Promise<RoundtableMoveResult> {
-  const fallback = fallbackRoundtableMove(input);
   const brief = compactRoundtableBrief(input.taskFrame, input.issueProposal);
   const history = serializeRoundtable(input.roundtable);
 
   if (input.moveType === "continue_all" || input.moveType === "user_to_table") {
-    return generateParallelVoiceMove(input, brief, history, ctx, runtime, fallback);
+    return generateParallelVoiceMove(input, brief, history, ctx, runtime);
   }
 
   if (input.moveType === "user_to_voice") {
-    return generateSingleVoiceMove(input, brief, history, ctx, runtime, fallback);
+    return generateSingleVoiceMove(input, brief, history, ctx, runtime);
   }
 
   if (input.moveType === "duel") {
-    return generateDuelVoiceMove(input, brief, history, ctx, runtime, fallback);
+    return generateDuelVoiceMove(input, brief, history, ctx, runtime);
   }
 
-  return fallback;
+  throw new LlmError(`未知圆桌动作：${input.moveType}`, "unknown", false);
 }
 
 async function generateParallelVoiceMove(
@@ -2096,12 +1886,11 @@ async function generateParallelVoiceMove(
   history: string,
   ctx: ContextBundle | undefined,
   runtime: LlmRuntime | undefined,
-  fallback: RoundtableMoveResult,
 ): Promise<RoundtableMoveResult> {
   const move = createRoundtableMove(input);
   const at = Date.now();
   const roundIndex = roundIndexForMove(input);
-  const results = await Promise.allSettled(
+  const payloads = await Promise.all(
     VOICE_IDS.map((voiceId) =>
       generateVoiceTurnText({
         voiceId,
@@ -2117,14 +1906,7 @@ async function generateParallelVoiceMove(
   );
 
   const turns = VOICE_IDS.map((voiceId, index) => {
-    const result = results[index];
-    const payload =
-      result.status === "fulfilled"
-        ? result.value
-        : { text: fallbackContinuationText(voiceId, input), refers_to: [] as VoiceId[] };
-    if (result.status === "rejected") {
-      console.warn(`[generateParallelVoiceMove] ${voiceId} fallback`, result.reason);
-    }
+    const payload = payloads[index];
     return makeVoiceRoundtableTurn({
       input,
       move,
@@ -2146,41 +1928,35 @@ async function generateSingleVoiceMove(
   history: string,
   ctx: ContextBundle | undefined,
   runtime: LlmRuntime | undefined,
-  fallback: RoundtableMoveResult,
 ): Promise<RoundtableMoveResult> {
   const voiceId = input.targetVoiceId || ("future" as VoiceId);
   const move = createRoundtableMove(input);
   const roundIndex = roundIndexForMove(input);
-  try {
-    const payload = await generateVoiceTurnText({
-      voiceId,
-      mode: input.moveType,
-      brief,
-      history,
-      userText: input.userText,
-      ctx,
-      runtime,
-      parallelBatch: false,
-    });
-    return {
-      move,
-      turns: [
-        makeVoiceRoundtableTurn({
-          input,
-          move,
-          voiceId,
-          text: payload.text,
-          refersTo: payload.refers_to,
-          at: Date.now(),
-          roundIndex,
-          parallelBatch: false,
-        }),
-      ],
-    };
-  } catch (err) {
-    console.warn("[generateSingleVoiceMove] fallback", err);
-    return fallback;
-  }
+  const payload = await generateVoiceTurnText({
+    voiceId,
+    mode: input.moveType,
+    brief,
+    history,
+    userText: input.userText,
+    ctx,
+    runtime,
+    parallelBatch: false,
+  });
+  return {
+    move,
+    turns: [
+      makeVoiceRoundtableTurn({
+        input,
+        move,
+        voiceId,
+        text: payload.text,
+        refersTo: payload.refers_to,
+        at: Date.now(),
+        roundIndex,
+        parallelBatch: false,
+      }),
+    ],
+  };
 }
 
 async function generateDuelVoiceMove(
@@ -2189,54 +1965,50 @@ async function generateDuelVoiceMove(
   history: string,
   ctx: ContextBundle | undefined,
   runtime: LlmRuntime | undefined,
-  fallback: RoundtableMoveResult,
 ): Promise<RoundtableMoveResult> {
-  if (!input.fromVoiceId || !input.toVoiceId) return fallback;
+  if (!input.fromVoiceId || !input.toVoiceId) {
+    throw new LlmError("两声对话缺少发问方或回应方。", "unknown", false);
+  }
 
   const move = createRoundtableMove(input);
 
-  try {
-    const question = await generateDuelQuestion(
-      input.fromVoiceId,
-      input.toVoiceId,
-      brief,
-      history,
-      ctx,
-      runtime,
-    );
-    const response = await generateDuelResponse(
-      input.toVoiceId,
-      input.fromVoiceId,
-      question,
-      brief,
-      history,
-      ctx,
-      runtime,
-    );
-    return {
-      move,
-      turns: [
-        {
-          id: id("turn"),
-          move_id: move.id,
-          trigger: "duel",
-          duel: {
-            from_voice_id: input.fromVoiceId,
-            from_name: voiceName(input.fromVoiceId),
-            to_voice_id: input.toVoiceId,
-            to_name: voiceName(input.toVoiceId),
-            question,
-            response: response.response,
-          },
-          round_index: roundIndexForMove(input),
-          at: Date.now(),
+  const question = await generateDuelQuestion(
+    input.fromVoiceId,
+    input.toVoiceId,
+    brief,
+    history,
+    ctx,
+    runtime,
+  );
+  const response = await generateDuelResponse(
+    input.toVoiceId,
+    input.fromVoiceId,
+    question,
+    brief,
+    history,
+    ctx,
+    runtime,
+  );
+  return {
+    move,
+    turns: [
+      {
+        id: id("turn"),
+        move_id: move.id,
+        trigger: "duel",
+        duel: {
+          from_voice_id: input.fromVoiceId,
+          from_name: voiceName(input.fromVoiceId),
+          to_voice_id: input.toVoiceId,
+          to_name: voiceName(input.toVoiceId),
+          question,
+          response: response.response,
         },
-      ],
-    };
-  } catch (err) {
-    console.warn("[generateDuelVoiceMove] fallback", err);
-    return fallback;
-  }
+        round_index: roundIndexForMove(input),
+        at: Date.now(),
+      },
+    ],
+  };
 }
 
 async function generateVoiceTurnText({
@@ -2461,7 +2233,6 @@ export async function generateScribeObservationLedger(
   ctx?: ContextBundle,
   runtime?: LlmRuntime,
 ): Promise<ScribeObservationLedger> {
-  const fallback = fallbackObservationLedger(taskFrame, issueProposal, roundtable, previousLedger);
   const sys = `你是 ParallelMe v1.0 的书记员。你在五声会谈期间后台观察，不下场、不打断、不改变圆桌。
 
 你的任务不是生成用户可见内容，而是更新内部观察账本，服务最终「书记员问询」与「本心落定」。
@@ -2493,26 +2264,21 @@ ${scribePersonaBlock("inquiry")}
   }
 }`;
 
-  try {
-    const validated = await generateStrictObservationLedgerAttempt(
-      [
-        { role: "system", content: sys + buildContextBlock(ctx) },
-        {
-          role: "user",
-          content:
-            `本次议题：\n${compactRoundtableBrief(taskFrame, issueProposal)}\n\n` +
-            `已有观察账本：\n${JSON.stringify(previousLedger || emptyObservationLedger(), null, 2)}\n\n` +
-            `圆桌记录：\n${serializeRoundtable(roundtable)}\n\n` +
-            `请更新 observation_ledger_v2 JSON。注意：这份账本不直接展示给用户；不要输出解释、Markdown 或代码块。`,
-        },
-      ],
-      runtime,
-    );
-    return normalizeObservationLedger(validated as any, fallback);
-  } catch (e) {
-    console.warn("[generateScribeObservationLedger] strict ledger failed", e);
-    return fallback;
-  }
+  const validated = await generateStrictObservationLedgerAttempt(
+    [
+      { role: "system", content: sys + buildContextBlock(ctx) },
+      {
+        role: "user",
+        content:
+          `本次议题：\n${compactRoundtableBrief(taskFrame, issueProposal)}\n\n` +
+          `已有观察账本：\n${JSON.stringify(previousLedger || emptyObservationLedger(), null, 2)}\n\n` +
+          `圆桌记录：\n${serializeRoundtable(roundtable)}\n\n` +
+          `请更新 observation_ledger_v2 JSON。注意：这份账本不直接展示给用户；不要输出解释、Markdown 或代码块。`,
+      },
+    ],
+    runtime,
+  );
+  return normalizeObservationLedger(validated);
 }
 
 export async function generateAlignmentInquiry(
@@ -2526,9 +2292,9 @@ export async function generateAlignmentInquiry(
   runtime?: LlmRuntime,
   onPartial?: StreamHandlerArg,
 ): Promise<InquiryResult> {
-  const activeLedger = ledger?.observations?.length
+  const activeLedger = hasObservationLedgerContent(ledger)
     ? ledger
-    : fallbackObservationLedger(taskFrame, issueProposal, roundtable, ledger);
+    : emptyObservationLedger();
   const handlers = streamOpts(onPartial);
   const sys = `你是 ParallelMe v1.0 的书记员。五声会谈之后，你要通过苏格拉底式诘问与黑格尔式正反合，完成最终确认，为「本心落定」做准备。
 
@@ -2884,7 +2650,6 @@ export async function generateAlignmentReport(
   runtime?: LlmRuntime,
   onPartial?: StreamHandlerArg,
 ): Promise<AlignmentReport> {
-  const fallback = fallbackAlignmentReport(taskFrame, issueProposal, ledger, alignmentProfile);
   const handlers = streamOpts(onPartial);
   const sys = `你是 ParallelMe v1.0 的书记员。请基于本次议题、观察账本和最终问询答案，生成用户可见的「本心落定」。
 
@@ -2945,7 +2710,7 @@ ${scribePersonaBlock("settlement")}
     runtime,
   );
   handlers.onPartial?.(draft);
-  return normalizeAlignmentReport(draft as any, fallback);
+  return normalizeAlignmentReport(draft);
 }
 
 export interface TasteInput {
@@ -2984,549 +2749,97 @@ export async function extractTasteProfile(
   }
 }
 
-function normalizeTaskFrameResult(
-  parsed: any,
-  rawInput: string,
-  choiceAnswers: ChoiceAnswer[],
-  fallback: TaskFrameResult,
-): TaskFrameResult {
-  const cards = normalizeChoiceCards(parsed.choiceCards || parsed.choice_cards, fallback.choiceCards);
-  const tf = parsed.taskFrame || parsed.task_frame || parsed;
-  const visible = normalizeVisibleTaskFrame(tf?.visible, fallback.taskFrame.visible);
-  const sourceLabels = tf?.internal?.source_labels || fallback.taskFrame.internal.source_labels;
-  return {
-    choiceCards: cards,
-    taskFrame: {
-      visible,
-      internal: {
-        facts: Array.isArray(tf?.internal?.facts)
-          ? tf.internal.facts
-          : [{ key: "raw_input", value: rawInput.slice(0, 180), evidence_status: "raw_explicit", source: "raw_input" }],
-        parties: Array.isArray(tf?.internal?.parties) ? tf.internal.parties : fallback.taskFrame.internal.parties,
-        options: Array.isArray(tf?.internal?.options) ? tf.internal.options : fallback.taskFrame.internal.options,
-        state_tags: {
-          clarity: safeEnum(tf?.internal?.state_tags?.clarity, ["low", "medium", "high"], fallback.taskFrame.internal.state_tags.clarity),
-          decision_readiness: safeEnum(
-            tf?.internal?.state_tags?.decision_readiness,
-            ["exploring", "leaning", "testing", "not_ready"],
-            fallback.taskFrame.internal.state_tags.decision_readiness,
-          ),
-          urgency: safeEnum(tf?.internal?.state_tags?.urgency, ["low", "medium", "high"], fallback.taskFrame.internal.state_tags.urgency),
-          emotional_charge: safeEnum(
-            tf?.internal?.state_tags?.emotional_charge,
-            ["low", "medium", "high"],
-            fallback.taskFrame.internal.state_tags.emotional_charge,
-          ),
-        },
-        value_axes: Array.isArray(tf?.internal?.value_axes) ? tf.internal.value_axes : fallback.taskFrame.internal.value_axes,
-        pressure_sources: Array.isArray(tf?.internal?.pressure_sources)
-          ? tf.internal.pressure_sources
-          : fallback.taskFrame.internal.pressure_sources,
-        concern_notes: Array.isArray(tf?.internal?.concern_notes) ? tf.internal.concern_notes : fallback.taskFrame.internal.concern_notes,
-        source_labels: sourceLabels,
-        choice_answers: choiceAnswers,
-      },
-    },
-  };
-}
-
-function normalizeChoiceCards(input: any, fallback: ChoiceCard[]): ChoiceCard[] {
-  const cards = Array.isArray(input) ? input : [];
-  const normalized = cards
-    .slice(0, 4)
-    .map((card: any, i: number) => {
-      const options = Array.isArray(card.options) ? card.options : [];
-      const normalizedOptions = options
-        .slice(0, 5)
-        .map((o: any, j: number) => ({
-          id: String(o.id || `option_${j + 1}`),
-          label: String(o.label || o.text || "").trim(),
-          derived_kv: typeof o.derived_kv === "object" && o.derived_kv ? o.derived_kv : undefined,
-        }))
-        .filter((o: ChoiceCard["options"][number]) => o.label);
-      const hasCustom = normalizedOptions.some((o: ChoiceCard["options"][number]) => /不准|自己|补/.test(o.label));
-      if (!hasCustom) normalizedOptions.push({ id: "custom", label: "都不准，我补一句", derived_kv: { user_precision: "custom" } });
-      return {
-        id: String(card.id || `card_${i + 1}`),
-        question: String(card.question || "").trim(),
-        options: normalizedOptions,
-      };
-    })
-    .filter((c: ChoiceCard) => c.question && c.options.length >= 2);
-  return normalized.length ? normalized : fallback;
-}
-
-function normalizeVisibleTaskFrame(input: any, fallback: VisibleTaskFrame): VisibleTaskFrame {
-  return {
-    problem_definition: stringOr(input?.problem_definition, fallback.problem_definition),
-    current_state: stringOr(input?.current_state, fallback.current_state),
-    key_facts: stringArrayOr(input?.key_facts, fallback.key_facts),
-    main_choices: stringArrayOr(input?.main_choices, fallback.main_choices),
-    core_conflict: stringOr(input?.core_conflict, fallback.core_conflict),
-    central_question: stringOr(input?.central_question, fallback.central_question),
-    main_concerns: stringArrayOr(input?.main_concerns, fallback.main_concerns),
-    discussion_focus: stringOr(input?.discussion_focus, fallback.discussion_focus),
-  };
-}
-
-function normalizeOpeningTurn(vid: VoiceId, source: any, at: number): VoiceOpeningTurn {
-  const fallback = fallbackOpeningPayload(vid);
+function normalizeOpeningTurn(
+  vid: VoiceId,
+  source: ValidatedStrictVoiceOpeningPayloadResult,
+  at: number,
+): VoiceOpeningTurn {
   return {
     id: id("open"),
     voice_id: vid,
     name: voiceName(vid),
-    thesis: stringOr(source?.thesis, fallback.thesis),
-    protected_value: stringOr(source?.protected_value, fallback.protected_value),
-    concern: stringOr(source?.concern, fallback.concern),
-    task_evidence: stringOr(source?.task_evidence, fallback.task_evidence),
-    pull: stringOr(source?.pull, fallback.pull),
+    thesis: source.thesis.trim(),
+    protected_value: source.protected_value.trim(),
+    concern: source.concern.trim(),
+    task_evidence: source.task_evidence.trim(),
+    pull: source.pull.trim(),
     at,
   };
 }
 
-function normalizeObservationLedger(parsed: any, fallback: ScribeObservationLedger): ScribeObservationLedger {
-  const base = parsed && typeof parsed === "object" ? parsed : {};
-  const observations = Array.isArray(base.observations)
-    ? base.observations
-        .slice(-12)
-        .map((o: any, i: number) => ({
-          id: String(o.id || `obs_${i + 1}`),
-          round_index: typeof o.round_index === "number" ? o.round_index : undefined,
-          trigger: String(o.trigger || "summary") as any,
-          observation: String(o.observation || "").trim(),
-          attribution: String(o.attribution || "").trim(),
-          module: safeEnum(
-            o.module,
-            ["creative_hopelessness", "core_values", "cost_acceptance", "minimum_action", "none"],
-            "none",
-          ) as ScribeObservationLedger["observations"][number]["module"],
-          evidence: stringArrayOr(o.evidence, []),
-          at: typeof o.at === "number" ? o.at : Date.now(),
-        }))
-        .filter((o: ScribeObservationLedger["observations"][number]) => o.observation)
-    : fallback.observations;
-
-  const unanswered = Array.isArray(base.unanswered_questions)
-    ? base.unanswered_questions
-        .slice(0, 8)
-        .map((q: any, i: number) => ({
-          id: String(q.id || `unanswered_${i + 1}`),
-          from_voice_id: isVoiceId(String(q.from_voice_id || "")) ? String(q.from_voice_id) as VoiceId : undefined,
-          from_name: q.from_name ? String(q.from_name) : undefined,
-          question: String(q.question || "").trim(),
-          why_it_matters: String(q.why_it_matters || "").trim(),
-          at: typeof q.at === "number" ? q.at : undefined,
-        }))
-        .filter((q: ScribeObservationLedger["unanswered_questions"][number]) => q.question)
-    : fallback.unanswered_questions;
-
-  const signals = base.module_signals || {};
+function normalizeObservationLedger(parsed: ValidatedStrictScribeObservationLedger): ScribeObservationLedger {
+  const now = Date.now();
   return {
-    observations: observations.length ? observations : fallback.observations,
-    unanswered_questions: unanswered,
+    observations: parsed.observations.map((observation) => ({
+      id: observation.id,
+      round_index: observation.round_index,
+      trigger: observation.trigger as ScribeObservationLedger["observations"][number]["trigger"],
+      observation: observation.observation.trim(),
+      attribution: observation.attribution.trim(),
+      module: observation.module,
+      evidence: observation.evidence.map((item) => item.trim()),
+      at: observation.at ?? now,
+    })),
+    unanswered_questions: parsed.unanswered_questions.map((question) => ({
+      id: question.id,
+      from_voice_id: question.from_voice_id,
+      from_name: question.from_name,
+      question: question.question.trim(),
+      why_it_matters: question.why_it_matters.trim(),
+      at: question.at,
+    })),
     module_signals: {
-      creative_hopelessness: stringArrayOr(signals.creative_hopelessness, fallback.module_signals.creative_hopelessness).slice(0, 8),
-      core_values: stringArrayOr(signals.core_values, fallback.module_signals.core_values).slice(0, 8),
-      cost_acceptance: stringArrayOr(signals.cost_acceptance, fallback.module_signals.cost_acceptance).slice(0, 8),
-      minimum_action: stringArrayOr(signals.minimum_action, fallback.module_signals.minimum_action).slice(0, 8),
+      creative_hopelessness: parsed.module_signals.creative_hopelessness.map((item) => item.trim()),
+      core_values: parsed.module_signals.core_values.map((item) => item.trim()),
+      cost_acceptance: parsed.module_signals.cost_acceptance.map((item) => item.trim()),
+      minimum_action: parsed.module_signals.minimum_action.map((item) => item.trim()),
     },
-    updated_at: typeof base.updated_at === "number" ? base.updated_at : Date.now(),
+    updated_at: parsed.updated_at ?? now,
   };
 }
 
-function normalizeAlignmentInquiry(
-  parsed: any,
-  fallback: InquiryResult,
-  ledger: ScribeObservationLedger,
-  previousQuestions: ScribeInquiryQuestion[] = [],
-): InquiryResult {
-  const previousTexts = previousQuestions.map((question) => question.question);
-  const seenTexts: string[] = [];
-  const questions = Array.isArray(parsed.questions)
-    ? parsed.questions
-        .slice(0, 3)
-        .map((q: any, i: number) => ({
-          id: String(q.id || `inquiry_${i + 1}`),
-          question: String(q.question || "").trim(),
-          options: (Array.isArray(q.options) ? q.options : [])
-            .slice(0, 5)
-            .map((o: any, j: number) => ({
-              id: String(o.id || `option_${j + 1}`),
-              label: String(o.label || "").trim(),
-              meaning: o.meaning ? String(o.meaning) : undefined,
-            }))
-            .filter((o: any) => o.label),
-        }))
-        .filter((q: ScribeInquiryQuestion) => {
-          if (!q.question || q.options.length < 2) return false;
-          if (previousTexts.some((text) => areSimilarQuestions(text, q.question))) return false;
-          if (seenTexts.some((text) => areSimilarQuestions(text, q.question))) return false;
-          seenTexts.push(q.question);
-          return true;
-        })
-    : [];
-  const fallbackQuestions = fallback.questions
-    .filter((q) => !previousTexts.some((text) => areSimilarQuestions(text, q.question)))
-    .slice(0, 3);
-  const normalizedQuestions = questions.length ? questions : fallbackQuestions;
-  for (const q of normalizedQuestions) {
-    if (!q.options.some((o: ScribeInquiryQuestion["options"][number]) => /不准|自己|补/.test(o.label)) && q.options.length >= 4) {
-      q.options.splice(3, q.options.length - 3, { id: "custom", label: "都不准，我自己说" });
-    } else if (!q.options.some((o: ScribeInquiryQuestion["options"][number]) => /不准|自己|补/.test(o.label))) {
-      q.options.push({ id: "custom", label: "都不准，我自己说" });
-    }
-    q.options = q.options.slice(0, 4);
-  }
-  const ready = fallback.readyForReport;
-  return {
-    questions: ready ? [] : normalizedQuestions,
-    readyForReport: ready,
-    alignmentProfile: normalizeAlignmentProfile(parsed.alignmentProfile || parsed.alignment_profile, fallback.alignmentProfile),
-    ledger,
-    confidence: typeof parsed.confidence === "number" ? parsed.confidence : fallback.confidence,
-    missingModules: Array.isArray(parsed.missing_modules) ? parsed.missing_modules : fallback.missingModules,
-  };
-}
-
-function normalizeAlignmentProfile(input: any, fallback: AlignmentProfile): AlignmentProfile {
+function normalizeAlignmentProfile(input: any, defaults: AlignmentProfile): AlignmentProfile {
   const offended = Array.isArray(input?.offended_voices)
     ? input.offended_voices.filter((id: any) => isVoiceId(String(id))).map((id: any) => String(id) as VoiceId)
-    : fallback.offended_voices;
+    : defaults.offended_voices;
   return {
-    falsified_fantasy: stringOr(input?.falsified_fantasy, fallback.falsified_fantasy),
-    core_value_axis: stringOr(input?.core_value_axis, fallback.core_value_axis),
+    falsified_fantasy: stringOr(input?.falsified_fantasy, defaults.falsified_fantasy),
+    core_value_axis: stringOr(input?.core_value_axis, defaults.core_value_axis),
     offended_voices: offended,
-    accepted_costs: stringArrayOr(input?.accepted_costs, fallback.accepted_costs),
-    refused_costs: stringArrayOr(input?.refused_costs, fallback.refused_costs),
-    unresolved_tensions: stringArrayOr(input?.unresolved_tensions, fallback.unresolved_tensions),
+    accepted_costs: stringArrayOr(input?.accepted_costs, defaults.accepted_costs),
+    refused_costs: stringArrayOr(input?.refused_costs, defaults.refused_costs),
+    unresolved_tensions: stringArrayOr(input?.unresolved_tensions, defaults.unresolved_tensions),
     hegelian_synthesis: {
-      thesis: stringOr(input?.hegelian_synthesis?.thesis, fallback.hegelian_synthesis.thesis),
-      antithesis: stringOr(input?.hegelian_synthesis?.antithesis, fallback.hegelian_synthesis.antithesis),
-      synthesis: stringOr(input?.hegelian_synthesis?.synthesis, fallback.hegelian_synthesis.synthesis),
+      thesis: stringOr(input?.hegelian_synthesis?.thesis, defaults.hegelian_synthesis.thesis),
+      antithesis: stringOr(input?.hegelian_synthesis?.antithesis, defaults.hegelian_synthesis.antithesis),
+      synthesis: stringOr(input?.hegelian_synthesis?.synthesis, defaults.hegelian_synthesis.synthesis),
     },
-    user_self_statements: stringArrayOr(input?.user_self_statements, fallback.user_self_statements),
+    user_self_statements: stringArrayOr(input?.user_self_statements, defaults.user_self_statements),
   };
 }
 
-function normalizeAlignmentReport(input: any, fallback: AlignmentReport): AlignmentReport {
-  const oldCosts = Array.isArray(input?.cost_acceptance_contract?.accepted_costs)
-    ? input.cost_acceptance_contract.accepted_costs
-        .slice(0, 5)
-        .map((c: any) => {
-          const voice = isVoiceId(String(c.voice_id || "")) ? `${voiceName(String(c.voice_id) as VoiceId)}：` : "";
-          const cost = String(c.cost || "").trim();
-          const pain = String(c.pain || "").trim();
-          return `${voice}${cost}${pain ? `；${pain}` : ""}`;
-        })
-        .filter(Boolean)
-    : [];
-  const oldActions = Array.isArray(input?.minimum_viable_commitment?.actions)
-    ? input.minimum_viable_commitment.actions
-        .slice(0, 2)
-        .map((a: any) => {
-          const deadline = String(a.deadline || "").trim();
-          const action = String(a.action || "").trim();
-          const criteria = String(a.acceptance_criteria || "").trim();
-          return [deadline, action].filter(Boolean).join("：") + (criteria ? `\n完成标准：${criteria}` : "");
-        })
-        .filter(Boolean)
-    : [];
+function normalizeAlignmentReport(input: ValidatedStrictAlignmentReport): AlignmentReport {
   return {
-    creative_hopelessness: normalizeSettlementModule(
-      input?.creative_hopelessness,
-      fallback.creative_hopelessness,
-      "创造性无望宣判",
-      [input?.creative_hopelessness?.verdict, input?.creative_hopelessness?.falsified_coordinate].filter(Boolean).join("\n"),
-    ),
-    core_value_axis: normalizeSettlementModule(
-      input?.core_value_axis,
-      fallback.core_value_axis,
-      "核心价值主轴提取",
-      [input?.core_value_axis?.primary_vector, input?.core_value_axis?.decision_rule].filter(Boolean).join("\n"),
-    ),
-    cost_acceptance_contract: normalizeSettlementModule(
-      input?.cost_acceptance_contract,
-      fallback.cost_acceptance_contract,
-      "痛苦接纳契约",
-      [input?.cost_acceptance_contract?.contract_sentence, ...oldCosts].filter(Boolean).join("\n"),
-    ),
-    minimum_viable_commitment: normalizeSettlementModule(
-      input?.minimum_viable_commitment,
-      fallback.minimum_viable_commitment,
-      "最小阻力行动承诺",
-      oldActions.join("\n"),
-    ),
+    creative_hopelessness: normalizeSettlementModule(input.creative_hopelessness),
+    core_value_axis: normalizeSettlementModule(input.core_value_axis),
+    cost_acceptance_contract: normalizeSettlementModule(input.cost_acceptance_contract),
+    minimum_viable_commitment: normalizeSettlementModule(input.minimum_viable_commitment),
     dialectic_synthesis: {
-      thesis: stringOr(input?.dialectic_synthesis?.thesis, fallback.dialectic_synthesis.thesis),
-      antithesis: stringOr(input?.dialectic_synthesis?.antithesis, fallback.dialectic_synthesis.antithesis),
-      synthesis: stringOr(input?.dialectic_synthesis?.synthesis || input?.clarity_sentence, fallback.dialectic_synthesis.synthesis),
-      user_revision: typeof input?.dialectic_synthesis?.user_revision === "string"
-        ? input.dialectic_synthesis.user_revision
-        : undefined,
+      thesis: input.dialectic_synthesis.thesis.trim(),
+      antithesis: input.dialectic_synthesis.antithesis.trim(),
+      synthesis: input.dialectic_synthesis.synthesis.trim(),
     },
   };
 }
 
 function normalizeSettlementModule(
-  input: any,
-  fallback: AlignmentReport["creative_hopelessness"],
-  title: string,
-  oldReport = "",
+  input: ValidatedStrictAlignmentReport["creative_hopelessness"],
 ): AlignmentReport["creative_hopelessness"] {
-  const status = input?.user_feedback?.status === "agree" || input?.user_feedback?.status === "disagree"
-    ? input.user_feedback.status
-    : undefined;
-  const userText = typeof input?.user_feedback?.user_text === "string"
-    ? input.user_feedback.user_text.trim()
-    : "";
   return {
-    title: stringOr(input?.title, fallback.title || title),
-    report: stringOr(input?.report || oldReport, fallback.report),
-    evidence: stringArrayOr(input?.evidence, fallback.evidence || []),
-    user_feedback: status
-      ? {
-          status,
-          user_text: userText || undefined,
-        }
-      : fallback.user_feedback,
+    title: input.title.trim(),
+    report: input.report.trim(),
+    evidence: input.evidence.map((item) => item.trim()),
   };
-}
-
-function fallbackTaskFrame(rawInput: string, choiceAnswers: ChoiceAnswer[]): TaskFrameResult {
-  const topic = classifyTopic(rawInput + " " + choiceAnswers.map((a) => a.custom_text || a.selected_label).join(" "));
-  const presets: Record<Topic, { conflict: string; question: string; focus: string; concerns: string[] }> = {
-    career: {
-      conflict: "现实路径、收入安全与自我消耗之间的拉扯。",
-      question: "我能不能不靠硬撑来证明自己选得对。",
-      focus: "这场圆桌先讨论：这一步到底在保护未来，还是在透支现在。",
-      concerns: ["收入与退路", "身体消耗", "长期方向", "他人期待"],
-    },
-    relationship: {
-      conflict: "亲密、承诺、自主和真实感之间的拉扯。",
-      question: "我是不是在用拖延保护一句还没说出口的真话。",
-      focus: "这场圆桌先讨论：我想靠近什么，又在怕什么被固定下来。",
-      concerns: ["承诺压力", "真实表达", "关系代价", "未来生活"],
-    },
-    family: {
-      conflict: "亲近关系的安心与自己的边界之间的拉扯。",
-      question: "我能不能回应他们，同时不把决定权交出去。",
-      focus: "这场圆桌先讨论：哪些是责任，哪些只是亏欠感在替我说话。",
-      concerns: ["家人期待", "自己的边界", "解释疲惫", "选择后果"],
-    },
-    money: {
-      conflict: "现金流、自由感、风险承受和安全感之间的拉扯。",
-      question: "我是不是在让钱替我回答一个更大的问题。",
-      focus: "这场圆桌先讨论：现实底盘要守到哪里，才不压扁别的价值。",
-      concerns: ["收入波动", "机会成本", "退路", "安全感"],
-    },
-    lifestyle: {
-      conflict: "恢复、出走、责任和长期连续性之间的拉扯。",
-      question: "我想逃离的是一个地点，还是一种把我耗空的生活方式。",
-      focus: "这场圆桌先讨论：我真正想换掉的是什么。",
-      concerns: ["身体信号", "生活半径", "自由感", "现实约束"],
-    },
-    general: {
-      conflict: "几个重要价值同时拉住你，但还没有被摊开。",
-      question: "我能不能先看清自己在保护什么，而不是急着给答案。",
-      focus: "这场圆桌先讨论：这份困惑背后，哪个需要一直没被好好听见。",
-      concerns: ["真实需要", "现实限制", "关系牵动", "下一步代价"],
-    },
-  };
-  const p = presets[topic];
-  const choiceText = choiceAnswers.map((a) => a.custom_text || a.selected_label).filter(Boolean);
-  const visible: VisibleTaskFrame = {
-    problem_definition: `你现在卡住的不是单一选择，而是：${p.conflict}`,
-    current_state: "你还不需要立刻做最终决定，更像是在确认自己真正抗拒什么、在乎什么。",
-    key_facts: [rawInput.slice(0, 140), ...choiceText.slice(0, 2)].filter(Boolean),
-    main_choices: ["继续沿当前路径走", "调整方向或关系位置", "暂时不定论，先把卡点说清楚"],
-    core_conflict: p.conflict,
-    central_question: p.question,
-    main_concerns: p.concerns,
-    discussion_focus: p.focus,
-  };
-  return {
-    choiceCards: fallbackChoiceCards(topic),
-    taskFrame: {
-      visible,
-      internal: {
-        facts: [{ key: "raw_input", value: rawInput.slice(0, 180), evidence_status: "raw_explicit", source: "raw_input" }],
-        parties: [],
-        options: visible.main_choices.map((label, i) => ({ key: `option_${i + 1}`, label, evidence_status: "model_inferred" })),
-        state_tags: { clarity: "medium", decision_readiness: "exploring", urgency: "medium", emotional_charge: "medium" },
-        value_axes: [{ key: "main_conflict", side_a: p.concerns[0], side_b: p.concerns[1] || "另一个重要价值", evidence_status: "model_inferred" }],
-        pressure_sources: [],
-        concern_notes: p.concerns.map((text, i) => ({ key: `concern_${i + 1}`, text, evidence_status: "model_inferred" })),
-        source_labels: {
-          problem_definition: "我猜的",
-          current_state: "我猜的",
-          key_facts: "读出",
-          main_choices: "我猜的",
-          core_conflict: "我猜的",
-          central_question: "我猜的",
-          main_concerns: "我猜的",
-          discussion_focus: "我猜的",
-        },
-        choice_answers: choiceAnswers,
-      },
-    },
-  };
-}
-
-function fallbackChoiceCards(topic: Topic): ChoiceCard[] {
-  const common: ChoiceCard[] = [
-    {
-      id: "stuck_point",
-      question: "这件事里，最让你卡住的是哪一层？",
-      options: [
-        { id: "reality", label: "现实代价太硬，我不敢轻易动", derived_kv: { pressure_type: "reality_cost" } },
-        { id: "relationship", label: "关系会被牵动，我怕伤到人", derived_kv: { pressure_type: "relationship" } },
-        { id: "self_betrayal", label: "我怕选了以后不像自己", derived_kv: { pressure_type: "self_betrayal" } },
-        { id: "custom", label: "都不准，我补一句", derived_kv: { user_precision: "custom" } },
-      ],
-    },
-    {
-      id: "desired_protection",
-      question: "如果先只保护一个东西，你最想先保护什么？",
-      options: [
-        { id: "energy", label: "先保护精力和身体，不继续硬撑", derived_kv: { primary_value: "energy" } },
-        { id: "choice", label: "先保护选择权和现实退路", derived_kv: { primary_value: "choice" } },
-        { id: "relationship", label: "先保护重要关系不被撕裂", derived_kv: { primary_value: "relationship" } },
-        { id: "custom", label: "都不准，我补一句", derived_kv: { user_precision: "custom" } },
-      ],
-    },
-  ];
-  if (topic === "family") {
-    common.push({
-      id: "family_meaning",
-      question: "家人或亲近的人在这里更像什么？",
-      options: [
-        { id: "support", label: "他们在担心我，只是表达让我有压力", derived_kv: { family_meaning: "support_with_pressure" } },
-        { id: "decision_pressure", label: "他们的期待正在替我做决定", derived_kv: { family_meaning: "decision_pressure" } },
-        { id: "love_and_debt", label: "我分不清爱、责任和亏欠", derived_kv: { family_meaning: "love_debt_mix" } },
-        { id: "custom", label: "都不准，我补一句", derived_kv: { user_precision: "custom" } },
-      ],
-    });
-  }
-  return common;
-}
-
-function fallbackOpeningTurns(taskFrame: TaskFrame): VoiceOpeningTurn[] {
-  const now = Date.now();
-  return VOICE_IDS.map((vid, i) => normalizeOpeningTurn(vid, fallbackOpeningPayload(vid, taskFrame), now + i));
-}
-
-function fallbackOpeningPayload(vid: VoiceId, taskFrame?: TaskFrame): VoiceOpeningPayload {
-  const focus = taskFrame?.visible.discussion_focus || "这件事先别急着下结论。";
-  const map: Record<VoiceId, VoiceOpeningPayload> = {
-    lay: {
-      thesis: "过载正在吞掉你的判断力。",
-      protected_value: "身心健康与神经系统",
-      concern: "短期成就感会被放下。",
-      task_evidence: focus.slice(0, 34),
-      pull: "先停止加码，睡一觉再回看。",
-    },
-    money: {
-      thesis: "现金流不足会放大恐惧。",
-      protected_value: "生存底线与选择权",
-      concern: "理想主义要先被标价。",
-      task_evidence: focus.slice(0, 34),
-      pull: "先算清安全垫和机会成本。",
-    },
-    roam: {
-      thesis: "现有轨道压住了生命力。",
-      protected_value: "自由与真实性",
-      concern: "要承受试错和失败。",
-      task_evidence: focus.slice(0, 34),
-      pull: "给自己留一个真实出口。",
-    },
-    filial: {
-      thesis: "选择会牵动重要关系。",
-      protected_value: "家庭连接与责任",
-      concern: "不能享有绝对自由。",
-      task_evidence: focus.slice(0, 34),
-      pull: "先和关键的人说清楚。",
-    },
-    future: {
-      thesis: "当下情绪遮住了长期路。",
-      protected_value: "未来连续性",
-      concern: "要忍受慢反馈和孤独。",
-      task_evidence: focus.slice(0, 34),
-      pull: "把选择放进五年后回看。",
-    },
-  };
-  return map[vid];
-}
-
-function fallbackRoundtableMove(input: RoundtableMoveInput): RoundtableMoveResult {
-  const at = Date.now();
-  const roundIndex = roundIndexForMove(input);
-  const move: RoundtableMove = {
-    id: id("move"),
-    type: input.moveType,
-    target_voice_id: input.targetVoiceId,
-    from_voice_id: input.fromVoiceId,
-    to_voice_id: input.toVoiceId,
-    user_text: input.userText,
-    at,
-  };
-
-  if (input.moveType === "duel" && input.fromVoiceId && input.toVoiceId) {
-    return {
-      move,
-      turns: [
-        {
-          id: id("turn"),
-          move_id: move.id,
-          trigger: "duel",
-          duel: {
-            from_voice_id: input.fromVoiceId,
-            from_name: voiceName(input.fromVoiceId),
-            to_voice_id: input.toVoiceId,
-            to_name: voiceName(input.toVoiceId),
-            question: `${voiceName(input.toVoiceId)}，如果只听你，什么代价会被你轻轻放过去？`,
-            response: `我承认有代价，但我守的是${SELVES[input.toVoiceId].core_value}。`,
-          },
-          round_index: roundIndex,
-          at,
-        },
-      ],
-    };
-  }
-
-  const voices =
-    input.moveType === "continue_all" || input.moveType === "user_to_table"
-      ? VOICE_IDS
-      : input.targetVoiceId
-        ? [input.targetVoiceId]
-        : ["future" as VoiceId];
-  return {
-    move,
-    turns: voices.map((vid) => ({
-      id: id("turn"),
-      move_id: move.id,
-      trigger: input.moveType,
-      voice_id: vid,
-      name: voiceName(vid),
-      text: fallbackContinuationText(vid, input),
-      user_text: input.userText,
-      round_index: roundIndex,
-      is_parallel_batch:
-        input.moveType === "continue_all" || input.moveType === "user_to_table" || undefined,
-      at,
-    })),
-  };
-}
-
-function fallbackContinuationText(vid: VoiceId, input: RoundtableMoveInput): string {
-  const prefix = input.userText ? `听见你说“${input.userText.slice(0, 30)}”，` : "";
-  const map: Record<VoiceId, string> = {
-    lay: `${prefix}我还是想问：你有没有把累当成不够努力？先让身体回来，判断才会准。`,
-    money: `${prefix}我需要你把代价摊开。不是为了吓自己，是为了别用模糊恐惧替代真实数字。`,
-    roam: `${prefix}我在意的是出口。如果现在这条路让你越来越不像活着，就要承认出口的价值。`,
-    filial: `${prefix}我不想让关系替你决定，但也别把牵挂当噪音。有人会被这一步牵动。`,
-    future: `${prefix}我会把这件事放远一点：五年后你更怕后悔没走，还是后悔没照顾好自己？`,
-  };
-  return map[vid];
 }
 
 function emptyObservationLedger(): ScribeObservationLedger {
@@ -3543,56 +2856,17 @@ function emptyObservationLedger(): ScribeObservationLedger {
   };
 }
 
-function fallbackObservationLedger(
-  taskFrame: TaskFrame,
-  issueProposal: IssueProposal | undefined,
-  roundtable: RoundtableRecord,
-  previousLedger?: ScribeObservationLedger | null,
-): ScribeObservationLedger {
-  const issue = compactRoundtableBrief(taskFrame, issueProposal);
-  const previous = previousLedger || emptyObservationLedger();
-  const now = Date.now();
-  const unanswered = roundtable.turns
-    .filter((t) => t.duel?.question || /[？?]/.test(t.text || ""))
-    .slice(-5)
-    .map((t, i) => ({
-      id: `unanswered_${now}_${i}`,
-      from_voice_id: t.voice_id,
-      from_name: t.name,
-      question: t.duel?.question || t.text || "",
-      why_it_matters: "这句话可能关系到用户最终愿意认领哪一种痛苦。",
-      at: t.at,
-    }));
-  const observations = previous.observations.length
-    ? previous.observations
-    : [
-        {
-          id: `obs_${now}`,
-          trigger: "summary" as const,
-          observation: "本轮只形成了基础议题线索，还需要最终问询确认。",
-          attribution: "目前不能强行归因，只能把选择岔路和代价先放在桌面上。",
-          module: "none" as const,
-          evidence: [issue],
-          at: now,
-        },
-      ];
-  return {
-    observations,
-    unanswered_questions: previous.unanswered_questions.length ? previous.unanswered_questions : unanswered,
-    module_signals: {
-      creative_hopelessness: previous.module_signals.creative_hopelessness.length
-        ? previous.module_signals.creative_hopelessness
-        : [taskFrame.visible.core_conflict].filter(Boolean),
-      core_values: previous.module_signals.core_values.length
-        ? previous.module_signals.core_values
-        : [taskFrame.visible.central_question].filter(Boolean),
-      cost_acceptance: previous.module_signals.cost_acceptance.length
-        ? previous.module_signals.cost_acceptance
-        : taskFrame.visible.main_concerns.slice(0, 3),
-      minimum_action: previous.module_signals.minimum_action,
-    },
-    updated_at: now,
-  };
+function hasObservationLedgerContent(
+  ledger?: ScribeObservationLedger | null,
+): ledger is ScribeObservationLedger {
+  return Boolean(
+    ledger
+    && (
+      ledger.observations.length
+      || ledger.unanswered_questions.length
+      || Object.values(ledger.module_signals).some((signals) => signals.length)
+    ),
+  );
 }
 
 type InquiryModule =
@@ -3717,61 +2991,15 @@ function inquiryQuestionId(module: InquiryModule, text: string): string {
   return `inquiry_${module}_${hashText(text)}`;
 }
 
-function fallbackAlignmentReport(
-  taskFrame: TaskFrame,
-  issueProposal: IssueProposal | undefined,
-  ledger: ScribeObservationLedger,
-  alignmentProfile: AlignmentProfile,
-): AlignmentReport {
-  const firstAction = issueProposal?.current_constraints.details[0] || "写下一个 24 小时内可验证的小事实";
-  const primary = alignmentProfile.core_value_axis || ledger.module_signals.core_values[0] || taskFrame.visible.central_question;
-  const fantasy = alignmentProfile.falsified_fantasy || ledger.module_signals.creative_hopelessness[0] || taskFrame.visible.core_conflict;
-  const acceptedCosts = (alignmentProfile.accepted_costs.length ? alignmentProfile.accepted_costs : taskFrame.visible.main_concerns)
-    .slice(0, 3);
-  return {
-    creative_hopelessness: {
-      title: "创造性无望宣判",
-      report: `这个幻想被证伪了：${fantasy}。继续寻找一条完全不需要代价、却能同时满足所有声音的路，只会把真正需要面对的选择推迟到下一轮内耗里。`,
-      evidence: ledger.observations.slice(0, 3).map((o) => o.observation),
-    },
-    core_value_axis: {
-      title: "核心价值主轴提取",
-      report: `此刻最需要被优先服务的主轴是：${primary}。接下来的判断先服务这个主轴；不能增加它、反而只是在拖延承认现实的事情，先降级。`,
-      evidence: (alignmentProfile.refused_costs.length
-        ? alignmentProfile.refused_costs
-        : taskFrame.visible.main_concerns.slice(0, 3)),
-    },
-    cost_acceptance_contract: {
-      title: "痛苦接纳契约",
-      report: `我同意：为了走向第一主轴，我愿意让一部分声音暂时不被完整安抚。${acceptedCosts.join("；")}。我承认这部分会不舒服，但不再让它偷偷替我否决主轴。`,
-      evidence: acceptedCosts,
-    },
-    minimum_viable_commitment: {
-      title: "最小阻力行动承诺",
-      report: `今晚 24:00 前：${firstAction}。完成标准：留下一个可回看的文档、清单或数字结果，而不是只在脑子里想过。`,
-      evidence: [firstAction],
-    },
-    dialectic_synthesis: {
-      thesis: primary,
-      antithesis: fantasy,
-      synthesis: `本心是：我先承认“${fantasy}”这条完美路不存在，再用一个小动作服务“${primary}”。`,
-    },
-  };
-}
-
-function stringOr(value: any, fallback: string): string {
+function stringOr(value: any, defaultValue: string): string {
   const s = typeof value === "string" ? value.trim() : "";
-  return s || fallback;
+  return s || defaultValue;
 }
 
-function stringArrayOr(value: any, fallback: string[]): string[] {
-  if (!Array.isArray(value)) return fallback;
+function stringArrayOr(value: any, defaultValue: string[]): string[] {
+  if (!Array.isArray(value)) return defaultValue;
   const arr = value.map((x) => String(x || "").trim()).filter(Boolean);
-  return arr.length ? arr : fallback;
-}
-
-function safeEnum<T extends string>(value: any, allowed: readonly T[], fallback: T): T {
-  return allowed.includes(value) ? value : fallback;
+  return arr.length ? arr : defaultValue;
 }
 
 export function getIntegrationMeta() {

@@ -9,7 +9,6 @@ import {
   generateScribeQuestions,
   generateIssueProposal,
   refineProposal,
-  generateTaskFrame,
   type ContextBundle,
   type LlmRuntime,
 } from "@/lib/llm";
@@ -167,25 +166,10 @@ export async function POST(req: NextRequest) {
     return new Response(stream, { headers: SSE_HEADERS });
   }
 
-  // ─── Fallback: legacy action (backward compat) ───
-  const choiceAnswers = Array.isArray(body.choiceAnswers) ? body.choiceAnswers : [];
-  const stream = scribeEventStream(async (emit) => {
-    emit({ type: "narration", stage: "taskFrame", key: "reading" });
-    emit({ type: "narration", stage: "taskFrame", key: "extractingTension" });
-
-    const result = await generateTaskFrame(
-      rawInput,
-      choiceAnswers,
-      context,
-      llmRuntime,
-      scribeModelStream(emit, "taskFrame"),
-    );
-
-    emit({ type: "narration", stage: "taskFrame", key: "done" });
-    emit({ type: "result", payload: { crisis: false, ...result } });
-    emit({ type: "done" });
-  });
-  return new Response(stream, { headers: SSE_HEADERS });
+  return NextResponse.json(
+    { error: "unknown action. Use probe, propose, or refine." },
+    { status: 400 },
+  );
 }
 
 function sleep(ms: number) {
