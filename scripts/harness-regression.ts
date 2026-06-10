@@ -161,6 +161,13 @@ check("runtime generation paths do not use scripted fallbacks", () => {
   assert.doesNotMatch(storeSource, /fallback_used|保守版本/);
 });
 
+check("legacy generic chat harness stays retired", () => {
+  const llmSource = readFileSync(new URL("../lib/llm.ts", import.meta.url), "utf8");
+
+  assert.doesNotMatch(llmSource, /export async function chat|function chatOnce|interface ChatOpts/);
+  assert.doesNotMatch(llmSource, /onFallback|fallback:\s*T|classifyHttpError|splitAiSdkPrompt/);
+});
+
 check("product docs describe no scripted fallback policy", () => {
   const docs = [
     "../README.md",

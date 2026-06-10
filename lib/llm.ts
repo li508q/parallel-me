@@ -5,7 +5,7 @@
 // Production patterns applied:
 // - Vercel AI SDK for text streaming plus strict object generation via llm-strict
 // - LlmError typed error class with error codes
-// - Exponential backoff retry with rate-limit header respect
+// - Retry/repair loops live in the strict harness instead of ad hoc callers
 // - Schema validation and repair via the shared strict LLM harness
 
 import { generateText, streamText } from "ai";
@@ -83,11 +83,7 @@ import {
   type VoiceOpeningTurn,
 } from "./v7";
 
-// Env defaults for self-host / dev. Per-request override supported via
-// LlmRuntime — local-first provider config for focused LLM endpoints.
-const ENV_API_BASE = process.env.OPENAI_BASE_URL || "https://api.openai.com/v1";
 const ENV_API_KEY = process.env.OPENAI_API_KEY || "";
-const ENV_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
 
 export interface LlmRuntime {
   baseUrl?: string;
@@ -96,20 +92,6 @@ export interface LlmRuntime {
 }
 
 export type Msg = { role: "system" | "user" | "assistant"; content: string };
-
-function splitAiSdkPrompt(messages: Msg[]) {
-  const system = messages
-    .filter((message) => message.role === "system")
-    .map((message) => message.content)
-    .join("\n\n") || undefined;
-  const modelMessages = messages
-    .filter((message) => message.role !== "system")
-    .map((message) => ({
-      role: message.role as "user" | "assistant",
-      content: message.content,
-    }));
-  return { system, messages: modelMessages };
-}
 
 // ─── Error Classification (主流实践: 区分错误类型以支持智能重试) ───
 
@@ -143,40 +125,6 @@ export class LlmError extends Error {
   }
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms));
-}
-
-function classifyHttpError(status: number, body: string, headers?: Headers): LlmError {
-  if (status === 429) {
-    const retryAfter = headers?.get("retry-after-ms")
-      ? Number(headers.get("retry-after-ms"))
-      : headers?.get("retry-after")
-        ? Number(headers.get("retry-after")) * 1000
-        : undefined;
-    return new LlmError(
-      `请求过于频繁，请稍后再试 (429)`,
-      "rate_limit",
-      true,
-      retryAfter || 5000,
-    );
-  }
-  if (status === 401 || status === 403) {
-    return new LlmError(`API Key 无效或已过期 (${status})`, "auth_error", false);
-  }
-  if (status >= 500) {
-    return new LlmError(`模型服务暂时不可用 (${status})`, "server_error", true);
-  }
-  if (status === 400 && /context.*(length|limit|too long|max)/i.test(body)) {
-    return new LlmError(`上下文过长，请缩短输入`, "context_overflow", false);
-  }
-  return new LlmError(
-    `模型请求失败：HTTP ${status} ${body.slice(0, 200)}`,
-    "unknown",
-    status >= 500,
-  );
-}
-
 export interface ContextBundle {
   meCard?: string;
   tasteProfile?: string;
@@ -207,34 +155,11 @@ export interface InquiryResult {
   missingModules?: string[];
 }
 
-function resolveRuntime(rt?: LlmRuntime) {
-  return {
-    apiKey: rt?.apiKey || ENV_API_KEY,
-    baseUrl: rt?.baseUrl || ENV_API_BASE,
-    model: rt?.model || ENV_MODEL,
-  };
-}
-
-// ─── Chat with Retry (主流实践: exponential backoff + rate-limit header) ───
-
-export interface ChatOpts {
-  temperature?: number;
-  max_tokens?: number;
-  json?: boolean;
-  runtime?: LlmRuntime;
-  maxRetries?: number;
-  timeoutMs?: number;
-  onPartial?: (partial: unknown) => void;
-  onToken?: (delta: string) => void;
-  onFallback?: (reason: string) => void;
-}
-
 export interface LlmStreamHandlers {
   onPartial?: (partial: unknown) => void;
   onToken?: (delta: string) => void;
   onReasoning?: (delta: string, meta?: { source?: string; mode?: "native" | "public" }) => void;
   onEvent?: (event: ScribeStreamEvent) => void;
-  onFallback?: (reason: string) => void;
 }
 
 type StreamHandlerArg = ((partial: unknown) => void) | LlmStreamHandlers | undefined;
@@ -245,76 +170,8 @@ function streamOpts(stream?: StreamHandlerArg): LlmStreamHandlers {
   return stream;
 }
 
-/**
- * Single attempt LLM call via Vercel AI SDK — throws typed LlmError on failure.
- */
-async function chatOnce(
-  messages: Msg[],
-  opts?: ChatOpts,
-): Promise<string> {
-  const rt = resolveRuntime(opts?.runtime);
-  if (!rt.apiKey) {
-    throw new LlmError("API Key 未配置。请先在设置页接入真实模型。", "auth_error", false);
-  }
-
-  const { model } = createProvider(opts?.runtime);
-  const timeoutMs = opts?.timeoutMs ?? 60_000;
-
-  try {
-    const prompt = splitAiSdkPrompt(messages);
-    const result = await generateText({
-      model,
-      ...prompt,
-      temperature: opts?.temperature ?? 0.75,
-      maxOutputTokens: opts?.max_tokens ?? 600,
-      abortSignal: AbortSignal.timeout(timeoutMs),
-    });
-
-    const content = result.text?.trim();
-    if (!content) {
-      throw new LlmError("模型返回为空", "empty_response", true);
-    }
-    return content;
-  } catch (err: any) {
-    if (err instanceof LlmError) throw err;
-    if (err?.name === "AbortError" || err?.name === "TimeoutError") {
-      throw new LlmError("请求超时，模型响应过慢", "timeout", true);
-    }
-    // Classify API errors from AI SDK
-    const status = err?.status || err?.statusCode;
-    if (status) {
-      throw classifyHttpError(status, err?.message || "", undefined);
-    }
-    throw new LlmError(`LLM 调用失败：${err?.message || "unknown"}`, "unknown", true);
-  }
-}
-
-/**
- * Production chat function with exponential backoff retry.
- * Respects rate-limit headers, classifies errors, and enforces timeouts.
- */
-export async function chat(
-  messages: Msg[],
-  opts?: ChatOpts,
-): Promise<string> {
-  const maxRetries = opts?.maxRetries ?? 2;
-  let lastError: Error | null = null;
-
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    try {
-      return await chatOnce(messages, opts);
-    } catch (e: any) {
-      lastError = e;
-      if (e instanceof LlmError && e.retryable && attempt < maxRetries) {
-        const delay = e.retryAfterMs ?? Math.min(1000 * 2 ** attempt, 30_000);
-        console.warn(`[chat] attempt ${attempt + 1} failed (${e.code}), retrying in ${delay}ms...`);
-        await sleep(delay);
-        continue;
-      }
-      throw e;
-    }
-  }
-  throw lastError ?? new LlmError("重试耗尽", "unknown", false);
+function hasRuntimeApiKey(runtime?: LlmRuntime): boolean {
+  return Boolean(runtime?.apiKey || ENV_API_KEY);
 }
 
 function buildContextBlock(ctx?: ContextBundle): string {
@@ -1253,8 +1110,7 @@ ${modeInstruction}
 }
 
 async function streamVisibleReasoning(input: VisibleReasoningInput): Promise<string> {
-  const rt = resolveRuntime(input.runtime);
-  if (!rt.apiKey) return "";
+  if (!hasRuntimeApiKey(input.runtime)) return "";
 
   const { model } = createProvider(input.runtime);
 
