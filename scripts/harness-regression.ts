@@ -10,6 +10,7 @@ import {
   StrictAlignmentReportSchema,
   StrictInquiryResultSchema,
   StrictProposalResultSchema,
+  StrictRefineResultSchema,
   StrictScribeObservationLedgerSchema,
   StrictProbeResultSchema,
 } from "../lib/schema.ts";
@@ -233,6 +234,73 @@ check("strict proposal schema rejects placeholders and repeated fear as resoluti
   });
 
   assert.throws(() => validateJsonWithSchema(raw, StrictProposalResultSchema), /schema 校验失败/);
+});
+
+check("strict refine schema accepts update proposal action", () => {
+  const raw = JSON.stringify({
+    schema_version: "proposal_refine_v2",
+    action: "update_proposal",
+    needMoreInfo: false,
+    confidence: 0.82,
+    missing_keys: [],
+    questions: [],
+    proposal: {
+      issue_sentence: "你不是单纯在问要不要辞职读博，而是在确认如何用观察期验证读博是否真的服务主动选择感。",
+      surface_dilemma: {
+        title: "具象化的困惑",
+        content: "一边是立刻把读博当成出路，另一边是先用观察期验证它是否只是逃离业务代码的厌倦。",
+        details: ["立刻读博", "先设观察期", "区分长期主轴与逃离厌倦"],
+      },
+      current_constraints: {
+        title: "真实的处境",
+        content: "父母看重稳定，当前工作仍提供收入和职业惯性，而读博的研究问题、收入变化和关系压力还没有被验证。",
+        details: ["父母看重稳定", "当前工作收入", "读博路径未验证"],
+      },
+      core_fears: {
+        title: "隐秘的关切",
+        content: "真正被触动的是担心继续耗在业务代码里，会越来越不相信自己还能主动选择长期投入的方向。",
+        details: ["主动选择感", "长期投入", "不再相信判断"],
+      },
+      expected_resolution: {
+        title: "渴望的终局",
+        content: "这次圆桌要帮你确定观察期的验证规则：哪些现实信号足以说明读博值得承担稳定和收入的不确定。",
+        details: ["观察期", "验证规则", "现实信号"],
+      },
+    },
+  });
+
+  const parsed = validateJsonWithSchema(raw, StrictRefineResultSchema);
+  assert.equal(parsed.action, "update_proposal");
+  assert.equal(parsed.proposal?.expected_resolution.title, "渴望的终局");
+});
+
+check("strict refine schema rejects contradictory action payloads", () => {
+  const askMoreWithProposal = JSON.stringify({
+    schema_version: "proposal_refine_v2",
+    action: "ask_more",
+    needMoreInfo: false,
+    confidence: 0.91,
+    missing_keys: [],
+    questions: [],
+    proposal: {
+      issue_sentence: "你不是单纯在问职业选择，而是在确认观察期规则是否足够支撑下一步行动。",
+      surface_dilemma: { title: "具象化的困惑", content: "一边继续当前工作，另一边启动读博验证。", details: ["当前工作", "读博验证"] },
+      current_constraints: { title: "真实的处境", content: "父母期待稳定，当前收入仍然重要。", details: ["父母稳定", "当前收入"] },
+      core_fears: { title: "隐秘的关切", content: "担心失去主动选择长期方向的能力。", details: ["主动选择", "长期方向"] },
+      expected_resolution: { title: "渴望的终局", content: "圆桌要验证观察期的判断规则。", details: ["观察期", "判断规则"] },
+    },
+  });
+  const updateWithoutProposal = JSON.stringify({
+    schema_version: "proposal_refine_v2",
+    action: "update_proposal",
+    needMoreInfo: false,
+    confidence: 0.8,
+    missing_keys: [],
+    questions: [],
+  });
+
+  assert.throws(() => validateJsonWithSchema(askMoreWithProposal, StrictRefineResultSchema), /schema 校验失败/);
+  assert.throws(() => validateJsonWithSchema(updateWithoutProposal, StrictRefineResultSchema), /requires proposal/);
 });
 
 check("strict observation ledger schema accepts grounded hidden ledger", () => {

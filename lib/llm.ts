@@ -18,9 +18,9 @@ import {
 } from "./llm-harness";
 
 import {
-  RefineResultSchema,
   StrictAlignmentReportSchema,
   StrictProposalResultSchema,
+  StrictRefineResultSchema,
   StrictScribeObservationLedgerSchema,
   StrictInquiryResultSchema,
   StrictProbeResultSchema,
@@ -29,6 +29,7 @@ import {
   type ValidatedStrictAlignmentReport,
   type ValidatedStrictInquiryResult,
   type ValidatedStrictProposalResult,
+  type ValidatedStrictRefineResult,
   type ValidatedStrictScribeObservationLedger,
   type ValidatedStrictProbeResult,
 } from "./schema";
@@ -1349,6 +1350,23 @@ function generateStrictProposalAttempt(
   });
 }
 
+function generateStrictRefineAttempt(
+  messages: Msg[],
+  runtime: LlmRuntime | undefined,
+): Promise<ValidatedStrictRefineResult> {
+  return generateStrictObjectAttempt({
+    messages,
+    schema: StrictRefineResultSchema,
+    runtime,
+    maxOutputTokens: 1600,
+    missingRuntimeMessage: "模型配置不可用，无法修正议题提案。请先在设置页接入模型。",
+    timeoutMessage: "议题提案修正超时，模型响应过慢。",
+    failurePrefix: "议题提案修正结构化生成失败",
+    schemaName: "proposal_refine_v2",
+    schemaDescription: "ParallelMe 阶段一议题提案修正，选择继续追问或输出更新后的 4-Key 提案。",
+  });
+}
+
 interface StrictScribeLoopInput<TStrict, TResult> {
   handlers: LlmStreamHandlers;
   retrySource: string;
@@ -1417,6 +1435,8 @@ export interface RefineResult {
   proposal?: IssueProposal;
   taskFrame?: TaskFrame;
   thinking: string;
+  confidence?: number;
+  missingKeys?: ProbePurpose[];
 }
 
 function serializeDialogue(dialogue: DefiningDialogue): string {
@@ -1811,34 +1831,6 @@ function buildTaskFrameFromProposal(proposal: any): TaskFrame | null {
   };
 }
 
-function normalizeProposalKey(
-  proposalKey: Partial<ProposalKey> | undefined,
-  fallback: ProposalKey,
-  defaultTitle: string,
-): ProposalKey {
-  const rawDetails = Array.isArray(proposalKey?.details)
-    ? proposalKey.details
-    : fallback.details;
-
-  return {
-    title: proposalKey?.title?.trim() || defaultTitle,
-    content: proposalKey?.content?.trim() || fallback.content,
-    details: rawDetails
-      .map((detail) => String(detail).trim())
-      .filter(Boolean),
-  };
-}
-
-function normalizeIssueProposal(proposal: Partial<IssueProposal> | undefined, fallback: IssueProposal): IssueProposal {
-  return {
-    issue_sentence: proposal?.issue_sentence?.trim() || fallback.issue_sentence,
-    surface_dilemma: normalizeProposalKey(proposal?.surface_dilemma, fallback.surface_dilemma, "具象化的困惑"),
-    current_constraints: normalizeProposalKey(proposal?.current_constraints, fallback.current_constraints, "真实的处境"),
-    core_fears: normalizeProposalKey(proposal?.core_fears, fallback.core_fears, "隐秘的关切"),
-    expected_resolution: normalizeProposalKey(proposal?.expected_resolution, fallback.expected_resolution, "渴望的终局"),
-  };
-}
-
 export async function generateIssueProposal(
   rawInput: string,
   dialogue: DefiningDialogue,
@@ -1885,6 +1877,87 @@ ${reasoningMemo || "（没有可用判断过程）"}
   return { proposal, taskFrame: buildTaskFrameFromProposal(proposal)! };
 }
 
+function proposalText(proposal: IssueProposal): string {
+  return [
+    proposal.issue_sentence,
+    proposal.surface_dilemma.content,
+    ...proposal.surface_dilemma.details,
+    proposal.current_constraints.content,
+    ...proposal.current_constraints.details,
+    proposal.core_fears.content,
+    ...proposal.core_fears.details,
+    proposal.expected_resolution.content,
+    ...proposal.expected_resolution.details,
+  ].filter(Boolean).join("\n");
+}
+
+function normalizeStrictRefineResult(
+  strict: ValidatedStrictRefineResult,
+  context: { rawInput: string; dialogue: DefiningDialogue; reasoningMemo: string },
+): RefineResult {
+  if (strict.action === "ask_more") {
+    return {
+      needMoreInfo: true,
+      questions: normalizeProbeQuestions(strict.questions, context),
+      thinking: strict.thinking || "",
+      confidence: strict.confidence,
+      missingKeys: strict.missing_keys,
+    };
+  }
+
+  const proposal = strict.proposal as IssueProposal;
+  return {
+    needMoreInfo: false,
+    proposal,
+    taskFrame: buildTaskFrameFromProposal(proposal)!,
+    thinking: strict.thinking || "",
+    confidence: strict.confidence,
+    missingKeys: strict.missing_keys,
+  };
+}
+
+function validateStrictRefineQuality(
+  strict: ValidatedStrictRefineResult,
+  normalized: RefineResult,
+  rawInput: string,
+  dialogue: DefiningDialogue,
+  userFeedback: string,
+  reasoningMemo: string,
+): string[] {
+  if (strict.action === "ask_more") {
+    return validateStrictProbeQuality(
+      {
+        schema_version: "probe_v2",
+        action: "ask_more",
+        readyToPropose: false,
+        confidence: strict.confidence,
+        missing_keys: strict.missing_keys,
+        questions: strict.questions,
+        thinking: strict.thinking,
+      },
+      normalized.questions || [],
+      rawInput,
+      dialogue,
+      reasoningMemo,
+    );
+  }
+
+  const proposal = normalized.proposal;
+  if (!proposal) return ["update_proposal 必须输出可展示的议题提案"];
+
+  const errors: string[] = [];
+  const feedbackAnchors = extractProbeAnchorTerms(userFeedback, 8);
+  const allProposalText = proposalText(proposal);
+  const anchorHits = feedbackAnchors.filter((anchor) => textIncludesAnchor(allProposalText, anchor));
+  if (feedbackAnchors.length >= 1 && anchorHits.length === 0) {
+    errors.push(`修正后的议题没有吸收用户反馈里的具体锚点，例如：${feedbackAnchors.slice(0, 4).join("、")}`);
+  }
+  if (/待补充|待挖掘|待明确|未知|不清楚|无法判断|建议你|我建议/.test(allProposalText)) {
+    errors.push("修正后的议题仍包含占位符或建议口吻");
+  }
+  return errors;
+}
+
 export async function refineProposal(
   rawInput: string,
   dialogue: DefiningDialogue,
@@ -1916,8 +1989,8 @@ export async function refineProposal(
 ${scribePersonaBlock("brief")}
 
 你需要决定：
-1. 如果用户的反馈包含新信息，可能需要追问确认（needMoreInfo: true，输出 questions）
-2. 如果可以直接更新提案（needMoreInfo: false，输出更新后的 proposal + taskFrame）
+1. 如果用户反馈让某个 Key 变得不确定，需要追问确认：action=ask_more。
+2. 如果用户反馈已经足够修正提案，直接更新提案：action=update_proposal。
 
 修正标准：
 - issue_sentence 必须是一句“本次议题主句”，让用户一眼确认这次圆桌讨论什么。
@@ -1927,15 +2000,26 @@ ${scribePersonaBlock("brief")}
 - 渴望的终局要写成“这次圆桌要验证……”式任务、判断规则、代价排序或观察期，不许替用户决定，也不许复述隐秘关切。
 - 不写“待补充/待确认/未知”等占位。
 - 不写建议句、诊断句、安慰句。
+- 直接更新时必须吸收用户反馈里的具体内容，而不是返回原提案。
+- 不要输出 taskFrame；宿主会从 proposal 本地派生。
 
-输出 JSON：
+输出严格 JSON：
 {
-  "needMoreInfo": true|false,
-  "questions": [...],
+  "schema_version":"proposal_refine_v2",
+  "action":"ask_more|update_proposal",
+  "needMoreInfo": true,
+  "confidence": 0.62,
+  "missing_keys":["surface_dilemma"],
+  "questions": [],
   "proposal": {...},
-  "taskFrame": {...},
-  "thinking": "内部思考"
-}`;
+  "thinking":""
+}
+
+字段硬规则：
+- action=ask_more 时：needMoreInfo=true，confidence<=0.74，missing_keys 至少 1 个，questions 必须 1-3 个，不能输出 proposal。
+- action=update_proposal 时：needMoreInfo=false，confidence>=0.75，missing_keys=[]，questions=[]，proposal 必须完整。
+- questions 的结构与阶段一追问完全一致：每题 3-4 个自然语言选项，且恰好一个“都不准，我自己说”。
+- proposal 的结构与 issue_proposal_v2 完全一致，四个 title 固定，不输出 taskFrame。`;
 
   const userMsg = `原始输入：${rawInput}
 
@@ -1951,36 +2035,46 @@ ${userFeedback}
 刚才的自然语言判断过程：
 ${reasoningMemo || "（没有可用判断过程）"}`;
 
-  try {
-    const validated = await generateValidated(
-      [
-        { role: "system", content: sys + buildContextBlock(ctx) },
-        { role: "user", content: userMsg },
-      ],
-      RefineResultSchema,
-      { temperature: 0.5, max_tokens: 2000, json: true, runtime, fallback: { needMoreInfo: false, thinking: "" }, ...handlers },
-    );
-    const proposal = validated.proposal
-      ? normalizeIssueProposal(validated.proposal as IssueProposal, currentProposal)
-      : undefined;
-    const taskFrame = validated.taskFrame
-      ? (validated.taskFrame as unknown as TaskFrame)
-      : proposal
-        ? buildTaskFrameFromProposal(proposal) ?? undefined
-        : undefined;
-    return {
-      needMoreInfo: !!validated.needMoreInfo,
-      questions: validated.questions
-        ? normalizeProbeQuestions(validated.questions, { rawInput, dialogue, reasoningMemo })
-        : undefined,
-      proposal,
-      taskFrame,
-      thinking: validated.thinking || "",
-    };
-  } catch (e) {
-    console.warn("[refineProposal] error", e);
-    return { needMoreInfo: false, thinking: "修正失败，保留原提案" };
-  }
+  return runStrictScribeLoop({
+    handlers,
+    retrySource: "refine",
+    retryNotice: "我再校对一遍你的修正意见，让议题提案真正吸收这次反馈。\n",
+    schemaLabel: "proposal_refine_v2",
+    failureLogLabel: "refineProposal",
+    failureMessage: "议题提案修正连续没有整理成可展示结果。请重试一次；如果持续出现，可以换一个更稳定的模型配置。",
+    generate: (repairBlock) =>
+      generateStrictRefineAttempt(
+        [
+          { role: "system", content: sys + buildContextBlock(ctx) },
+          { role: "user", content: userMsg + repairBlock },
+        ],
+        runtime,
+    ),
+    accept: (strict) => {
+      const refineDialogue: DefiningDialogue = [
+        ...dialogue,
+        {
+          role: "user",
+          answer: {
+            question_id: "proposal_refine_feedback",
+            question_text: "用户对议题提案的修正意见",
+            free_text: userFeedback,
+            at: Date.now(),
+          },
+        },
+      ];
+      const normalized = normalizeStrictRefineResult(strict, { rawInput, dialogue: refineDialogue, reasoningMemo });
+      const qualityErrors = validateStrictRefineQuality(
+        strict,
+        normalized,
+        rawInput,
+        refineDialogue,
+        userFeedback,
+        reasoningMemo,
+      );
+      return { result: normalized, errors: qualityErrors };
+    },
+  });
 }
 
 export async function generateOpeningTurns(

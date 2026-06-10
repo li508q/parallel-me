@@ -217,6 +217,95 @@ export const StrictProposalResultSchema = z.object({
 
 export type ValidatedStrictProposalResult = z.infer<typeof StrictProposalResultSchema>;
 
+export const StrictRefineResultSchema = z.object({
+  schema_version: z.literal("proposal_refine_v2"),
+  action: z.enum(["ask_more", "update_proposal"]),
+  needMoreInfo: z.boolean(),
+  confidence: z.number().min(0).max(1),
+  missing_keys: z.array(ProbePurposeSchema).max(4),
+  questions: z.array(StrictScribeQuestionSchema).max(3),
+  proposal: StrictIssueProposalSchema.optional(),
+  thinking: z.string().max(900).optional().default(""),
+}).superRefine((result, ctx) => {
+  if (result.action === "ask_more") {
+    if (!result.needMoreInfo) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["needMoreInfo"],
+        message: "ask_more requires needMoreInfo=true",
+      });
+    }
+    if (result.confidence > 0.74) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["confidence"],
+        message: "ask_more requires confidence <= 0.74",
+      });
+    }
+    if (result.questions.length < 1) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["questions"],
+        message: "ask_more requires 1-3 questions",
+      });
+    }
+    if (result.missing_keys.length < 1) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["missing_keys"],
+        message: "ask_more requires at least one missing key",
+      });
+    }
+    if (result.proposal) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["proposal"],
+        message: "ask_more must not include proposal",
+      });
+    }
+  }
+
+  if (result.action === "update_proposal") {
+    if (result.needMoreInfo) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["needMoreInfo"],
+        message: "update_proposal requires needMoreInfo=false",
+      });
+    }
+    if (result.confidence < 0.75) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["confidence"],
+        message: "update_proposal requires confidence >= 0.75",
+      });
+    }
+    if (result.questions.length !== 0) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["questions"],
+        message: "update_proposal must not include questions",
+      });
+    }
+    if (result.missing_keys.length !== 0) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["missing_keys"],
+        message: "update_proposal must not include missing keys",
+      });
+    }
+    if (!result.proposal) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["proposal"],
+        message: "update_proposal requires proposal",
+      });
+    }
+  }
+});
+
+export type ValidatedStrictRefineResult = z.infer<typeof StrictRefineResultSchema>;
+
 // ─── Opening Turns (五声开场) ───
 
 export const OpeningTurnSchema = z.object({
@@ -617,24 +706,6 @@ export const ChoiceCardSchema = z.object({
 export const TaskFrameResultSchema = z.object({
   choiceCards: z.array(ChoiceCardSchema).default([]),
   taskFrame: TaskFrameSchema,
-});
-
-// Full proposal result (proposal + taskFrame) for generateValidated usage
-export const ProposalResultSchema = z.object({
-  proposal: IssueProposalSchema,
-  taskFrame: TaskFrameSchema.optional(),
-});
-
-export type ValidatedProposalResult = z.infer<typeof ProposalResultSchema>;
-
-// ─── Refinement / flexible roundtable payloads ───
-
-export const RefineResultSchema = z.object({
-  needMoreInfo: z.boolean().default(false),
-  questions: z.array(ScribeQuestionSchema).optional(),
-  proposal: IssueProposalSchema.optional(),
-  taskFrame: TaskFrameSchema.optional(),
-  thinking: z.string().optional().default(""),
 });
 
 export const RoundtableRawResultSchema = z.object({

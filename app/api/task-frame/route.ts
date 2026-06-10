@@ -147,15 +147,19 @@ export async function POST(req: NextRequest) {
           readyToPropose: false,
           questions: refineResult.questions,
           thinking: refineResult.thinking,
+          confidence: refineResult.confidence,
+          missingKeys: refineResult.missingKeys,
         }});
       } else {
         emit({ type: "narration", stage: "taskFrame", key: "done" });
         emit({ type: "result", payload: {
           action: "propose",
           readyToPropose: true,
-          proposal: refineResult.proposal || currentProposal,
+          proposal: refineResult.proposal,
           taskFrame: refineResult.taskFrame,
           thinking: refineResult.thinking,
+          confidence: refineResult.confidence,
+          missingKeys: refineResult.missingKeys,
         }});
       }
       emit({ type: "done" });
