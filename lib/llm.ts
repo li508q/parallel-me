@@ -21,12 +21,13 @@ import {
   AlignmentReportSchema,
   ProposalResultSchema,
   RefineResultSchema,
-  ScribeObservationLedgerSchema,
+  StrictScribeObservationLedgerSchema,
   StrictInquiryResultSchema,
   StrictProbeResultSchema,
   TaskFrameResultSchema,
   TasteProfileSchema,
   type ValidatedStrictInquiryResult,
+  type ValidatedStrictScribeObservationLedger,
   type ValidatedStrictProbeResult,
 } from "./schema";
 
@@ -1072,8 +1073,11 @@ const PROBE_ANCHOR_DICTIONARY = [
   "来不及",
 ] as const;
 
+const INTERNAL_PROMPT_ANCHOR_RE =
+  /\b(?:Surface|Dilemma|Current|Constraints|Core|Values?|Fears?|Expected|Resolution|Key|Keys?|JSON|schema|action|proposal|probe|inquiry|module|missing|ready|confidence|question|questions|option|options)\b|[a-z]+(?:_[a-z]+)+/gi;
+
 function extractProbeAnchorTerms(text: string, limit = 12): string[] {
-  return extractAnchorTerms(text, {
+  return extractAnchorTerms(text.replace(INTERNAL_PROMPT_ANCHOR_RE, " "), {
     dictionary: PROBE_ANCHOR_DICTIONARY,
     limit,
   });
@@ -2479,6 +2483,23 @@ function roundIndexForMove(input: RoundtableMoveInput): number {
   return input.roundtable.moves.length + 2;
 }
 
+function generateStrictObservationLedgerAttempt(
+  messages: Msg[],
+  runtime: LlmRuntime | undefined,
+): Promise<ValidatedStrictScribeObservationLedger> {
+  return generateStrictObjectAttempt({
+    messages,
+    schema: StrictScribeObservationLedgerSchema,
+    runtime,
+    maxOutputTokens: 1600,
+    missingRuntimeMessage: "模型配置不可用，无法更新圆桌观察账本。请先在设置页接入模型。",
+    timeoutMessage: "圆桌观察账本更新超时，模型响应过慢。",
+    failurePrefix: "圆桌观察账本结构化生成失败",
+    schemaName: "observation_ledger_v2",
+    schemaDescription: "ParallelMe 圆桌后书记员后台观察账本，用于后续问询质量判断。",
+  });
+}
+
 export async function generateScribeObservationLedger(
   taskFrame: TaskFrame,
   issueProposal: IssueProposal | undefined,
@@ -2504,6 +2525,7 @@ ${scribePersonaBlock("inquiry")}
 
 输出严格 JSON：
 {
+  "schema_version": "observation_ledger_v2",
   "observations": [
     {"id":"snake_case","round_index":1,"trigger":"opening","observation":"","attribution":"","module":"creative_hopelessness|core_values|cost_acceptance|minimum_action|none","evidence":[]}
   ],
@@ -2519,7 +2541,7 @@ ${scribePersonaBlock("inquiry")}
 }`;
 
   try {
-    const validated = await generateValidated(
+    const validated = await generateStrictObservationLedgerAttempt(
       [
         { role: "system", content: sys + buildContextBlock(ctx) },
         {
@@ -2528,15 +2550,14 @@ ${scribePersonaBlock("inquiry")}
             `本次议题：\n${compactRoundtableBrief(taskFrame, issueProposal)}\n\n` +
             `已有观察账本：\n${JSON.stringify(previousLedger || emptyObservationLedger(), null, 2)}\n\n` +
             `圆桌记录：\n${serializeRoundtable(roundtable)}\n\n` +
-            `请更新观察账本。注意：这份账本不直接展示给用户。`,
+            `请更新 observation_ledger_v2 JSON。注意：这份账本不直接展示给用户；不要输出解释、Markdown 或代码块。`,
         },
       ],
-      ScribeObservationLedgerSchema,
-      { temperature: 0.35, max_tokens: 1800, json: true, runtime, fallback },
+      runtime,
     );
     return normalizeObservationLedger(validated as any, fallback);
   } catch (e) {
-    console.warn("[generateScribeObservationLedger] fallback", e);
+    console.warn("[generateScribeObservationLedger] strict ledger failed", e);
     return fallback;
   }
 }

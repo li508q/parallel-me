@@ -55,7 +55,7 @@ const INTERNAL_ANCHOR_WORDS = new Set([
 ]);
 
 const VISIBLE_REASONING_LEAK_RE =
-  /\b(JSON|schema|schema_version|falsified_fantasy|core_value_axis|cost_acceptance|minimum_action|dialectic_synthesis|Surface Dilemma|Current Constraints|Expected Resolution|No object generated|could not parse)\b|字段/i;
+  /\b(JSON|schema|schema_version|falsified_fantasy|core_value_axis|cost_acceptance|minimum_action|dialectic_synthesis|Surface Dilemma|Current Constraints|Expected Resolution|No object generated|could not parse)\b|字段|直接输出|技术词汇|完全符合要求/i;
 
 export class StructuredOutputValidationError extends Error {
   errors: string[];
@@ -87,7 +87,8 @@ export function sanitizeVisibleReasoning(text: string): string {
     .replace(/\bschema\b/gi, "格式")
     .replace(/\bid\b/gi, "标识")
     .replace(/字段名?/g, "表达项")
-    .replace(/检查[:：][^\n。]*(?:直接输出。?)?/g, "")
+    .replace(/检查[:：][^\n]*(?:\n|$)?/g, "")
+    .replace(/直接输出。?/g, "")
     .replace(/(?:^|\n)\s*选项设计[:：][\s\S]*$/g, "")
     .replace(/输出判断过程。?/g, "")
     .replace(/[ \t]+\n/g, "\n")

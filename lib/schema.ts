@@ -34,12 +34,12 @@ export type ValidatedProbeResult = z.infer<typeof ProbeResultSchema>;
 
 export const StrictScribeProbeOptionSchema = z.object({
   id: z.string().min(2).max(48).regex(/^[A-Za-z0-9_-]+$/),
-  label: z.string().min(6).max(140),
+  label: z.string().min(6).max(180),
 });
 
 export const StrictScribeQuestionSchema = z.object({
   id: z.string().min(3).max(64).regex(/^[A-Za-z0-9_-]+$/),
-  text: z.string().min(14).max(220).refine((text) => /[？?]$/.test(text.trim()), {
+  text: z.string().min(14).max(280).refine((text) => /[？?]$/.test(text.trim()), {
     message: "question text must end with a question mark",
   }),
   options: z.array(StrictScribeProbeOptionSchema).min(3).max(4),
@@ -230,6 +230,66 @@ export const ScribeObservationLedgerSchema = z.object({
 
 export type ValidatedScribeObservationLedger = z.infer<typeof ScribeObservationLedgerSchema>;
 
+export const ObservationModuleSchema = z.enum([
+  "creative_hopelessness",
+  "core_values",
+  "cost_acceptance",
+  "minimum_action",
+  "none",
+]);
+
+export const StrictScribeObservationSchema = z.object({
+  id: z.string().min(3).max(64).regex(/^[A-Za-z0-9_-]+$/),
+  round_index: z.number().int().min(0).max(999).optional(),
+  trigger: z.string().min(2).max(48).default("summary"),
+  observation: z.string().min(6).max(260),
+  attribution: z.string().max(180).default(""),
+  module: ObservationModuleSchema.default("none"),
+  evidence: z.array(z.string().min(1).max(140)).max(6).default([]),
+  at: z.number().optional(),
+});
+
+export const StrictUnansweredRoundtableQuestionSchema = z.object({
+  id: z.string().min(3).max(64).regex(/^[A-Za-z0-9_-]+$/),
+  from_voice_id: z.enum(["lay", "money", "roam", "filial", "future"]).optional(),
+  from_name: z.string().max(40).optional(),
+  question: z.string().min(6).max(220).refine((text) => /[？?]$/.test(text.trim()), {
+    message: "unanswered question must end with a question mark",
+  }),
+  why_it_matters: z.string().max(220).default(""),
+  at: z.number().optional(),
+});
+
+const StrictLedgerSignalListSchema = z.array(z.string().min(1).max(140)).max(8).default([]);
+
+export const StrictScribeObservationLedgerSchema = z.object({
+  schema_version: z.literal("observation_ledger_v2"),
+  observations: z.array(StrictScribeObservationSchema).max(12).default([]),
+  unanswered_questions: z.array(StrictUnansweredRoundtableQuestionSchema).max(8).default([]),
+  module_signals: z.object({
+    creative_hopelessness: StrictLedgerSignalListSchema,
+    core_values: StrictLedgerSignalListSchema,
+    cost_acceptance: StrictLedgerSignalListSchema,
+    minimum_action: StrictLedgerSignalListSchema,
+  }).default({
+    creative_hopelessness: [],
+    core_values: [],
+    cost_acceptance: [],
+    minimum_action: [],
+  }),
+  updated_at: z.number().optional(),
+}).superRefine((ledger, ctx) => {
+  if (!ledger.observations.length && !ledger.unanswered_questions.length) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["observations"],
+      message: "ledger must contain at least one observation or one unanswered roundtable question",
+    });
+  }
+});
+
+export type ValidatedStrictScribeObservationLedger = z.infer<typeof StrictScribeObservationLedgerSchema>;
+
 export const InquiryOptionSchema = z.object({
   id: z.string(),
   label: z.string(),
@@ -284,14 +344,14 @@ export const InquiryModuleSchema = z.enum([
 
 export const StrictInquiryOptionSchema = z.object({
   id: z.string().min(2).max(48).regex(/^[A-Za-z0-9_-]+$/),
-  label: z.string().min(6).max(140),
-  meaning: z.string().min(4).max(120).optional(),
+  label: z.string().min(6).max(180),
+  meaning: z.string().min(4).max(180).optional(),
 });
 
 export const StrictInquiryQuestionSchema = z.object({
   id: z.string().min(3).max(64).regex(/^[A-Za-z0-9_-]+$/),
   module: InquiryModuleSchema,
-  question: z.string().min(14).max(220).refine((text) => /[？?]$/.test(text.trim()), {
+  question: z.string().min(14).max(320).refine((text) => /[？?]$/.test(text.trim()), {
     message: "inquiry question must end with a question mark",
   }),
   options: z.array(StrictInquiryOptionSchema).min(3).max(4),

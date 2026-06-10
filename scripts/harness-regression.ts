@@ -8,6 +8,7 @@ import {
 } from "../lib/llm-harness.ts";
 import {
   StrictInquiryResultSchema,
+  StrictScribeObservationLedgerSchema,
   StrictProbeResultSchema,
 } from "../lib/schema.ts";
 
@@ -34,7 +35,7 @@ check("visible reasoning removes technical and internal labels", () => {
   assert.equal(hasVisibleReasoningLeak(sanitized), false);
   assert.match(sanitized, /具象化困惑/);
   assert.match(sanitized, /现实处境/);
-  assert.doesNotMatch(sanitized, /选项设计|JSON|schema|Surface Dilemma|Current Constraints|missing_modules/);
+  assert.doesNotMatch(sanitized, /检查|直接输出|选项设计|JSON|schema|Surface Dilemma|Current Constraints|missing_modules/);
 });
 
 check("anchor extraction keeps user material and ignores harness vocabulary", () => {
@@ -65,6 +66,33 @@ check("JSON extraction tolerates prose and fenced objects", () => {
   const parsed = validateJsonWithSchema(raw, StrictProbeResultSchema);
   assert.equal(parsed.schema_version, "probe_v2");
   assert.equal(parsed.questions.length, 1);
+});
+
+check("strict probe schema accepts detailed questions longer than 120 chars", () => {
+  const detailedQuestion =
+    "你说“28 岁、父母觉得稳定最重要、每天打开 code 处理业务就提不起兴趣”，如果这三件事不能同时被满足，哪一个现实信号最能说明你不是一时心烦，而是真的需要重切职业方向，并且这个信号出现后你愿意把它当成圆桌要验证的判断规则，而不是继续在情绪里反复打转？";
+  assert.ok(detailedQuestion.length > 120);
+
+  const raw = JSON.stringify({
+    schema_version: "probe_v2",
+    action: "ask_more",
+    readyToPropose: false,
+    confidence: 0.46,
+    missing_keys: ["expected_resolution"],
+    questions: [{
+      id: "q_expected_resolution",
+      text: detailedQuestion,
+      purpose: "expected_resolution",
+      options: [
+        { id: "opt_a", label: "连续一个月只要处理业务代码就明显耗竭" },
+        { id: "opt_b", label: "我已经能说清读博要验证的具体问题" },
+        { id: "custom", label: "都不准，我自己说" },
+      ],
+    }],
+  });
+
+  const parsed = validateJsonWithSchema(raw, StrictProbeResultSchema);
+  assert.equal(parsed.questions[0]?.text, detailedQuestion);
 });
 
 check("strict probe schema rejects malformed display questions", () => {
@@ -139,6 +167,54 @@ check("strict probe schema rejects contradictory confidence", () => {
 
   assert.throws(() => validateJsonWithSchema(askMoreTooHigh, StrictProbeResultSchema), /confidence <= 0\.74/);
   assert.throws(() => validateJsonWithSchema(proposalTooLow, StrictProbeResultSchema), /confidence >= 0\.75/);
+});
+
+check("strict observation ledger schema accepts grounded hidden ledger", () => {
+  const raw = JSON.stringify({
+    schema_version: "observation_ledger_v2",
+    observations: [{
+      id: "obs_code_avoidance",
+      round_index: 2,
+      trigger: "user_reaction",
+      observation: "用户把打开 code 时的耗竭和读博冲动并置，需要区分长期价值转向和短期厌倦。",
+      attribution: "这不是职业结论，只是后续问询要验证的张力。",
+      module: "core_values",
+      evidence: ["每天打开 code 处理业务就提不起兴趣", "再不试是不是就来不及了"],
+    }],
+    unanswered_questions: [{
+      id: "unanswered_minimum_test",
+      from_voice_id: "future",
+      from_name: "未来我",
+      question: "如果先不辞职，你愿意用哪一个现实信号验证读博不是逃离业务代码？",
+      why_it_matters: "它会决定最终落定能否给出最小行动线索。",
+    }],
+    module_signals: {
+      creative_hopelessness: ["不能同时保留稳定、立刻热爱和无风险转向"],
+      core_values: ["自主选择感"],
+      cost_acceptance: ["父母期待稳定带来的关系压力"],
+      minimum_action: ["先设一段观察期"],
+    },
+  });
+
+  const parsed = validateJsonWithSchema(raw, StrictScribeObservationLedgerSchema);
+  assert.equal(parsed.schema_version, "observation_ledger_v2");
+  assert.equal(parsed.observations[0]?.module, "core_values");
+});
+
+check("strict observation ledger schema rejects empty hidden ledger", () => {
+  const raw = JSON.stringify({
+    schema_version: "observation_ledger_v2",
+    observations: [],
+    unanswered_questions: [],
+    module_signals: {
+      creative_hopelessness: [],
+      core_values: [],
+      cost_acceptance: [],
+      minimum_action: [],
+    },
+  });
+
+  assert.throws(() => validateJsonWithSchema(raw, StrictScribeObservationLedgerSchema), /at least one observation/);
 });
 
 check("strict inquiry schema accepts contextual UI questions", () => {
