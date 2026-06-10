@@ -194,6 +194,8 @@ export interface InquiryResult {
   readyForReport: boolean;
   alignmentProfile: AlignmentProfile;
   ledger: ScribeObservationLedger;
+  confidence?: number;
+  missingModules?: string[];
 }
 
 function resolveRuntime(rt?: LlmRuntime) {
@@ -2742,6 +2744,8 @@ function normalizeStrictAlignmentInquiry(
     readyForReport: strict.action === "settlement_report" && strict.readyForReport,
     alignmentProfile: normalizeAlignmentProfile(strict.alignmentProfile, emptyAlignmentProfile()),
     ledger,
+    confidence: strict.confidence,
+    missingModules: strict.missing_modules,
   };
 }
 
@@ -3167,6 +3171,8 @@ function normalizeAlignmentInquiry(
     readyForReport: ready,
     alignmentProfile: normalizeAlignmentProfile(parsed.alignmentProfile || parsed.alignment_profile, fallback.alignmentProfile),
     ledger,
+    confidence: typeof parsed.confidence === "number" ? parsed.confidence : fallback.confidence,
+    missingModules: Array.isArray(parsed.missing_modules) ? parsed.missing_modules : fallback.missingModules,
   };
 }
 

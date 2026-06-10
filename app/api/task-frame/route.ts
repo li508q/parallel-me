@@ -69,6 +69,8 @@ export async function POST(req: NextRequest) {
           proposal: proposalResult.proposal,
           taskFrame: proposalResult.taskFrame,
           thinking: probeResult.thinking,
+          confidence: probeResult.confidence,
+          missingKeys: probeResult.missingKeys,
           _contextCompacted: dialogueWasCompacted,
         }});
       } else {
@@ -78,6 +80,8 @@ export async function POST(req: NextRequest) {
           readyToPropose: false,
           questions: probeResult.questions,
           thinking: probeResult.thinking,
+          confidence: probeResult.confidence,
+          missingKeys: probeResult.missingKeys,
           _contextCompacted: dialogueWasCompacted,
         }});
       }

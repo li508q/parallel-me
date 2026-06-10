@@ -38,6 +38,12 @@ export type RoundtableMode =
   | "ask_table"
   | "duel";
 
+export interface ClaritySignal {
+  stage: "defining" | "inquiry";
+  confidence?: number;
+  missing: string[];
+}
+
 type Updater<T> = T | ((prev: T) => T);
 
 function resolveUpdater<T>(next: Updater<T>, prev: T): T {
@@ -77,6 +83,7 @@ interface MeetingStore {
   customInquiryText: string;
   alignmentProfile: AlignmentProfile | null;
   scribeObservationLedger: ScribeObservationLedger | null;
+  claritySignal: ClaritySignal | null;
 
   alignmentReport: AlignmentReport | null;
   clarityDraft: string;
@@ -114,6 +121,7 @@ interface MeetingStore {
   setCustomInquiryText: (value: string) => void;
   setAlignmentProfile: (value: AlignmentProfile | null) => void;
   setScribeObservationLedger: (value: Updater<ScribeObservationLedger | null>) => void;
+  setClaritySignal: (value: ClaritySignal | null) => void;
   setAlignmentReport: (value: AlignmentReport | null) => void;
   setClarityDraft: (value: string) => void;
   setContractDraft: (value: string) => void;
@@ -152,6 +160,7 @@ export const useMeetingStore = create<MeetingStore>((set, get) => ({
   customInquiryText: "",
   alignmentProfile: null,
   scribeObservationLedger: null,
+  claritySignal: null,
 
   alignmentReport: null,
   clarityDraft: "",
@@ -189,6 +198,7 @@ export const useMeetingStore = create<MeetingStore>((set, get) => ({
   setCustomInquiryText: (customInquiryText) => set({ customInquiryText }),
   setAlignmentProfile: (alignmentProfile) => set({ alignmentProfile }),
   setScribeObservationLedger: (value) => set((s) => ({ scribeObservationLedger: resolveUpdater(value, s.scribeObservationLedger) })),
+  setClaritySignal: (claritySignal) => set({ claritySignal }),
   setAlignmentReport: (alignmentReport) => set({ alignmentReport }),
   setClarityDraft: (clarityDraft) => set({ clarityDraft }),
   setContractDraft: (contractDraft) => set({ contractDraft }),

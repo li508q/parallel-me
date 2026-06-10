@@ -66,6 +66,8 @@ export async function POST(req: NextRequest) {
         readyForReport: result.readyForReport,
         alignmentProfile: result.alignmentProfile,
         scribeObservationLedger: result.ledger,
+        confidence: result.confidence,
+        missingModules: result.missingModules,
       },
     });
     emit({ type: "done" });

@@ -21,7 +21,12 @@ import {
   toRuntimePayload,
   type ProviderConfig,
 } from "@/lib/provider";
-import { useMeetingStore, type DefiningSubStage, type MeetingStage } from "@/lib/store/meeting-store";
+import {
+  useMeetingStore,
+  type ClaritySignal,
+  type DefiningSubStage,
+  type MeetingStage,
+} from "@/lib/store/meeting-store";
 import type { LlmErrorCode } from "@/lib/llm";
 import {
   newMeetingId,
@@ -78,6 +83,21 @@ const VOICE_COLOR_VAR: Record<VoiceId, string> = {
   future: "color-seat-future",
 };
 
+const PROBE_MISSING_LABEL: Record<string, string> = {
+  surface_dilemma: "选择岔路",
+  current_constraints: "现实边界",
+  core_fears: "隐秘关切",
+  expected_resolution: "圆桌验证任务",
+};
+
+const INQUIRY_MISSING_LABEL: Record<string, string> = {
+  falsified_fantasy: "幻想校验",
+  core_value_axis: "核心价值",
+  cost_acceptance: "代价承认",
+  minimum_action: "最小行动",
+  dialectic_synthesis: "正反合",
+};
+
 function MeetingInner() {
   const router = useRouter();
   const params = useSearchParams();
@@ -130,6 +150,8 @@ function MeetingInner() {
     setAlignmentProfile,
     scribeObservationLedger,
     setScribeObservationLedger,
+    claritySignal,
+    setClaritySignal,
     alignmentReport,
     setAlignmentReport,
     clarityDraft,
@@ -160,6 +182,31 @@ function MeetingInner() {
     setError(errorLike?.message || fallback);
     setErrorCode((errorLike?.code as LlmErrorCode | undefined) || "unknown");
     setErrorRetryable(errorLike?.retryable ?? true);
+  }
+
+  function updateClaritySignal(
+    signalStage: ClaritySignal["stage"],
+    confidence: unknown,
+    missing: unknown,
+  ) {
+    const labelMap = signalStage === "defining" ? PROBE_MISSING_LABEL : INQUIRY_MISSING_LABEL;
+    const normalizedMissing = Array.isArray(missing)
+      ? missing.map((item) => labelMap[String(item)] || String(item)).filter(Boolean)
+      : [];
+    const numericConfidence = typeof confidence === "number" && Number.isFinite(confidence)
+      ? Math.max(0, Math.min(1, confidence))
+      : undefined;
+
+    if (numericConfidence === undefined && normalizedMissing.length === 0) {
+      setClaritySignal(null);
+      return;
+    }
+
+    setClaritySignal({
+      stage: signalStage,
+      confidence: numericConfidence,
+      missing: normalizedMissing,
+    });
   }
 
   const context = useCallback(() => {
@@ -280,6 +327,7 @@ function MeetingInner() {
         runtimeProvider,
       );
       if (json._interrupted) return;
+      updateClaritySignal("defining", json.confidence, json.missingKeys);
 
       if (json.action === "propose" && json.proposal) {
         // 信息足够，直接生成提案
@@ -335,6 +383,7 @@ function MeetingInner() {
     setBusy(true);
     clearError();
     try {
+      setClaritySignal(null);
       setStage("roundtable");
       // Trigger opening turns
       const json = await streamJson("/api/roundtable", {
@@ -367,6 +416,7 @@ function MeetingInner() {
         userFeedback: feedback,
       });
       if (json._interrupted) return;
+      updateClaritySignal("defining", json.confidence, json.missingKeys);
 
       if (json.action === "probe" && json.questions?.length) {
         // 需要追问更多信息
@@ -490,6 +540,7 @@ function MeetingInner() {
   async function startInquiry() {
     if (!taskFrame || busy) return;
     setStage("inquiry");
+    setClaritySignal(null);
     setInquiryQuestions([]);
     setInquiryAnswers([]);
     setInquiryDialogue([]);
@@ -518,11 +569,13 @@ function MeetingInner() {
       if (json.scribeObservationLedger) {
         setScribeObservationLedger(json.scribeObservationLedger as ScribeObservationLedger);
       }
+      updateClaritySignal("inquiry", json.confidence, json.missingModules);
       const nextProfile = (json.alignmentProfile ?? null) as AlignmentProfile | null;
       setAlignmentProfile(nextProfile);
       setInquiryIndex(0);
 
       if (json.readyForReport && nextProfile) {
+        setClaritySignal(null);
         await requestAlignmentReport(
           nextProfile,
           (json.scribeObservationLedger || scribeObservationLedger) as ScribeObservationLedger,
@@ -842,6 +895,10 @@ function MeetingInner() {
           <p className="font-serif text-title text-ink-core leading-snug">{rawInput}</p>
         </DocketPaper>
 
+        {stage === "defining" && claritySignal?.stage === "defining" && (
+          <ClaritySignalStrip signal={claritySignal} className="mb-5" />
+        )}
+
         {stage === "defining" && definingSubStage === "probing" && (
           <DefiningDialogueBoard
             dialogue={definingDialogue}
@@ -882,15 +939,20 @@ function MeetingInner() {
         )}
 
         {stage === "inquiry" && (
-          <AlignmentInquiryBoard
-            dialogue={inquiryDialogue}
-            questions={activeInquiryQuestions}
-            answeredCount={inquiryAnswers.length}
-            isLoading={busy}
-            thinkingText={isStreaming ? streamNarration : undefined}
-            streamEvents={streamEvents}
-            onAnswer={answerInquiry}
-          />
+          <>
+            {claritySignal?.stage === "inquiry" && (
+              <ClaritySignalStrip signal={claritySignal} className="mb-5" />
+            )}
+            <AlignmentInquiryBoard
+              dialogue={inquiryDialogue}
+              questions={activeInquiryQuestions}
+              answeredCount={inquiryAnswers.length}
+              isLoading={busy}
+              thinkingText={isStreaming ? streamNarration : undefined}
+              streamEvents={streamEvents}
+              onAnswer={answerInquiry}
+            />
+          </>
         )}
 
         {stage === "settlement" && alignmentReport && (
@@ -982,6 +1044,50 @@ function TaskFrameSummary({
         </div>
       )}
     </DocketPaper>
+  );
+}
+
+function ClaritySignalStrip({
+  signal,
+  className = "",
+}: {
+  signal: ClaritySignal;
+  className?: string;
+}) {
+  const percent = typeof signal.confidence === "number"
+    ? Math.round(signal.confidence * 100)
+    : null;
+  const missingText = signal.missing.length
+    ? signal.missing.join("、")
+    : "关键落点已基本齐备";
+  const statusLabel = signal.missing.length ? "仍缺" : "状态";
+
+  return (
+    <section
+      className={[
+        "border-y border-paper-edge bg-paper-lift/60 px-3 py-3 sm:px-4",
+        className,
+      ].filter(Boolean).join(" ")}
+    >
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <div className="text-[10px] tracking-[0.16em] text-ink-faint uppercase">
+            当前清晰度{percent !== null ? ` · ${percent}%` : ""}
+          </div>
+          <p className="mt-1 text-body-sm text-ink-body leading-relaxed">
+            {statusLabel}：{missingText}
+          </p>
+        </div>
+        {percent !== null && (
+          <div className="h-1.5 w-full overflow-hidden rounded-full bg-paper-base sm:w-40" aria-hidden="true">
+            <div
+              className="h-full rounded-full bg-seal-action transition-[width]"
+              style={{ width: `${percent}%` }}
+            />
+          </div>
+        )}
+      </div>
+    </section>
   );
 }
 
