@@ -22,6 +22,11 @@ import {
 } from "../lib/schema.ts";
 import { scribeModelStream, type ScribeStreamEvent } from "../lib/agents/events.ts";
 import { strictRepairGuidance } from "../lib/llm-strict.ts";
+import {
+  collectInquiryCoverage,
+  inquiryReadinessIssues,
+  inferInquiryModule,
+} from "../lib/inquiry-readiness.ts";
 
 function check(name: string, fn: () => void) {
   try {
@@ -562,6 +567,52 @@ check("strict inquiry schema accepts contextual UI questions", () => {
   const parsed = validateJsonWithSchema(raw, StrictInquiryResultSchema);
   assert.equal(parsed.schema_version, "inquiry_v2");
   assert.equal(parsed.questions[0]?.module, "core_value_axis");
+});
+
+check("inquiry readiness coverage is testable without LLM calls", () => {
+  const questions = [
+    {
+      id: "inquiry_falsified_fantasy_1",
+      question: "如果读博不能同时解决业务代码厌倦和父母稳定期待，你愿意放下哪个完美解？",
+      options: [],
+    },
+    {
+      id: "inquiry_core_value_axis_1",
+      question: "这件事里你更想守住的核心价值主轴是什么？",
+      options: [],
+    },
+    {
+      id: "inquiry_cost_acceptance_1",
+      question: "如果选择主动验证读博，你愿意承受哪一种具体代价？",
+      options: [],
+    },
+    {
+      id: "inquiry_minimum_action_1",
+      question: "今晚 24 点前哪个最小行动能验证这不是一时心烦？",
+      options: [],
+    },
+  ];
+  const answers = questions.map((question, index) => ({
+    question_id: question.id,
+    question: question.question,
+    selected_option_id: `opt_${index}`,
+    selected_label: index === 0
+      ? "我承认不存在完全无痛又让父母安心的读博路径"
+      : "我先按这个方向回答",
+    custom_text: index === 1
+      ? "我怕的不是单个选项，而是之后越来越难相信自己的判断，所以主动选择感必须被优先保护。"
+      : undefined,
+    at: Date.now() + index,
+  }));
+
+  const coverage = collectInquiryCoverage(answers, questions);
+
+  assert.equal(inferInquiryModule(questions[0]!), "falsified_fantasy");
+  assert.equal(coverage.answerCount, 4);
+  assert.equal(coverage.articulatedAnswerCount, 1);
+  assert.equal(coverage.answeredModules.has("core_value_axis"), true);
+  assert.equal(coverage.missing.includes("dialectic_synthesis"), true);
+  assert.match(inquiryReadinessIssues(coverage).join("\n"), /正反合整合/);
 });
 
 check("strict inquiry schema rejects contradictory confidence", () => {
