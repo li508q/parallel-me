@@ -9,6 +9,7 @@ import {
 import {
   StrictAlignmentReportSchema,
   StrictInquiryResultSchema,
+  StrictProposalResultSchema,
   StrictScribeObservationLedgerSchema,
   StrictProbeResultSchema,
 } from "../lib/schema.ts";
@@ -168,6 +169,70 @@ check("strict probe schema rejects contradictory confidence", () => {
 
   assert.throws(() => validateJsonWithSchema(askMoreTooHigh, StrictProbeResultSchema), /confidence <= 0\.74/);
   assert.throws(() => validateJsonWithSchema(proposalTooLow, StrictProbeResultSchema), /confidence >= 0\.75/);
+});
+
+check("strict proposal schema accepts concrete 4-key issue proposal", () => {
+  const raw = JSON.stringify({
+    schema_version: "issue_proposal_v2",
+    proposal: {
+      issue_sentence: "你不是单纯在问要不要辞职读博，而是在确认如何验证主动选择感是否值得你承担稳定和收入的不确定。",
+      surface_dilemma: {
+        title: "具象化的困惑",
+        content: "一边是继续在大厂处理业务代码、保留稳定现金流；另一边是认真启动读博验证，承认它会带来收入和关系压力。",
+        details: ["继续大厂业务代码", "启动读博验证", "稳定现金流与长期兴趣冲突"],
+      },
+      current_constraints: {
+        title: "真实的处境",
+        content: "你已经 28 岁，父母把稳定看得很重，而当前工作收入和职业惯性都在拉住你，读博路径还没有被现实验证。",
+        details: ["28 岁", "父母重视稳定", "当前工作收入", "读博路径未验证"],
+      },
+      core_fears: {
+        title: "隐秘的关切",
+        content: "真正刺痛的不是读博标签本身，而是担心自己继续耗在不感兴趣的业务里，会越来越不相信自己的判断和主动选择能力。",
+        details: ["失去主动选择感", "不再相信判断", "长期兴趣被耗掉"],
+      },
+      expected_resolution: {
+        title: "渴望的终局",
+        content: "这次圆桌要产出一个验证规则：用哪些现实信号判断读博是在服务长期主轴，还是只是在逃离业务代码的厌倦。",
+        details: ["验证规则", "现实信号", "区分长期主轴与逃离厌倦"],
+      },
+    },
+  });
+
+  const parsed = validateJsonWithSchema(raw, StrictProposalResultSchema);
+  assert.equal(parsed.schema_version, "issue_proposal_v2");
+  assert.equal(parsed.proposal.expected_resolution.title, "渴望的终局");
+});
+
+check("strict proposal schema rejects placeholders and repeated fear as resolution", () => {
+  const raw = JSON.stringify({
+    schema_version: "issue_proposal_v2",
+    proposal: {
+      issue_sentence: "你不是单纯在问职业选择，而是在确认一个待明确的问题。",
+      surface_dilemma: {
+        title: "具象化的困惑",
+        content: "待补充。",
+        details: ["待补充", "未知"],
+      },
+      current_constraints: {
+        title: "真实的处境",
+        content: "现实条件还不清楚，需要之后再看。",
+        details: ["不清楚", "未知"],
+      },
+      core_fears: {
+        title: "隐秘的关切",
+        content: "用户害怕失去安全感、体面和掌控。",
+        details: ["安全感", "体面"],
+      },
+      expected_resolution: {
+        title: "渴望的终局",
+        content: "用户害怕失去安全感、体面和掌控。",
+        details: ["安全感", "体面"],
+      },
+    },
+  });
+
+  assert.throws(() => validateJsonWithSchema(raw, StrictProposalResultSchema), /schema 校验失败/);
 });
 
 check("strict observation ledger schema accepts grounded hidden ledger", () => {

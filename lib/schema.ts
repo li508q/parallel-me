@@ -150,6 +150,73 @@ export const IssueProposalSchema = z.object({
 
 export type ValidatedIssueProposal = z.infer<typeof IssueProposalSchema>;
 
+const StrictProposalContentSchema = z.string()
+  .min(18)
+  .max(360)
+  .refine((value) => !/(待补充|待挖掘|待明确|未知|不清楚|无法判断|建议你|我建议)/.test(value), {
+    message: "proposal content must be concrete and must not use placeholders or advice tone",
+  });
+
+const StrictProposalDetailSchema = z.string()
+  .min(2)
+  .max(80)
+  .refine((value) => !/(待补充|待挖掘|待明确|未知|不清楚|无法判断)/.test(value), {
+    message: "proposal detail must be concrete",
+  });
+
+export const StrictIssueProposalSchema = z.object({
+  issue_sentence: z.string()
+    .min(24)
+    .max(280)
+    .refine((value) => !/(待补充|待挖掘|待明确|未知|不清楚|无法判断|建议你|我建议)/.test(value), {
+      message: "issue sentence must be concrete and must not use placeholders or advice tone",
+    }),
+  surface_dilemma: z.object({
+    title: z.literal("具象化的困惑"),
+    content: StrictProposalContentSchema,
+    details: z.array(StrictProposalDetailSchema).min(2).max(6),
+  }),
+  current_constraints: z.object({
+    title: z.literal("真实的处境"),
+    content: StrictProposalContentSchema,
+    details: z.array(StrictProposalDetailSchema).min(2).max(6),
+  }),
+  core_fears: z.object({
+    title: z.literal("隐秘的关切"),
+    content: StrictProposalContentSchema,
+    details: z.array(StrictProposalDetailSchema).min(2).max(6),
+  }),
+  expected_resolution: z.object({
+    title: z.literal("渴望的终局"),
+    content: StrictProposalContentSchema,
+    details: z.array(StrictProposalDetailSchema).min(2).max(6),
+  }),
+}).superRefine((proposal, ctx) => {
+  const key3 = proposal.core_fears.content;
+  const key4 = proposal.expected_resolution.content;
+  if (/怕失去|恐惧|安全感|体面|掌控/.test(key4) && !/验证|判断规则|边界|观察期|产出|排序|标准/.test(key4)) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["expected_resolution", "content"],
+      message: "expected_resolution must be a validation task or decision rule, not another fear statement",
+    });
+  }
+  if (key3 === key4) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["core_fears", "content"],
+      message: "core_fears and expected_resolution must not be identical",
+    });
+  }
+});
+
+export const StrictProposalResultSchema = z.object({
+  schema_version: z.literal("issue_proposal_v2"),
+  proposal: StrictIssueProposalSchema,
+});
+
+export type ValidatedStrictProposalResult = z.infer<typeof StrictProposalResultSchema>;
+
 // ─── Opening Turns (五声开场) ───
 
 export const OpeningTurnSchema = z.object({

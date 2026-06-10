@@ -18,9 +18,9 @@ import {
 } from "./llm-harness";
 
 import {
-  ProposalResultSchema,
   RefineResultSchema,
   StrictAlignmentReportSchema,
+  StrictProposalResultSchema,
   StrictScribeObservationLedgerSchema,
   StrictInquiryResultSchema,
   StrictProbeResultSchema,
@@ -28,6 +28,7 @@ import {
   TasteProfileSchema,
   type ValidatedStrictAlignmentReport,
   type ValidatedStrictInquiryResult,
+  type ValidatedStrictProposalResult,
   type ValidatedStrictScribeObservationLedger,
   type ValidatedStrictProbeResult,
 } from "./schema";
@@ -1331,6 +1332,23 @@ function generateStrictProbeAttempt(
   });
 }
 
+function generateStrictProposalAttempt(
+  messages: Msg[],
+  runtime: LlmRuntime | undefined,
+): Promise<ValidatedStrictProposalResult> {
+  return generateStrictObjectAttempt({
+    messages,
+    schema: StrictProposalResultSchema,
+    runtime,
+    maxOutputTokens: 1600,
+    missingRuntimeMessage: "模型配置不可用，无法生成真实议题提案。请先在设置页接入模型。",
+    timeoutMessage: "议题提案生成超时，模型响应过慢。",
+    failurePrefix: "议题提案结构化生成失败",
+    schemaName: "issue_proposal_v2",
+    schemaDescription: "ParallelMe 阶段一 4-Key 议题提案，只生成可校对案由和四个关键面。",
+  });
+}
+
 interface StrictScribeLoopInput<TStrict, TResult> {
   handlers: LlmStreamHandlers;
   retrySource: string;
@@ -1766,34 +1784,15 @@ ${scribePersonaBlock("brief")}
 - content: 核心内容（1-2句）
 - details: 补充细节数组
 
-同时生成兼容的 taskFrame（visible + internal）供后续圆桌阶段使用。
-
 输出严格 JSON：
 {
+  "schema_version": "issue_proposal_v2",
   "proposal": {
     "issue_sentence": "本次议题主句",
     "surface_dilemma": { "title": "具象化的困惑", "content": "", "details": [] },
     "current_constraints": { "title": "真实的处境", "content": "", "details": [] },
     "core_fears": { "title": "隐秘的关切", "content": "", "details": [] },
     "expected_resolution": { "title": "渴望的终局", "content": "", "details": [] }
-  },
-  "taskFrame": {
-    "visible": {
-      "problem_definition": "",
-      "current_state": "",
-      "key_facts": [],
-      "main_choices": [],
-      "core_conflict": "",
-      "central_question": "",
-      "main_concerns": [],
-      "discussion_focus": ""
-    },
-    "internal": {
-      "facts": [], "parties": [], "options": [],
-      "state_tags": {"clarity":"medium","decision_readiness":"exploring","urgency":"medium","emotional_charge":"medium"},
-      "value_axes": [], "pressure_sources": [], "concern_notes": [],
-      "source_labels": {}, "choice_answers": []
-    }
   }
 }`;
 
@@ -1867,71 +1866,23 @@ ${dialogueText}
 刚才的自然语言判断过程：
 ${reasoningMemo || "（没有可用判断过程）"}
 
-请基于以上信息生成 4-Key 议题提案和兼容的 taskFrame。`;
-
-  const inputSnippet = rawInput.slice(0, 100);
-  const fallbackProposal: IssueProposal = {
-    issue_sentence: inputSnippet
-      ? `你不是单纯在说「${inputSnippet}」，而是在确认这件事到底该被怎样带进圆桌讨论。`
-      : "你不是单纯在处理一个选择，而是在确认这件事真正值得被圆桌讨论的案由是什么。",
-    surface_dilemma: {
-      title: "具象化的困惑",
-      content: inputSnippet
-        ? `一边是顺着现有惯性继续处理「${inputSnippet}」，一边是停下来重新确认这件事真正的选择岔路口。`
-        : "一边是顺着当前惯性继续处理，一边是停下来重新确认真正的选择岔路口。",
-      details: ["继续沿着当前惯性", "重新界定本次议题"],
-    },
-    current_constraints: {
-      title: "真实的处境",
-      content: "现有信息还不足以确认全部边界，但这件事已经受到时间、责任、资源和外部评价的共同挤压。",
-      details: ["时间窗口", "责任归属", "资源余量", "他人评价"],
-    },
-    core_fears: {
-      title: "隐秘的关切",
-      content: "真正牵动你的可能不是单个选项，而是担心一旦处理错，就会失去安全感、体面或对局面的掌控。",
-      details: ["安全感", "体面", "对局面的掌控"],
-    },
-    expected_resolution: {
-      title: "渴望的终局",
-      content: "这次圆桌要验证：在最坏情况下依然能接受的处理边界是什么，以及哪些声音会把这件事推向不同方向。",
-      details: ["明确底线", "看清不同声音的拉扯", "避免把问题继续滚大"],
-    },
-  };
+请基于以上信息生成 4-Key 议题提案。`;
 
   const messages: Msg[] = [
     { role: "system", content: SCRIBE_PROPOSE_SYSTEM + buildContextBlock(ctx) },
-    { role: "user", content: userMsg },
+    {
+      role: "user",
+      content:
+        `${userMsg}\n\n` +
+        `请输出 issue_proposal_v2 JSON，只包含 schema_version 和 proposal。taskFrame 由宿主从 proposal 派生，不要输出 taskFrame。\n` +
+        `proposal 必须包含 issue_sentence 与四个 Key；四个 Key 的 title 必须分别是「具象化的困惑」「真实的处境」「隐秘的关切」「渴望的终局」。`,
+    },
   ];
 
-  try {
-    const validated = await generateValidated(
-      messages,
-      ProposalResultSchema,
-      { temperature: 0.4, max_tokens: 2000, json: true, runtime, fallback: { proposal: fallbackProposal }, ...handlers },
-    );
-
-    const proposal = normalizeIssueProposal(validated.proposal as IssueProposal, fallbackProposal);
-    const taskFrame = validated.taskFrame
-      ? (validated.taskFrame as unknown as TaskFrame)
-      : buildTaskFrameFromProposal(proposal)!;
-
-    return { proposal, taskFrame };
-  } catch (e) {
-    console.warn("[generateIssueProposal] error", e);
-    const visible = proposalToTaskFrame(fallbackProposal);
-    return {
-      proposal: fallbackProposal,
-      taskFrame: {
-        visible,
-        internal: {
-          facts: [], parties: [], options: [],
-          state_tags: { clarity: "low", decision_readiness: "exploring", urgency: "medium", emotional_charge: "medium" },
-          value_axes: [], pressure_sources: [], concern_notes: [],
-          source_labels: {}, choice_answers: [],
-        },
-      },
-    };
-  }
+  const validated = await generateStrictProposalAttempt(messages, runtime);
+  handlers.onPartial?.(validated);
+  const proposal = validated.proposal as IssueProposal;
+  return { proposal, taskFrame: buildTaskFrameFromProposal(proposal)! };
 }
 
 export async function refineProposal(
