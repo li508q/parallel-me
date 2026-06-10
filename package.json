@@ -10,6 +10,7 @@
   },
   "scripts": {
     "dev": "next dev",
+    "test:harness": "node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-transform-types scripts/harness-regression.ts",
     "typecheck": "tsc --noEmit",
     "build": "next build",
     "start": "next start"
