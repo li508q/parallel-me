@@ -48,7 +48,7 @@
 | `POST /api/taste` | 可选的品味画像提取。 |
 | `POST /api/provider/test` | 模型配置连通性测试。 |
 
-`/api/scribe-inquiry` 与 `/api/settlement` 属于旧链路或兼容接口，不是 v1 主路径。
+`/api/clarify`、`/api/focus`、`/api/followup`、`/api/parallel`、`/api/scribe-inquiry`、`/api/settlement`、`/api/voices` 与 `/api/task-frame/stream` 属于旧链路，当前统一返回 `410 Gone`，不是 v1 主路径。
 
 ## 核心数据对象
 
@@ -66,21 +66,21 @@
 
 ## LLM 编排
 
-主要模型调用位于 `lib/llm.ts`。
+主要产品编排位于 `lib/llm.ts`，严格结构化生成和修复循环位于 `lib/llm-strict.ts`，可见思考清洗与 JSON/schema 校验工具位于 `lib/llm-harness.ts`。
 
 当前模式包括：
 
 - 从用户 provider 配置解析 OpenAI-compatible runtime
-- 使用 `generateObject` / `streamObject` 生成结构化输出
+- 使用 `generateObject` 生成结构化输出，使用 `generateText` / `streamText` 处理可见思考和普通文本
 - 使用 `lib/schema.ts` 中的 Zod schema 校验模型结果
 - LLM 错误分类与有限重试
 - 通过 SSE 包装书记员可见叙述和模型增量
 - 对用户可见的关键产物使用严格 schema、JSON 修复和重试；连续失败时暴露可重试错误，不用模板兜底替代模型结果
-- fallback 只允许用于非关键兼容路径或后台账本保守保留，不用于阶段一追问、最终问询和本心落定的可见内容
+- 后台观察失败只允许保留上一份可用账本或空账本，不允许补写观察；用户可见内容不使用静态模板兜底
 - 阶段一追问基于 4-Key purpose 做语义去重，并把对话缺口、用户已答内容、证据质量与书记员判断过程反馈给结构化重试
 - 议题提案使用 `issue_proposal_v2` 严格输出，只让模型生成用户可校对的 4-Key 文档；兼容 `TaskFrame` 由本地派生
 - 提案修正使用 `proposal_refine_v2`，在“继续追问”和“更新提案”之间显式二选一，不用旧提案兜底
-- 五声圆桌使用 `voice_opening_v2`、`roundtable_voice_turn_v2`、`duel_question_v2`、`duel_response_v2` 约束用户可见发言，单声失败才保守降级
+- 五声圆桌使用 `voice_opening_v2`、`roundtable_voice_turn_v2`、`duel_question_v2`、`duel_response_v2` 约束用户可见发言；任一用户可见发言连续失败时进入可重试错误，不用脚本发言补位
 - 长对话与长圆桌记录在 prompt 序列化时压缩旧上下文，保留最近关键 turns
 - 阶段一追问不设置总轮次硬上限，但必须通过本地证据质量 guard：四个 Key 都需用户回答覆盖，并至少出现足够探索量、用户展开和边界确认
 - 最终问询同样使用证据质量 guard：创造性无望、核心价值主轴、痛苦接纳、最小行动、正反合五个落点都需被用户问询回答覆盖，模型不能单方面提前生成本心落定

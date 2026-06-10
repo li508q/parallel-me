@@ -156,6 +156,20 @@ check("runtime generation paths do not use scripted fallbacks", () => {
   assert.doesNotMatch(storeSource, /fallback_used|保守版本/);
 });
 
+check("product docs describe no scripted fallback policy", () => {
+  const docs = [
+    "../README.md",
+    "../docs/03-five-voices-roundtable.md",
+    "../docs/04-scribe-observation-and-inquiry.md",
+    "../docs/06-system-architecture.md",
+  ].map((path) => readFileSync(new URL(path, import.meta.url), "utf8")).join("\n\n");
+
+  assert.doesNotMatch(docs, /补一次观察摘要|单声失败才保守降级/);
+  assert.match(docs, /不会用脚本发言补齐这一声/);
+  assert.match(docs, /不会补写模板观察/);
+  assert.match(docs, /不静默返回模板报告/);
+});
+
 check("JSON extraction tolerates prose and fenced objects", () => {
   const raw = `先说一句废话。
 \`\`\`json

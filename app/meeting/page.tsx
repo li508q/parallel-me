@@ -268,9 +268,9 @@ function MeetingInner() {
   async function updateScribeObservationLedger(
     nextRoundtable: RoundtableRecord,
     runtimeProvider: ProviderConfig | null = provider,
-  ) {
+  ): Promise<ScribeObservationLedger | null> {
     const runtimePayload = toRuntimePayload(runtimeProvider);
-    if (!runtimePayload || !taskFrame) return;
+    if (!runtimePayload || !taskFrame) return scribeObservationLedger;
     try {
       const response = await fetch("/api/scribe-observation", {
         method: "POST",
@@ -284,13 +284,17 @@ function MeetingInner() {
           provider: runtimePayload,
         }),
       });
-      if (!response.ok) return;
+      if (!response.ok) return scribeObservationLedger;
       const json = await response.json().catch(() => null);
       if (json?.scribeObservationLedger) {
-        setScribeObservationLedger(json.scribeObservationLedger as ScribeObservationLedger);
+        const nextLedger = json.scribeObservationLedger as ScribeObservationLedger;
+        setScribeObservationLedger(nextLedger);
+        return nextLedger;
       }
+      return scribeObservationLedger;
     } catch {
-      // This is intentionally invisible: observation failure must not disturb the meeting.
+      // Observation is a background aid. Failure must not invent visible questions or reports.
+      return scribeObservationLedger;
     }
   }
 
@@ -546,23 +550,26 @@ function MeetingInner() {
     setInquiryDialogue([]);
     setInquiryIndex(0);
     setCustomInquiryText("");
-    await continueAlignmentInquiry([], []);
+    const latestLedger = await updateScribeObservationLedger(roundtable);
+    await continueAlignmentInquiry([], [], latestLedger);
   }
 
   async function continueAlignmentInquiry(
     questions: ScribeInquiryQuestion[],
     answers: ScribeInquiryAnswer[],
+    ledgerOverride: ScribeObservationLedger | null = null,
   ) {
     if (!taskFrame) return;
-    lastActionRef.current = { fn: () => continueAlignmentInquiry(questions, answers) };
+    lastActionRef.current = { fn: () => continueAlignmentInquiry(questions, answers, ledgerOverride) };
     setBusy(true);
     clearError();
+    const ledgerForRequest = ledgerOverride ?? scribeObservationLedger;
     try {
       const json = await streamJson("/api/alignment-inquiry", {
         taskFrame,
         issueProposal,
         roundtable,
-        scribeObservationLedger,
+        scribeObservationLedger: ledgerForRequest,
         inquiryQuestions: questions,
         inquiryAnswers: answers,
       });
@@ -578,7 +585,7 @@ function MeetingInner() {
         setClaritySignal(null);
         await requestAlignmentReport(
           nextProfile,
-          (json.scribeObservationLedger || scribeObservationLedger) as ScribeObservationLedger,
+          (json.scribeObservationLedger || ledgerForRequest) as ScribeObservationLedger,
           answers,
         );
         return;
