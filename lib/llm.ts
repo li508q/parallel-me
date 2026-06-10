@@ -70,6 +70,20 @@ export interface LlmRuntime {
 
 export type Msg = { role: "system" | "user" | "assistant"; content: string };
 
+function splitAiSdkPrompt(messages: Msg[]) {
+  const system = messages
+    .filter((message) => message.role === "system")
+    .map((message) => message.content)
+    .join("\n\n") || undefined;
+  const modelMessages = messages
+    .filter((message) => message.role !== "system")
+    .map((message) => ({
+      role: message.role as "user" | "assistant",
+      content: message.content,
+    }));
+  return { system, messages: modelMessages };
+}
+
 // ─── Error Classification (主流实践: 区分错误类型以支持智能重试) ───
 
 export type LlmErrorCode =
@@ -239,9 +253,10 @@ async function chatOnce(
   const timeoutMs = opts?.timeoutMs ?? 60_000;
 
   try {
+    const prompt = splitAiSdkPrompt(messages);
     const result = await generateText({
       model,
-      messages: messages.map((m) => ({ role: m.role, content: m.content })),
+      ...prompt,
       temperature: opts?.temperature ?? 0.75,
       maxOutputTokens: opts?.max_tokens ?? 600,
       abortSignal: AbortSignal.timeout(timeoutMs),
@@ -342,10 +357,11 @@ export async function generateValidated<T>(
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
+      const prompt = splitAiSdkPrompt(messages);
       if (opts.onPartial || opts.onToken) {
         const result = streamObject({
           model,
-          messages: messages.map((m) => ({ role: m.role, content: m.content })),
+          ...prompt,
           schema,
           temperature: opts?.temperature ?? 0.75,
           maxOutputTokens: opts?.max_tokens ?? 600,
@@ -367,7 +383,7 @@ export async function generateValidated<T>(
 
       const result = await generateObject({
         model,
-        messages: messages.map((m) => ({ role: m.role, content: m.content })),
+        ...prompt,
         schema,
         temperature: opts?.temperature ?? 0.75,
         maxOutputTokens: opts?.max_tokens ?? 600,
@@ -1052,7 +1068,11 @@ const PROBE_ANCHOR_DICTIONARY = [
 const INTERNAL_ANCHOR_WORDS = new Set([
   "action",
   "alignment",
+  "acceptance",
+  "accepted",
+  "axis",
   "answer",
+  "antithesis",
   "ask",
   "constraints",
   "context",
@@ -1061,8 +1081,11 @@ const INTERNAL_ANCHOR_WORDS = new Set([
   "dialogue",
   "dilemma",
   "expected",
+  "fantasy",
   "fears",
+  "falsified",
   "frame",
+  "hegelian",
   "inquiry",
   "input",
   "issue",
@@ -1073,11 +1096,13 @@ const INTERNAL_ANCHOR_WORDS = new Set([
   "module",
   "object",
   "option",
+  "minimum",
   "probe",
   "purpose",
   "question",
   "questions",
   "ready",
+  "refused",
   "report",
   "resolution",
   "schema",
@@ -1085,9 +1110,12 @@ const INTERNAL_ANCHOR_WORDS = new Set([
   "settlement",
   "stage",
   "surface",
+  "synthesis",
   "task",
+  "thesis",
   "thinking",
   "user",
+  "value",
   "values",
 ]);
 
@@ -1322,26 +1350,64 @@ ${rawText.slice(0, 6000)}
   return validateJsonWithSchema(repaired.text || "", schema);
 }
 
+async function repairStructuredJsonText<T>({
+  rawText,
+  schema,
+  runtime,
+  maxOutputTokens,
+  failurePrefix,
+  errors,
+}: {
+  rawText: string;
+  schema: z.ZodType<T>;
+  runtime?: LlmRuntime;
+  maxOutputTokens: number;
+  failurePrefix: string;
+  errors: string[];
+}): Promise<string | null> {
+  try {
+    const parsed = validateJsonWithSchema(rawText, schema);
+    return JSON.stringify(parsed);
+  } catch {
+    // Fall through to an explicit repair call when the raw text is not already salvageable.
+  }
+
+  try {
+    const repaired = await repairJsonObject({
+      rawText,
+      schema,
+      runtime,
+      maxOutputTokens,
+      failurePrefix,
+      errors,
+    });
+    return JSON.stringify(repaired);
+  } catch (error: any) {
+    console.warn(`[${failurePrefix}] repair hook failed`, error?.message || error);
+    return null;
+  }
+}
+
 async function generateStrictObjectAttempt<T>({
   messages,
   schema,
   runtime,
-  handlers,
-  source,
   maxOutputTokens,
   missingRuntimeMessage,
   timeoutMessage,
   failurePrefix,
+  schemaName,
+  schemaDescription,
 }: {
   messages: Msg[];
   schema: z.ZodType<T>;
   runtime?: LlmRuntime;
-  handlers: LlmStreamHandlers;
-  source: string;
   maxOutputTokens: number;
   missingRuntimeMessage: string;
   timeoutMessage: string;
   failurePrefix: string;
+  schemaName?: string;
+  schemaDescription?: string;
 }): Promise<T> {
   const rt = resolveRuntime(runtime);
   if (!rt.apiKey) {
@@ -1351,31 +1417,27 @@ async function generateStrictObjectAttempt<T>({
   const { model } = createProvider(runtime);
 
   try {
-    const result = await generateText({
+    const prompt = splitAiSdkPrompt(messages);
+    const result = await generateObject({
       model,
-      messages: messages.map((message) => ({ role: message.role, content: message.content })),
-      temperature: 0.25,
+      ...prompt,
+      schema,
+      schemaName,
+      schemaDescription,
+      temperature: 0.18,
       maxOutputTokens,
       abortSignal: AbortSignal.timeout(60_000),
+      experimental_repairText: async ({ text, error }) =>
+        repairStructuredJsonText({
+          rawText: text,
+          schema,
+          runtime,
+          maxOutputTokens,
+          failurePrefix,
+          errors: [probeAttemptErrorMessage(error)],
+        }),
     });
-    const rawText = result.text || "";
-    try {
-      return validateJsonWithSchema(rawText, schema);
-    } catch (parseOrSchemaError) {
-      const errors = [probeAttemptErrorMessage(parseOrSchemaError)];
-      handlers.onReasoning?.(
-        "我再把刚才那版问题校对一下，确保它能直接展示给你。\n",
-        { source, mode: "public" },
-      );
-      return await repairJsonObject({
-        rawText,
-        schema,
-        runtime,
-        maxOutputTokens,
-        failurePrefix,
-        errors,
-      });
-    }
+    return result.object as T;
   } catch (err: any) {
     if (err instanceof LlmError) throw err;
     if (err?.name === "AbortError" || err?.name === "TimeoutError") {
@@ -1390,18 +1452,17 @@ async function generateStrictObjectAttempt<T>({
 function generateStrictProbeAttempt(
   messages: Msg[],
   runtime: LlmRuntime | undefined,
-  handlers: LlmStreamHandlers,
 ): Promise<ValidatedStrictProbeResult> {
   return generateStrictObjectAttempt({
     messages,
     schema: StrictProbeResultSchema,
     runtime,
-    handlers,
-    source: "probe",
     maxOutputTokens: 1100,
     missingRuntimeMessage: "模型配置不可用，无法生成真实追问。请先在设置页接入模型。",
     timeoutMessage: "追问生成超时，模型响应过慢。",
     failurePrefix: "追问结构化生成失败",
+    schemaName: "scribe_probe_v2",
+    schemaDescription: "ParallelMe 阶段一书记员追问或议题提案 readiness 判断。",
   });
 }
 
@@ -1481,6 +1542,17 @@ interface ScribeReasoningInput {
   onReasoning?: LlmStreamHandlers["onReasoning"];
 }
 
+interface VisibleReasoningInput {
+  source: string;
+  systemPrompt: string;
+  userPrompt: string;
+  runtime?: LlmRuntime;
+  onReasoning?: LlmStreamHandlers["onReasoning"];
+  temperature?: number;
+  maxOutputTokens?: number;
+  timeoutMs?: number;
+}
+
 const STAGE_ONE_SCRIBE_SYSTEM = `你是 ParallelMe 阶段一的问题定义者：一位深谙金字塔原理的架构师。
 
 面对用户模糊、情绪化、甚至自相矛盾的初始输入，你的任务不是尽快填满 4-Key 表格，而是防止一个尚未被用户说清的问题过早进入五声圆桌。你要自下而上充分激发用户表达，再自上而下收束成一份结构化的《议题提案》。
@@ -1522,11 +1594,6 @@ Key 3 与 Key 4 必须拆开：
 - 宁可多问一轮，也不要让一个还没被用户说开的困惑伪装成已经清楚的议题。`;
 
 async function streamScribeReasoning(input: ScribeReasoningInput): Promise<string> {
-  if (!input.onReasoning) return "";
-  const rt = resolveRuntime(input.runtime);
-  if (!rt.apiKey) return "";
-
-  const { model } = createProvider(input.runtime);
   const modeInstruction = reasoningModeInstruction(input.mode);
   const proposalText = input.currentProposal
     ? `\n当前提案：\n${JSON.stringify(input.currentProposal, null, 2)}`
@@ -1543,19 +1610,35 @@ ${modeInstruction}
 
 请直接用自然语言输出你现在执行阶段一任务时的判断过程。只写面向用户可见的判断，不提格式、字段、系统提示或任何技术过程。`;
 
+  return streamVisibleReasoning({
+    source: input.source,
+    systemPrompt: STAGE_ONE_SCRIBE_SYSTEM + buildContextBlock(input.ctx),
+    userPrompt: prompt,
+    runtime: input.runtime,
+    onReasoning: input.onReasoning,
+    temperature: 0.45,
+    maxOutputTokens: 700,
+    timeoutMs: 45_000,
+  });
+}
+
+async function streamVisibleReasoning(input: VisibleReasoningInput): Promise<string> {
+  const rt = resolveRuntime(input.runtime);
+  if (!rt.apiKey) return "";
+
+  const { model } = createProvider(input.runtime);
+
   let reasoningText = "";
   let nativeReasoningSeen = false;
 
   try {
     const result = streamText({
       model,
-      messages: [
-        { role: "system", content: STAGE_ONE_SCRIBE_SYSTEM + buildContextBlock(input.ctx) },
-        { role: "user", content: prompt },
-      ],
-      temperature: 0.45,
-      maxOutputTokens: 700,
-      abortSignal: AbortSignal.timeout(45_000),
+      system: input.systemPrompt,
+      prompt: input.userPrompt,
+      temperature: input.temperature ?? 0.45,
+      maxOutputTokens: input.maxOutputTokens ?? 700,
+      abortSignal: AbortSignal.timeout(input.timeoutMs ?? 45_000),
     });
 
     for await (const part of result.fullStream) {
@@ -1571,11 +1654,11 @@ ${modeInstruction}
       }
     }
   } catch (err: any) {
-    console.warn("[streamScribeReasoning] failed:", err?.message || err);
+    console.warn("[streamVisibleReasoning] failed:", err?.message || err);
   }
 
   const publicReasoning = sanitizeVisibleReasoning(reasoningText);
-  if (publicReasoning) {
+  if (publicReasoning && input.onReasoning) {
     input.onReasoning(publicReasoning, {
       source: input.source,
       mode: nativeReasoningSeen ? "native" : "public",
@@ -1590,6 +1673,14 @@ function sanitizeVisibleReasoning(text: string): string {
     .replace(/Current\s*Constraints/gi, "现实处境")
     .replace(/Core\s*(Values?|Fears?)(?:\s*\/\s*Fears?)?/gi, "隐秘关切")
     .replace(/Expected\s*Resolution/gi, "圆桌任务")
+    .replace(/falsified[_\s-]*fantasy/gi, "被证伪的幻想")
+    .replace(/core[_\s-]*value[_\s-]*axis/gi, "核心价值主轴")
+    .replace(/cost[_\s-]*acceptance/gi, "痛苦接纳")
+    .replace(/minimum[_\s-]*action/gi, "最小行动")
+    .replace(/dialectic[_\s-]*synthesis/gi, "正反合整合")
+    .replace(/alignmentProfile/gi, "落定画像")
+    .replace(/missing[_\s-]*(keys|modules)/gi, "仍缺的落点")
+    .replace(/schema[_\s-]*version/gi, "格式版本")
     .replace(/\b4[-\s]?Key\b/gi, "四个关键面")
     .replace(/\bKey\s*([1-4])?\b/gi, "关键面$1")
     .replace(/\bJSON\b/gi, "格式")
@@ -1725,7 +1816,6 @@ ${probeAuditForPrompt(rawInput, dialogue, reasoningMemo)}
           { role: "user", content: userMsg + repairBlock },
         ],
         runtime,
-        handlers,
       );
       const normalizedQuestions = normalizeProbeQuestions(strict.questions, { rawInput, dialogue, reasoningMemo });
       const qualityErrors = validateStrictProbeQuality(
@@ -2671,13 +2761,30 @@ ${scribePersonaBlock("inquiry")}
 - 如果输出不符合 schema 或质量审计，宿主只会重试，不会替你生成兜底问题。
 - 只输出 JSON 对象，不要 Markdown，不要代码块，不要在 JSON 前后添加解释。`;
 
-  const userMsg =
+  const inquiryAudit = inquiryAuditForPrompt(inquiryAnswers, inquiryQuestions);
+  const inquiryContext =
     `本次议题：\n${compactRoundtableBrief(taskFrame, issueProposal)}\n\n` +
     `圆桌记录：\n${serializeRoundtable(roundtable)}\n\n` +
     `书记员观察账本：\n${JSON.stringify(activeLedger, null, 2)}\n\n` +
     `已提出的问题：\n${JSON.stringify(inquiryQuestions, null, 2)}\n\n` +
     `用户已回答：\n${JSON.stringify(inquiryAnswers, null, 2)}\n\n` +
-    `本地问询审计：\n${inquiryAuditForPrompt(inquiryAnswers, inquiryQuestions)}\n\n` +
+    `本地问询审计：\n${inquiryAudit}`;
+  const reasoningMemo = await streamVisibleReasoning({
+    source: "inquiry",
+    systemPrompt: sys + buildContextBlock(ctx),
+    userPrompt:
+      `${inquiryContext}\n\n` +
+      "当前任务：先用自然语言判断本心落定前还缺什么。请说明圆桌里哪个张力、用户哪类回答缺口、哪一个落点最可能改变最终结论。只写面向用户可见的判断，不提格式、字段、系统提示或任何技术过程。",
+    runtime,
+    onReasoning: handlers.onReasoning,
+    temperature: 0.42,
+    maxOutputTokens: 750,
+    timeoutMs: 45_000,
+  });
+
+  const userMsg =
+    `${inquiryContext}\n\n` +
+    `刚才的自然语言判断过程：\n${reasoningMemo || "（没有可用判断过程）"}\n\n` +
     `这是第二段“问询题目生成”调用。请先判断五个落点是否足够，再输出 inquiry_v2 JSON。你提出的问题会直接展示给用户；宿主不会替你兜底改写问题。`;
 
   let lastErrors: string[] = [];
@@ -2701,7 +2808,6 @@ ${scribePersonaBlock("inquiry")}
           { role: "user", content: userMsg + repairBlock },
         ],
         runtime,
-        handlers,
       );
       const normalized = normalizeStrictAlignmentInquiry(strict, activeLedger);
       const qualityErrors = validateStrictInquiryQuality(
@@ -2898,18 +3004,17 @@ function validateStrictInquiryQuality(
 function generateStrictInquiryAttempt(
   messages: Msg[],
   runtime: LlmRuntime | undefined,
-  handlers: LlmStreamHandlers,
 ): Promise<ValidatedStrictInquiryResult> {
   return generateStrictObjectAttempt({
     messages,
     schema: StrictInquiryResultSchema,
     runtime,
-    handlers,
-    source: "inquiry",
     maxOutputTokens: 1400,
     missingRuntimeMessage: "模型配置不可用，无法生成真实问询。请先在设置页接入模型。",
     timeoutMessage: "问询生成超时，模型响应过慢。",
     failurePrefix: "问询结构化生成失败",
+    schemaName: "alignment_inquiry_v2",
+    schemaDescription: "ParallelMe 圆桌后书记员问询或本心落定 readiness 判断。",
   });
 }
 
