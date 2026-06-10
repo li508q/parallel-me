@@ -17,6 +17,7 @@ import {
   StrictScribeObservationLedgerSchema,
   StrictVoiceOpeningPayloadResultSchema,
   StrictProbeResultSchema,
+  StrictTasteProfileSchema,
 } from "../lib/schema.ts";
 
 function check(name: string, fn: () => void) {
@@ -43,6 +44,21 @@ check("visible reasoning removes technical and internal labels", () => {
   assert.match(sanitized, /具象化困惑/);
   assert.match(sanitized, /现实处境/);
   assert.doesNotMatch(sanitized, /检查|直接输出|选项设计|JSON|schema|Surface Dilemma|Current Constraints|missing_modules/);
+});
+
+check("visible reasoning removes structured retry noise", () => {
+  const raw = [
+    "检查：没有技术词汇，没有JSON，完全符合要求。",
+    "直接输出。追问结构化生成失败，正在做一次 JSON 修复：JSON schema 校验失败：questions.0.text: Too big: expected string to have <=120 characters。",
+    "追问输出还不够稳，正在第 2 次重新出题：追问没有引用用户材料里的具体锚点，例如：Constraints、Resolution、Expected、Surface、Dilemma、Current。",
+    "真正需要问的是：28 岁、父母要稳定和每天打开 code 都提不起兴趣之间，哪一个先卡住你？",
+  ].join("\n");
+
+  const sanitized = sanitizeVisibleReasoning(raw);
+  assert.equal(hasVisibleReasoningLeak(sanitized), false);
+  assert.doesNotMatch(sanitized, /JSON|schema|Too big|Constraints|Resolution|Surface|Dilemma|重新出题|结构化生成失败/);
+  assert.match(sanitized, /28 岁/);
+  assert.match(sanitized, /code/);
 });
 
 check("anchor extraction keeps user material and ignores harness vocabulary", () => {
@@ -238,6 +254,30 @@ check("strict proposal schema rejects placeholders and repeated fear as resoluti
   });
 
   assert.throws(() => validateJsonWithSchema(raw, StrictProposalResultSchema), /schema 校验失败/);
+});
+
+check("strict taste profile schema accepts specific compact profile", () => {
+  const raw = JSON.stringify({
+    schema_version: "taste_profile_v2",
+    themes: ["漂泊", "记忆", "自由"],
+    moods: ["冷静", "幽微"],
+    identity_hint: "在边界处发光的人",
+  });
+
+  const parsed = validateJsonWithSchema(raw, StrictTasteProfileSchema);
+  assert.equal(parsed.schema_version, "taste_profile_v2");
+  assert.equal(parsed.identity_hint, "在边界处发光的人");
+});
+
+check("strict taste profile schema rejects generic placeholders", () => {
+  const raw = JSON.stringify({
+    schema_version: "taste_profile_v2",
+    themes: ["普通", "未知", "待补充"],
+    moods: ["普通", "复杂"],
+    identity_hint: "有趣的人",
+  });
+
+  assert.throws(() => validateJsonWithSchema(raw, StrictTasteProfileSchema), /schema 校验失败/);
 });
 
 check("strict refine schema accepts update proposal action", () => {

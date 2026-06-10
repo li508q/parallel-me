@@ -775,8 +775,20 @@ export const RoundtableRawResultSchema = z.object({
   duel: z.record(z.string(), z.unknown()).optional(),
 });
 
-export const TasteProfileSchema = z.object({
-  themes: z.array(z.string()).default([]),
-  moods: z.array(z.string()).default([]),
-  identity_hint: z.string().default(""),
+export const StrictTasteProfileSchema = z.object({
+  schema_version: z.literal("taste_profile_v2"),
+  themes: z.array(z.string().min(1).max(8)).min(3).max(5),
+  moods: z.array(z.string().min(1).max(8)).min(2).max(3),
+  identity_hint: z.string().min(4).max(18),
+}).superRefine((profile, ctx) => {
+  const combined = [...profile.themes, ...profile.moods, profile.identity_hint].join("\n");
+  if (/不知道|无法判断|待补充|未知|普通|复杂的人|有趣的人|喜欢很多/.test(combined)) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["identity_hint"],
+      message: "taste profile must be specific and non-generic",
+    });
+  }
 });
+
+export type ValidatedStrictTasteProfile = z.infer<typeof StrictTasteProfileSchema>;

@@ -55,7 +55,7 @@ const INTERNAL_ANCHOR_WORDS = new Set([
 ]);
 
 const VISIBLE_REASONING_LEAK_RE =
-  /\b(JSON|schema|schema_version|falsified_fantasy|core_value_axis|cost_acceptance|minimum_action|dialectic_synthesis|Surface Dilemma|Current Constraints|Expected Resolution|No object generated|could not parse)\b|字段|直接输出|技术词汇|完全符合要求/i;
+  /\b(JSON|schema|schema_version|falsified_fantasy|core_value_axis|cost_acceptance|minimum_action|dialectic_synthesis|Surface Dilemma|Current Constraints|Expected Resolution|No object generated|could not parse|expected string|Too big)\b|字段|直接输出|技术词汇|完全符合要求|结构化生成失败|校验失败/i;
 
 export class StructuredOutputValidationError extends Error {
   errors: string[];
@@ -69,6 +69,7 @@ export class StructuredOutputValidationError extends Error {
 
 export function sanitizeVisibleReasoning(text: string): string {
   return text
+    .replace(/(?:^|\n)[^\n]*(?:No object generated|could not parse|expected string|Too big|JSON\s*schema|schema\s*校验失败|结构化生成失败|JSON\s*修复|重新出题|技术词汇|完全符合要求)[^\n]*(?=\n|$)/gi, "\n")
     .replace(/Surface\s*Dilemma/gi, "具象化困惑")
     .replace(/Current\s*Constraints/gi, "现实处境")
     .replace(/Core\s*(Values?|Fears?)(?:\s*\/\s*Fears?)?/gi, "隐秘关切")
@@ -108,7 +109,9 @@ export function extractAnchorTerms(
   } = {},
 ): string[] {
   const anchors = new Set<string>();
-  const source = text.replace(/\s+/g, " ");
+  const source = sanitizeVisibleReasoning(text)
+    .replace(/\b(?:Surface|Dilemma|Current|Constraints|Core|Values?|Fears?|Expected|Resolution|Key|Keys?|JSON|schema|action|proposal|probe|inquiry|module|missing|ready|confidence|question|questions|option|options)\b|[a-z]+(?:_[a-z]+)+/gi, " ")
+    .replace(/\s+/g, " ");
   const lowerSource = source.toLowerCase();
 
   for (const term of options.dictionary || []) {

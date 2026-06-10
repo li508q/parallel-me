@@ -13,6 +13,7 @@ import { createProvider } from "./ai-provider";
 import { compactDialogue, compactRoundtable } from "./context-manager";
 import {
   extractAnchorTerms,
+  hasVisibleReasoningLeak,
   sanitizeVisibleReasoning,
   validateJsonWithSchema,
 } from "./llm-harness";
@@ -25,11 +26,11 @@ import {
   StrictDuelResponseSchema,
   StrictRoundtableVoiceTurnSchema,
   StrictScribeObservationLedgerSchema,
+  StrictTasteProfileSchema,
   StrictVoiceOpeningPayloadResultSchema,
   StrictInquiryResultSchema,
   StrictProbeResultSchema,
   TaskFrameResultSchema,
-  TasteProfileSchema,
   type ValidatedStrictAlignmentReport,
   type ValidatedStrictDuelQuestion,
   type ValidatedStrictDuelResponse,
@@ -38,6 +39,7 @@ import {
   type ValidatedStrictRefineResult,
   type ValidatedStrictRoundtableVoiceTurn,
   type ValidatedStrictScribeObservationLedger,
+  type ValidatedStrictTasteProfile,
   type ValidatedStrictVoiceOpeningPayloadResult,
   type ValidatedStrictProbeResult,
 } from "./schema";
@@ -1009,7 +1011,7 @@ function probeAuditForPrompt(rawInput: string, dialogue: DefiningDialogue, reaso
     `边界确认数：${coverage.boundaryAnswerCount}/${MIN_BOUNDARY_CONFIRMATIONS}`,
     `已经问过：${asked.join("、") || "无"}`,
     `已经由用户回答覆盖：${answered.join("、") || "无"}`,
-    `本轮仍需补足：${ranked.map((purpose) => `${purpose}（${PROBE_PURPOSE_LABEL[purpose]}）`).join("、") || "无"}`,
+    `本轮仍需补足：${ranked.map((purpose) => PROBE_PURPOSE_LABEL[purpose]).join("、") || "无"}`,
     `不能成案的原因：${issues.join("；") || "四个 Key 已经足够，可以进入提案"}`,
   ].join("\n");
 }
@@ -1106,11 +1108,11 @@ function validateStrictProbeQuality(
   }
 
   if (strict.readyToPropose) {
-    errors.push("action=ask_more 时 readyToPropose 必须为 false");
+    errors.push("继续追问时不要同时宣称已经可以进入提案。");
   }
 
   if (normalizedQuestions.length < 1) {
-    errors.push("ask_more 必须给出至少一个可展示给用户的追问");
+    errors.push("继续追问时必须给出至少一个能直接展示给用户的问题。");
   }
 
   const allQuestionText = normalizedQuestions
@@ -1118,14 +1120,14 @@ function validateStrictProbeQuality(
     .join("\n");
 
   if (FORBIDDEN_PROBE_TEMPLATE_RE.test(allQuestionText)) {
-    errors.push("追问仍像程序模板，没有体现本轮 thinking 和用户原文");
+    errors.push("追问仍像固定模板，没有体现这轮判断和用户原文。");
   }
 
   const anchorText = probeAnchorSource(rawInput, dialogue);
   const anchors = extractProbeAnchorTerms(anchorText);
   const anchorHits = anchors.filter((anchor) => textIncludesAnchor(allQuestionText, anchor));
   if (anchors.length >= 2 && anchorHits.length === 0) {
-    errors.push(`追问没有引用用户材料里的具体锚点，例如：${anchors.slice(0, 6).join("、")}`);
+    errors.push("问题和选项没有贴住用户原文或回答里的具体名词、数字、关系。");
   }
 
   for (const question of normalizedQuestions) {
@@ -1143,14 +1145,14 @@ function validateStrictProbeQuality(
 
   const questionPurposeSet = new Set(normalizedQuestions.map((question) => question.purpose));
   if (questionPurposeSet.size !== normalizedQuestions.length) {
-    errors.push("同一轮追问的 purpose 不能重复");
+    errors.push("同一轮不要重复追问同一类信息缺口。");
   }
 
   const missingKeys = new Set(strict.missing_keys);
   for (const question of normalizedQuestions) {
     const purpose = normalizeProbePurpose(question.purpose);
     if (strict.missing_keys.length && (!purpose || !missingKeys.has(purpose))) {
-      errors.push(`问题 purpose=${question.purpose} 不在 missing_keys 中`);
+      errors.push(`问题「${question.text}」偏离了本轮仍需补足的信息方向。`);
     }
   }
 
@@ -1160,6 +1162,63 @@ function validateStrictProbeQuality(
 function probeAttemptErrorMessage(error: unknown): string {
   const raw = error instanceof Error ? error.message : String(error || "unknown");
   return raw.replace(/\s+/g, " ").slice(0, 360);
+}
+
+function strictRepairGuidance(errors: string[]): string[] {
+  const guidance = new Set<string>();
+  for (const rawError of errors) {
+    const error = rawError.replace(/\s+/g, " ");
+    if (/questions?\.\d+\.text|Too big|expected string|max|<=|at most|longer than/i.test(error)) {
+      guidance.add("把题干压缩成一句清楚的问句；如果包含多个追问任务，拆掉次要任务。");
+    }
+    if (/没有返回|No object generated|could not parse|parse|JSON|schema|校验失败|结构化生成失败/i.test(error)) {
+      guidance.add("重新生成完整结果；每道题都要有题干、自然语言选项和“都不准，我自己说”。");
+    }
+    if (/贴住用户原文|具体名词|具体锚点|用户材料|具体名词、数字、关系/.test(error)) {
+      guidance.add("题干和至少两个选项必须引用用户原文或回答里的具体名词、数字、关系。");
+    }
+    if (/固定模板|程序模板|模板/.test(error)) {
+      guidance.add("不要使用固定句式；从用户刚说的话里挑具体张力重新发问。");
+    }
+    if (/重复|已经问过/.test(error)) {
+      guidance.add("不要重复已经问过的问题；换一个能打开新信息的角度。");
+    }
+    if (/缺少至少两个真实可选回应|至少两个真实/.test(error)) {
+      guidance.add("每道题至少给出两个真实可选回应，再加“都不准，我自己说”。");
+    }
+    if (/缺少“都不准|exactly one custom|custom\/free-text|自定义/.test(error)) {
+      guidance.add("每道题必须且只能有一个“都不准，我自己说”。");
+    }
+    if (/同一类信息缺口|purpose|missing_keys|信息方向|偏离/.test(error)) {
+      guidance.add("同一轮的问题要分别服务不同缺口，不要重复问同一种信息。");
+    }
+    if (/阶段一证据还不够|还不能进入提案|继续向用户/.test(error)) {
+      guidance.add("当前材料还不能进入提案，请继续向用户追问事实、边界或圆桌要验证的规则。");
+    }
+    if (/占位符|建议口吻|待补充|待挖掘|未知|不清楚/.test(error)) {
+      guidance.add("不要写占位符、建议句或诊断句；改成用户可以校对的具体表述。");
+    }
+    if (/吸收用户反馈|修正后的议题/.test(error)) {
+      guidance.add("修正提案必须吸收用户反馈里的具体内容，不能只返回原提案。");
+    }
+  }
+
+  if (!guidance.size) {
+    guidance.add("重新生成一版能直接展示给用户的结果，语言自然、具体、不要解释生成过程。");
+  }
+  return [...guidance].slice(0, 5);
+}
+
+function strictRepairBlock(errors: string[]): string {
+  if (!errors.length) return "";
+  return [
+    "",
+    "",
+    "上一版还不能直接展示给用户。请重新生成完整结果，只按下面的人话要求修正：",
+    ...strictRepairGuidance(errors).map((item) => `- ${item}`),
+    "",
+    "不要解释，不要复述这些要求，不要输出任何自检文字。",
+  ].join("\n");
 }
 
 async function repairJsonObject<T>({
@@ -1432,7 +1491,6 @@ interface StrictScribeLoopInput<TStrict, TResult> {
   handlers: LlmStreamHandlers;
   retrySource: string;
   retryNotice: string;
-  schemaLabel: string;
   failureLogLabel: string;
   failureMessage: string;
   maxAttempts?: number;
@@ -1444,7 +1502,6 @@ async function runStrictScribeLoop<TStrict, TResult>({
   handlers,
   retrySource,
   retryNotice,
-  schemaLabel,
   failureLogLabel,
   failureMessage,
   maxAttempts = 3,
@@ -1455,9 +1512,7 @@ async function runStrictScribeLoop<TStrict, TResult>({
   let lastError: unknown = null;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    const repairBlock = lastErrors.length
-      ? `\n\n上一版没有通过校验，请只修复这些问题后重新输出完整 ${schemaLabel} JSON：\n- ${lastErrors.join("\n- ")}`
-      : "";
+    const repairBlock = strictRepairBlock(lastErrors);
     if (attempt > 1) {
       handlers.onReasoning?.(retryNotice, { source: retrySource, mode: "public" });
     }
@@ -1678,7 +1733,16 @@ async function streamVisibleReasoning(input: VisibleReasoningInput): Promise<str
     console.warn("[streamVisibleReasoning] failed:", err?.message || err);
   }
 
-  const publicReasoning = sanitizeVisibleReasoning(reasoningText);
+  let publicReasoning = sanitizeVisibleReasoning(reasoningText);
+  if (hasVisibleReasoningLeak(publicReasoning)) {
+    publicReasoning = sanitizeVisibleReasoning(
+      publicReasoning.replace(
+        /(?:^|\n)[^\n]*(?:JSON|schema|schema_version|No object generated|could not parse|expected string|Too big|结构化生成失败|校验失败|字段|技术词汇|完全符合要求)[^\n]*(?=\n|$)/gi,
+        "\n",
+      ),
+    );
+  }
+  if (hasVisibleReasoningLeak(publicReasoning)) publicReasoning = "";
   if (publicReasoning && input.onReasoning) {
     input.onReasoning(publicReasoning, {
       source: input.source,
@@ -1792,7 +1856,6 @@ ${probeAuditForPrompt(rawInput, dialogue, reasoningMemo)}
     handlers,
     retrySource: "probe",
     retryNotice: "我再校对一遍问题，让它更贴近你的原话。\n",
-    schemaLabel: "probe_v2",
     failureLogLabel: "generateScribeQuestions",
     failureMessage: "书记员追问连续没有整理成可展示的问题。请重试一次；如果持续出现，可以换一个更稳定的模型配置。",
     generate: (repairBlock) =>
@@ -1822,7 +1885,7 @@ ${probeAuditForPrompt(rawInput, dialogue, reasoningMemo)}
 
       if (shouldForceProbe(rawInput, dialogue, normalized, reasoningMemo)) {
         const issues = readinessIssues(collectProbeCoverage(rawInput, dialogue, reasoningMemo));
-        qualityErrors.push(`模型判断可以成案，但阶段一证据还不够：${issues.join("；")}。必须改为 ask_more 并生成真实追问`);
+        qualityErrors.push(`阶段一证据还不够：${issues.join("；")}。必须继续向用户提出真实追问。`);
       }
 
       return { result: normalized, errors: qualityErrors };
@@ -1921,21 +1984,37 @@ ${reasoningMemo || "（没有可用判断过程）"}
 
 请基于以上信息生成 4-Key 议题提案。`;
 
-  const messages: Msg[] = [
-    { role: "system", content: SCRIBE_PROPOSE_SYSTEM + buildContextBlock(ctx) },
-    {
-      role: "user",
-      content:
-        `${userMsg}\n\n` +
-        `请输出 issue_proposal_v2 JSON，只包含 schema_version 和 proposal。taskFrame 由宿主从 proposal 派生，不要输出 taskFrame。\n` +
-        `proposal 必须包含 issue_sentence 与四个 Key；四个 Key 的 title 必须分别是「具象化的困惑」「真实的处境」「隐秘的关切」「渴望的终局」。`,
+  return runStrictScribeLoop({
+    handlers,
+    retrySource: "proposal",
+    retryNotice: "我再校对一遍案由，让四个关键面更贴住你的原话。\n",
+    failureLogLabel: "generateIssueProposal",
+    failureMessage: "议题提案连续没有整理成可校对案由。请重试一次；如果持续出现，可以换一个更稳定的模型配置。",
+    generate: (repairBlock) =>
+      generateStrictProposalAttempt(
+        [
+          { role: "system", content: SCRIBE_PROPOSE_SYSTEM + buildContextBlock(ctx) },
+          {
+            role: "user",
+            content:
+              `${userMsg}\n\n` +
+              `请输出 issue_proposal_v2 JSON，只包含 schema_version 和 proposal。taskFrame 由宿主从 proposal 派生，不要输出 taskFrame。\n` +
+              `proposal 必须包含 issue_sentence 与四个 Key；四个 Key 的 title 必须分别是「具象化的困惑」「真实的处境」「隐秘的关切」「渴望的终局」。` +
+              repairBlock,
+          },
+        ],
+        runtime,
+      ),
+    accept: (strict) => {
+      const proposal = strict.proposal as IssueProposal;
+      const errors = validateStrictProposalQuality(strict, rawInput, dialogue, reasoningMemo);
+      if (!errors.length) handlers.onPartial?.(strict);
+      return {
+        result: { proposal, taskFrame: buildTaskFrameFromProposal(proposal)! },
+        errors,
+      };
     },
-  ];
-
-  const validated = await generateStrictProposalAttempt(messages, runtime);
-  handlers.onPartial?.(validated);
-  const proposal = validated.proposal as IssueProposal;
-  return { proposal, taskFrame: buildTaskFrameFromProposal(proposal)! };
+  });
 }
 
 function proposalText(proposal: IssueProposal): string {
@@ -1950,6 +2029,48 @@ function proposalText(proposal: IssueProposal): string {
     proposal.expected_resolution.content,
     ...proposal.expected_resolution.details,
   ].filter(Boolean).join("\n");
+}
+
+function validateStrictProposalQuality(
+  strict: ValidatedStrictProposalResult,
+  rawInput: string,
+  dialogue: DefiningDialogue,
+  reasoningMemo: string,
+): string[] {
+  const proposal = strict.proposal as IssueProposal;
+  const errors: string[] = [];
+  const allProposalText = proposalText(proposal);
+  const anchors = extractProbeAnchorTerms(probeAnchorSource(rawInput, dialogue), 12);
+  const anchorHits = anchors.filter((anchor) => textIncludesAnchor(allProposalText, anchor));
+
+  if (anchors.length >= 2 && anchorHits.length === 0) {
+    errors.push("议题提案没有贴住用户原文或回答里的具体名词、数字、关系。");
+  }
+  if (hasVisibleReasoningLeak(allProposalText)) {
+    errors.push("议题提案包含内部标记或技术词。");
+  }
+  if (areSimilarQuestions(proposal.core_fears.content, proposal.expected_resolution.content)) {
+    errors.push("隐秘关切和渴望终局太相似：前者写怕失去什么，后者写圆桌要验证什么。");
+  }
+  if (areSimilarQuestions(proposal.surface_dilemma.content, proposal.current_constraints.content)) {
+    errors.push("具象化困惑和真实处境太相似：前者写选择岔路，后者写客观约束。");
+  }
+
+  const surfaceText = `${proposal.surface_dilemma.content}\n${proposal.surface_dilemma.details.join("\n")}`;
+  if (!/(一边|另一边|还是|或|选择|要不要|该不该|继续|辞职|读博|考公|留下|离开|换|不换)/.test(surfaceText)) {
+    errors.push("具象化困惑没有写成真实选择岔路。");
+  }
+
+  const resolutionText = `${proposal.expected_resolution.content}\n${proposal.expected_resolution.details.join("\n")}`;
+  if (!/(验证|判断规则|判断标准|边界|观察期|现实信号|信号|排序|产出|确认)/.test(resolutionText)) {
+    errors.push("渴望终局没有写成圆桌要验证的规则、边界或现实信号。");
+  }
+
+  if (reasoningMemo && /待补充|待挖掘|待明确|未知|不清楚|无法判断/.test(allProposalText)) {
+    errors.push("议题提案仍包含占位符，不能直接给用户校对。");
+  }
+
+  return errors;
 }
 
 function normalizeStrictRefineResult(
@@ -2100,7 +2221,6 @@ ${reasoningMemo || "（没有可用判断过程）"}`;
     handlers,
     retrySource: "refine",
     retryNotice: "我再校对一遍你的修正意见，让议题提案真正吸收这次反馈。\n",
-    schemaLabel: "proposal_refine_v2",
     failureLogLabel: "refineProposal",
     failureMessage: "议题提案修正连续没有整理成可展示结果。请重试一次；如果持续出现，可以换一个更稳定的模型配置。",
     generate: (repairBlock) =>
@@ -2763,7 +2883,6 @@ ${scribePersonaBlock("inquiry")}
     handlers,
     retrySource: "inquiry",
     retryNotice: "我再校对一遍问询，让它更贴近刚才圆桌里的真实张力。\n",
-    schemaLabel: "inquiry_v2",
     failureLogLabel: "generateAlignmentInquiry",
     failureMessage: "书记员问询连续没有整理成可展示的问题。请重试一次；如果持续出现，可以换一个更稳定的模型配置。",
     generate: (repairBlock) =>
@@ -2986,6 +3105,24 @@ function generateStrictAlignmentReportAttempt(
   });
 }
 
+function generateStrictTasteProfileAttempt(
+  messages: Msg[],
+  runtime: LlmRuntime | undefined,
+): Promise<ValidatedStrictTasteProfile> {
+  return generateStrictObjectAttempt({
+    messages,
+    schema: StrictTasteProfileSchema,
+    runtime,
+    maxOutputTokens: 360,
+    missingRuntimeMessage: "模型配置不可用，无法生成品味画像。请先在设置页接入模型。",
+    timeoutMessage: "品味画像生成超时，模型响应过慢。",
+    failurePrefix: "品味画像结构化生成失败",
+    schemaName: "taste_profile_v2",
+    schemaDescription: "ParallelMe 用户品味画像，用于补充本地上下文的主题、氛围和一句人格判词。",
+    temperature: 0.5,
+  });
+}
+
 export async function generateAlignmentReport(
   taskFrame: TaskFrame,
   issueProposal: IssueProposal | undefined,
@@ -3076,18 +3213,21 @@ export async function extractTasteProfile(
 - moods（2-3 个氛围词）
 - identity_hint：14 字内的人格判词，第三人称，诗意但不空泛。
 
-只输出 JSON：{"themes":[],"moods":[],"identity_hint":""}`;
+只输出 JSON：{"schema_version":"taste_profile_v2","themes":[],"moods":[],"identity_hint":""}`;
   const txt =
     "书：\n" + taste.books.map((b) => `${b.title}${b.why ? "（" + b.why + "）" : ""}`).join("、") +
     "\n影：\n" + taste.films.map((f) => `${f.title}${f.why ? "（" + f.why + "）" : ""}`).join("、") +
     "\n乐：\n" + taste.music.map((m) => `${m.title}${m.why ? "（" + m.why + "）" : ""}`).join("、");
   try {
-    const profile = await generateValidated(
+    const profile = await generateStrictTasteProfileAttempt(
       [{ role: "system", content: sys }, { role: "user", content: txt }],
-      TasteProfileSchema,
-      { temperature: 0.7, max_tokens: 300, json: true, runtime, fallback: { themes: [], moods: [], identity_hint: "" } },
+      runtime,
     );
-    return profile.identity_hint || profile.themes.length || profile.moods.length ? profile : null;
+    return {
+      themes: profile.themes,
+      moods: profile.moods,
+      identity_hint: profile.identity_hint,
+    };
   } catch {
     return null;
   }
