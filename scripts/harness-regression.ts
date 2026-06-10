@@ -20,6 +20,7 @@ import {
   StrictTasteProfileSchema,
 } from "../lib/schema.ts";
 import { scribeModelStream, type ScribeStreamEvent } from "../lib/agents/events.ts";
+import { strictRepairGuidance } from "../lib/llm-strict.ts";
 
 function check(name: string, fn: () => void) {
   try {
@@ -117,6 +118,17 @@ check("scribe model stream attaches source to lifecycle events", () => {
   assert.equal("source" in events[2] ? events[2].source : undefined, "inquiry");
   assert.equal(events[3]?.type, "narration");
   assert.equal("source" in events[3], false);
+});
+
+check("strict repair guidance turns schema errors into user-safe instructions", () => {
+  const guidance = strictRepairGuidance([
+    "JSON schema 校验失败：questions.0.text: Too big: expected string to have <=120 characters",
+    "问题 module=core_value_axis 不在 missing_modules 中",
+  ]).join("\n");
+
+  assert.match(guidance, /题干压缩成一句清楚的问句/);
+  assert.match(guidance, /不同缺口|落点|信息/);
+  assert.doesNotMatch(guidance, /questions\.0\.text|core_value_axis|missing_modules|JSON schema/);
 });
 
 check("JSON extraction tolerates prose and fenced objects", () => {
