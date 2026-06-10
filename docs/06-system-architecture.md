@@ -66,7 +66,7 @@
 
 ## LLM 编排
 
-主要产品编排位于 `lib/llm.ts`，严格结构化生成和修复循环位于 `lib/llm-strict.ts`，可见思考清洗与 JSON/schema 校验工具位于 `lib/llm-harness.ts`。最终问询的覆盖度、落定门槛和缺口说明位于 `lib/inquiry-readiness.ts`，保持为不依赖模型调用的纯判定模块。
+主要产品编排位于 `lib/llm.ts`，严格结构化生成和修复循环位于 `lib/llm-strict.ts`，可见思考清洗与 JSON/schema 校验工具位于 `lib/llm-harness.ts`。阶段一追问的覆盖度、锚点、去重与成案门槛位于 `lib/probe-readiness.ts`；最终问询的覆盖度、落定门槛和缺口说明位于 `lib/inquiry-readiness.ts`。这两类 readiness 模块都保持为不依赖模型调用的纯判定模块，方便后续按阶段独立迭代。
 
 当前模式包括：
 

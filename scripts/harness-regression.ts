@@ -27,6 +27,13 @@ import {
   inquiryReadinessIssues,
   inferInquiryModule,
 } from "../lib/inquiry-readiness.ts";
+import {
+  collectProbeCoverage,
+  normalizeProbeQuestions,
+  probeAuditForPrompt,
+  readinessIssues,
+} from "../lib/probe-readiness.ts";
+import type { DefiningDialogue } from "../lib/v7.ts";
 
 function check(name: string, fn: () => void) {
   try {
@@ -84,6 +91,56 @@ check("anchor extraction keeps user material and ignores harness vocabulary", ()
   assert.equal(anchors.includes("Constraints"), false);
   assert.equal(anchors.includes("schema"), false);
   assert.equal(anchors.includes("core_value_axis"), false);
+});
+
+check("probe readiness coverage is testable without LLM calls", () => {
+  const rawInput = "我要不要辞职去读博啊，28 了，父母觉得稳定最重要，可我每天打开 code 处理业务就提不起兴趣。";
+  const dialogue: DefiningDialogue = [
+    {
+      role: "scribe",
+      question: {
+        id: "q_surface",
+        text: "你说辞职读博和继续业务代码之间，真实岔路是什么？",
+        purpose: "surface_dilemma",
+        options: [
+          { id: "opt_a", label: "我怕继续做业务代码会越来越麻木" },
+          { id: "opt_b", label: "我怕读博只是另一种逃离现实" },
+          { id: "custom", label: "都不准，我自己说" },
+        ],
+      },
+    },
+    {
+      role: "user",
+      answer: {
+        question_id: "q_surface",
+        question_text: "你说辞职读博和继续业务代码之间，真实岔路是什么？",
+        selected_option_id: "opt_a",
+        selected_option_label: "我怕继续做业务代码会越来越麻木",
+        free_text: "我担心再拖几年就不相信自己的判断了。",
+        at: 1,
+      },
+    },
+  ];
+
+  const coverage = collectProbeCoverage(rawInput, dialogue, "需要继续补现实边界和圆桌验证任务。");
+  assert.equal(coverage.userAnswerCount, 1);
+  assert.equal(coverage.answeredPurposes.has("surface_dilemma"), true);
+  assert.match(readinessIssues(coverage).join("\n"), /现实边界/);
+  assert.match(probeAuditForPrompt(rawInput, dialogue, "需要继续补现实边界。"), /用户回答数：1\/4/);
+
+  const normalized = normalizeProbeQuestions([{
+    id: "",
+    text: "如果辞职读博，现金流和父母期待里哪条现实边界最先卡住你？",
+    purpose: "current_constraints",
+    options: [
+      { id: "a", label: "现金流一断，我会很快扛不住" },
+      { id: "b", label: "父母对稳定的期待会持续施压" },
+    ],
+  }], { rawInput, dialogue, reasoningMemo: "现实边界还不清楚。" });
+
+  assert.equal(normalized.length, 1);
+  assert.equal(normalized[0]?.purpose, "current_constraints");
+  assert.equal(normalized[0]?.options.at(-1)?.id, "custom");
 });
 
 check("inquiry anchor extraction ignores settlement module vocabulary", () => {
