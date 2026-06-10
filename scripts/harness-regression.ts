@@ -19,6 +19,7 @@ import {
   StrictProbeResultSchema,
   StrictTasteProfileSchema,
 } from "../lib/schema.ts";
+import { scribeModelStream, type ScribeStreamEvent } from "../lib/agents/events.ts";
 
 function check(name: string, fn: () => void) {
   try {
@@ -94,6 +95,28 @@ check("inquiry anchor extraction ignores settlement module vocabulary", () => {
   assert.equal(anchors.includes("minimum_action"), false);
   assert.equal(anchors.includes("dialectic_synthesis"), false);
   assert.equal(anchors.includes("ask_more"), false);
+});
+
+check("scribe model stream attaches source to lifecycle events", () => {
+  const events: ScribeStreamEvent[] = [];
+  const handlers = scribeModelStream((event) => events.push(event), "inquiry");
+
+  handlers.onToken("hello");
+  handlers.onReasoning("thinking", { mode: "public" });
+  handlers.onEvent({
+    type: "validation_failed",
+    operation: "generateAlignmentInquiry",
+    attempt: 1,
+    errors: ["问询题干和选项必须引用本轮议题。"],
+  });
+  handlers.onEvent({ type: "narration", stage: "inquiry", key: "drafting" });
+
+  assert.deepEqual(events[0], { type: "model_delta", source: "inquiry", text: "hello" });
+  assert.deepEqual(events[1], { type: "reasoning_delta", source: "inquiry", text: "thinking", mode: "public" });
+  assert.equal(events[2]?.type, "validation_failed");
+  assert.equal("source" in events[2] ? events[2].source : undefined, "inquiry");
+  assert.equal(events[3]?.type, "narration");
+  assert.equal("source" in events[3], false);
 });
 
 check("JSON extraction tolerates prose and fenced objects", () => {

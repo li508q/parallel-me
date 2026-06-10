@@ -25,6 +25,43 @@ export type ScribeStreamEvent =
   | { type: "error"; message: string; code?: string; retryable?: boolean }
   | { type: "done"; summary?: string };
 
+export type ScribeEmit = (event: ScribeStreamEvent) => void;
+
+function withDefaultSource(event: ScribeStreamEvent, source: string): ScribeStreamEvent {
+  switch (event.type) {
+    case "reasoning_delta":
+    case "model_delta":
+    case "object_delta":
+      return event.source ? event : { ...event, source };
+    case "llm_call_started":
+    case "validation_failed":
+    case "repair_started":
+    case "fallback_used":
+    case "retry_scheduled":
+    case "recoverable_error":
+      return event.source ? event : { ...event, source };
+    default:
+      return event;
+  }
+}
+
+export function scribeModelStream(emit: ScribeEmit, source: string) {
+  return {
+    onToken: (text: string) => emit({ type: "model_delta", source, text }),
+    onPartial: (payload: unknown) => emit({ type: "object_delta", source, payload }),
+    onReasoning: (
+      text: string,
+      meta?: { source?: string; mode?: "native" | "public" },
+    ) => emit({
+      type: "reasoning_delta",
+      source: meta?.source || source,
+      text,
+      mode: meta?.mode,
+    }),
+    onEvent: (event: ScribeStreamEvent) => emit(withDefaultSource(event, source)),
+  };
+}
+
 export function encodeEvent(event: ScribeStreamEvent | AgentStreamEvent): string {
   return `data: ${JSON.stringify(event)}\n\n`;
 }

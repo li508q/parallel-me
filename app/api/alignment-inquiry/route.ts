@@ -8,7 +8,7 @@ import {
   type ContextBundle,
   type LlmRuntime,
 } from "@/lib/llm";
-import { scribeEventStream, SSE_HEADERS, type ScribeStreamEvent } from "@/lib/agents/events";
+import { scribeEventStream, scribeModelStream, SSE_HEADERS, type ScribeEmit } from "@/lib/agents/events";
 import { runtimeFromProvider } from "@/lib/server-runtime";
 import type { IssueProposal, ScribeObservationLedger } from "@/lib/v7";
 
@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
       inquiryAnswers,
       context,
       llmRuntime,
-      modelStream(emit, "inquiry"),
+      scribeModelStream(emit, "inquiry"),
     );
 
     if (result.readyForReport) {
@@ -80,18 +80,8 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function modelStream(emit: (event: ScribeStreamEvent) => void, source: string) {
-  return {
-    onToken: (text: string) => emit({ type: "model_delta", source, text }),
-    onPartial: (payload: unknown) => emit({ type: "object_delta", source, payload }),
-    onReasoning: (text: string, meta?: { source?: string; mode?: "native" | "public" }) =>
-      emit({ type: "reasoning_delta", source: meta?.source || source, mode: meta?.mode || "public", text }),
-    onEvent: (event: ScribeStreamEvent) => emit(event),
-  };
-}
-
 function emitInquiryThinking(
-  emit: (event: ScribeStreamEvent) => void,
+  emit: ScribeEmit,
   answeredCount: number,
   askedCount: number,
 ) {

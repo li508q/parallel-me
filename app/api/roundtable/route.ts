@@ -10,7 +10,7 @@ import {
   type LlmRuntime,
   type RoundtableMoveInput,
 } from "@/lib/llm";
-import { scribeEventStream, SSE_HEADERS, type ScribeStreamEvent } from "@/lib/agents/events";
+import { scribeEventStream, scribeModelStream, SSE_HEADERS } from "@/lib/agents/events";
 import { runtimeFromProvider } from "@/lib/server-runtime";
 import type { IssueProposal } from "@/lib/v7";
 import { voiceName } from "@/lib/v7";
@@ -44,7 +44,7 @@ export async function POST(req: NextRequest) {
         issueProposal,
         context,
         llmRuntime,
-        modelStream(emit, "opening"),
+        scribeModelStream(emit, "opening"),
       );
 
       emit({ type: "narration", stage: "opening", key: "done" });
@@ -79,7 +79,7 @@ export async function POST(req: NextRequest) {
         input,
         context,
         llmRuntime,
-        modelStream(emit, "roundtable"),
+        scribeModelStream(emit, "roundtable"),
       );
 
       if (moveType === "duel" && result.turns[0]?.duel) {
@@ -101,11 +101,4 @@ export async function POST(req: NextRequest) {
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function modelStream(emit: (event: ScribeStreamEvent) => void, source: string) {
-  return {
-    onToken: (text: string) => emit({ type: "model_delta", source, text }),
-    onPartial: (payload: unknown) => emit({ type: "object_delta", source, payload }),
-  };
 }

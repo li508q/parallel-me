@@ -14,7 +14,7 @@ import {
   type LlmRuntime,
 } from "@/lib/llm";
 import { compactDialogue } from "@/lib/context-manager";
-import { scribeEventStream, SSE_HEADERS, type ScribeStreamEvent } from "@/lib/agents/events";
+import { scribeEventStream, scribeModelStream, SSE_HEADERS } from "@/lib/agents/events";
 import { runtimeFromProvider } from "@/lib/server-runtime";
 import type { DefiningDialogue, IssueProposal } from "@/lib/v7";
 
@@ -50,7 +50,7 @@ export async function POST(req: NextRequest) {
         effectiveDialogue,
         context,
         llmRuntime,
-        modelStream(emit, "probe"),
+        scribeModelStream(emit, "probe"),
       );
 
       if (probeResult.readyToPropose) {
@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
           effectiveDialogue,
           context,
           llmRuntime,
-          modelStream(emit, "proposal"),
+          scribeModelStream(emit, "proposal"),
         );
         emit({ type: "narration", stage: "taskFrame", key: "done" });
         emit({ type: "result", payload: {
@@ -101,7 +101,7 @@ export async function POST(req: NextRequest) {
         dialogue,
         context,
         llmRuntime,
-        modelStream(emit, "proposal"),
+        scribeModelStream(emit, "proposal"),
       );
 
       emit({ type: "narration", stage: "taskFrame", key: "done" });
@@ -137,7 +137,7 @@ export async function POST(req: NextRequest) {
         userFeedback,
         context,
         llmRuntime,
-        modelStream(emit, "refine"),
+        scribeModelStream(emit, "refine"),
       );
 
       if (refineResult.needMoreInfo && refineResult.questions?.length) {
@@ -178,7 +178,7 @@ export async function POST(req: NextRequest) {
       choiceAnswers,
       context,
       llmRuntime,
-      modelStream(emit, "taskFrame"),
+      scribeModelStream(emit, "taskFrame"),
     );
 
     emit({ type: "narration", stage: "taskFrame", key: "done" });
@@ -190,21 +190,4 @@ export async function POST(req: NextRequest) {
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function modelStream(emit: (event: ScribeStreamEvent) => void, source: string) {
-  return {
-    onToken: (text: string) => emit({ type: "model_delta", source, text }),
-    onPartial: (payload: unknown) => emit({ type: "object_delta", source, payload }),
-    onReasoning: (
-      text: string,
-      meta?: { source?: string; mode?: "native" | "public" },
-    ) => emit({
-      type: "reasoning_delta",
-      source: meta?.source || source,
-      text,
-      mode: meta?.mode,
-    }),
-    onEvent: (event: any) => emit("source" in event && event.source ? event : { ...event, source }),
-  };
 }
