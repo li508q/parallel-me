@@ -18,14 +18,15 @@ import {
 } from "./llm-harness";
 
 import {
-  AlignmentReportSchema,
   ProposalResultSchema,
   RefineResultSchema,
+  StrictAlignmentReportSchema,
   StrictScribeObservationLedgerSchema,
   StrictInquiryResultSchema,
   StrictProbeResultSchema,
   TaskFrameResultSchema,
   TasteProfileSchema,
+  type ValidatedStrictAlignmentReport,
   type ValidatedStrictInquiryResult,
   type ValidatedStrictScribeObservationLedger,
   type ValidatedStrictProbeResult,
@@ -2884,6 +2885,23 @@ function generateStrictInquiryAttempt(
   });
 }
 
+function generateStrictAlignmentReportAttempt(
+  messages: Msg[],
+  runtime: LlmRuntime | undefined,
+): Promise<ValidatedStrictAlignmentReport> {
+  return generateStrictObjectAttempt({
+    messages,
+    schema: StrictAlignmentReportSchema,
+    runtime,
+    maxOutputTokens: 2200,
+    missingRuntimeMessage: "模型配置不可用，无法生成本心落定。请先在设置页接入模型。",
+    timeoutMessage: "本心落定生成超时，模型响应过慢。",
+    failurePrefix: "本心落定结构化生成失败",
+    schemaName: "alignment_report_v2",
+    schemaDescription: "ParallelMe 最终本心落定报告，必须 grounded、可被用户直接校对。",
+  });
+}
+
 export async function generateAlignmentReport(
   taskFrame: TaskFrame,
   issueProposal: IssueProposal | undefined,
@@ -2895,6 +2913,7 @@ export async function generateAlignmentReport(
   onPartial?: StreamHandlerArg,
 ): Promise<AlignmentReport> {
   const fallback = fallbackAlignmentReport(taskFrame, issueProposal, ledger, alignmentProfile);
+  const handlers = streamOpts(onPartial);
   const sys = `你是 ParallelMe v1.0 的书记员。请基于本次议题、观察账本和最终问询答案，生成用户可见的「本心落定」。
 
 ${scribePersonaBlock("settlement")}
@@ -2930,6 +2949,7 @@ ${scribePersonaBlock("settlement")}
 
 输出严格 JSON：
 {
+  "schema_version": "alignment_report_v2",
   "creative_hopelessness": {"title":"创造性无望宣判","report":"","evidence":[]},
   "core_value_axis": {"title":"核心价值主轴提取","report":"","evidence":[]},
   "cost_acceptance_contract": {"title":"痛苦接纳契约","report":"","evidence":[]},
@@ -2937,27 +2957,23 @@ ${scribePersonaBlock("settlement")}
   "dialectic_synthesis": {"thesis":"","antithesis":"","synthesis":""}
 }`;
 
-  try {
-    const draft = await generateValidated(
-      [
-        { role: "system", content: sys + buildContextBlock(ctx) },
-        {
-          role: "user",
-          content:
-            `本次议题：\n${compactRoundtableBrief(taskFrame, issueProposal)}\n\n` +
-            `书记员观察账本：\n${JSON.stringify(ledger, null, 2)}\n\n` +
-            `问询答案：\n${JSON.stringify(inquiryAnswers, null, 2)}\n\n` +
-            `本心画像：\n${JSON.stringify(alignmentProfile, null, 2)}`,
-        },
-      ],
-      AlignmentReportSchema,
-      { temperature: 0.55, max_tokens: 1900, json: true, runtime, fallback, ...streamOpts(onPartial) },
-    );
-    return normalizeAlignmentReport(draft as any, fallback);
-  } catch (e) {
-    console.warn("[generateAlignmentReport] fallback", e);
-    return fallback;
-  }
+  const draft = await generateStrictAlignmentReportAttempt(
+    [
+      { role: "system", content: sys + buildContextBlock(ctx) },
+      {
+        role: "user",
+        content:
+          `本次议题：\n${compactRoundtableBrief(taskFrame, issueProposal)}\n\n` +
+          `书记员观察账本：\n${JSON.stringify(ledger, null, 2)}\n\n` +
+          `问询答案：\n${JSON.stringify(inquiryAnswers, null, 2)}\n\n` +
+          `本心画像：\n${JSON.stringify(alignmentProfile, null, 2)}\n\n` +
+          `请生成 alignment_report_v2 JSON。每个模块必须引用至少一条证据；不要输出解释、Markdown 或代码块。`,
+      },
+    ],
+    runtime,
+  );
+  handlers.onPartial?.(draft);
+  return normalizeAlignmentReport(draft as any, fallback);
 }
 
 export interface TasteInput {

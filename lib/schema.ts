@@ -479,6 +479,44 @@ export const AlignmentReportSchema = z.object({
 
 export type ValidatedAlignmentReport = z.infer<typeof AlignmentReportSchema>;
 
+export const StrictSettlementModuleSchema = z.object({
+  title: z.string().min(4).max(40),
+  report: z.string().min(30).max(900),
+  evidence: z.array(z.string().min(2).max(180)).min(1).max(6),
+});
+
+export const StrictAlignmentReportSchema = z.object({
+  schema_version: z.literal("alignment_report_v2"),
+  creative_hopelessness: StrictSettlementModuleSchema,
+  core_value_axis: StrictSettlementModuleSchema,
+  cost_acceptance_contract: StrictSettlementModuleSchema,
+  minimum_viable_commitment: StrictSettlementModuleSchema,
+  dialectic_synthesis: z.object({
+    thesis: z.string().min(6).max(260),
+    antithesis: z.string().min(6).max(260),
+    synthesis: z.string().min(20).max(700),
+  }),
+}).superRefine((report, ctx) => {
+  const modules = [
+    ["creative_hopelessness", report.creative_hopelessness],
+    ["core_value_axis", report.core_value_axis],
+    ["cost_acceptance_contract", report.cost_acceptance_contract],
+    ["minimum_viable_commitment", report.minimum_viable_commitment],
+  ] as const;
+
+  for (const [key, module] of modules) {
+    if (/建议你|我建议|应该|清明句|清明落定|本心对齐报告/.test(module.report)) {
+      ctx.addIssue({
+        code: "custom",
+        path: [key, "report"],
+        message: "settlement module must not use advice tone or legacy product labels",
+      });
+    }
+  }
+});
+
+export type ValidatedStrictAlignmentReport = z.infer<typeof StrictAlignmentReportSchema>;
+
 // ─── TaskFrame (legacy choice-card path) ───
 
 export const VisibleTaskFrameSchema = z.object({

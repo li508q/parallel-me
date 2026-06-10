@@ -7,6 +7,7 @@ import {
   validateJsonWithSchema,
 } from "../lib/llm-harness.ts";
 import {
+  StrictAlignmentReportSchema,
   StrictInquiryResultSchema,
   StrictScribeObservationLedgerSchema,
   StrictProbeResultSchema,
@@ -280,4 +281,72 @@ check("strict inquiry schema rejects contradictory confidence", () => {
 
   assert.throws(() => validateJsonWithSchema(askMoreTooHigh, StrictInquiryResultSchema), /confidence <= 0\.74/);
   assert.throws(() => validateJsonWithSchema(reportTooLow, StrictInquiryResultSchema), /confidence >= 0\.75/);
+});
+
+check("strict alignment report schema accepts grounded settlement card", () => {
+  const raw = JSON.stringify({
+    schema_version: "alignment_report_v2",
+    creative_hopelessness: {
+      title: "创造性无望宣判",
+      report: "这条完美路不存在：既保留父母眼里的稳定，又立刻逃离业务代码的枯燥，还完全不承担读博的不确定性。继续等一个无痛答案，只会把选择推回内耗里。",
+      evidence: ["父母觉得稳定最重要", "每天打开 code 处理业务就提不起兴趣"],
+    },
+    core_value_axis: {
+      title: "核心价值主轴提取",
+      report: "真正要优先服务的不是读博这个标签，而是你仍然能主动选择、能把注意力交给长期问题的感觉。读博只有在服务这个主轴时才成立。",
+      evidence: ["再不试是不是就来不及了", "自己还能主动选择的感觉"],
+    },
+    cost_acceptance_contract: {
+      title: "痛苦接纳契约",
+      report: "我同意：如果要守住主动选择，我必须承认父母会担心稳定、收入会有不确定、业务代码的厌倦也不能自动证明读博正确。",
+      evidence: ["父母觉得稳定最重要", "读博后收入和关系压力"],
+    },
+    minimum_viable_commitment: {
+      title: "最小阻力行动承诺",
+      report: "今晚 24:00 前写一页验证清单：列出读博真正想研究的问题、现有工作最消耗的三个触发点，以及下周能联系的一位博士生。",
+      evidence: ["先设一段观察期", "用现实信号验证"],
+    },
+    dialectic_synthesis: {
+      thesis: "我想守住主动选择和长期投入的能力。",
+      antithesis: "稳定期待、收入风险和厌倦情绪都不能被抹掉。",
+      synthesis: "我先不把辞职读博当成逃离按钮，而是用一周验证它是否真的服务主动选择；如果证据不成立，我也承认需要调整路径。",
+    },
+  });
+
+  const parsed = validateJsonWithSchema(raw, StrictAlignmentReportSchema);
+  assert.equal(parsed.schema_version, "alignment_report_v2");
+  assert.match(parsed.dialectic_synthesis.synthesis, /验证/);
+});
+
+check("strict alignment report schema rejects advice tone and hollow modules", () => {
+  const raw = JSON.stringify({
+    schema_version: "alignment_report_v2",
+    creative_hopelessness: {
+      title: "创造性无望宣判",
+      report: "我建议你先稳定下来，然后慢慢考虑。",
+      evidence: ["父母稳定"],
+    },
+    core_value_axis: {
+      title: "核心价值主轴提取",
+      report: "自主。",
+      evidence: ["自主"],
+    },
+    cost_acceptance_contract: {
+      title: "痛苦接纳契约",
+      report: "我同意承担一些代价，但还没有说清楚具体代价。",
+      evidence: ["代价"],
+    },
+    minimum_viable_commitment: {
+      title: "最小阻力行动承诺",
+      report: "今天想一下。",
+      evidence: ["想一下"],
+    },
+    dialectic_synthesis: {
+      thesis: "主动选择",
+      antithesis: "现实风险",
+      synthesis: "先想想。",
+    },
+  });
+
+  assert.throws(() => validateJsonWithSchema(raw, StrictAlignmentReportSchema), /schema 校验失败/);
 });
