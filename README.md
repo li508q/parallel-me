@@ -166,6 +166,14 @@ L3  Reflective memory   跨会话归纳                    "你总是在 9 月�
 
 整条链路全程 **Server-Sent Events 流式**——分身一个一个出现，体感像真在听内心对话。
 
+### V3 Design & Architecture Drafts
+
+V3 正在从「五声 demo」升级为「可管理、可调用、有记忆的内在组阁系统」。当前设计与技术规范先沉淀在：
+
+- [`docs/design/DESIGN-V3-CABINET.md`](./docs/design/DESIGN-V3-CABINET.md) — V3 产品宪法：阁、席位、议题、会议、档案。
+- [`docs/design/V3-LOCAL-FIRST-TECH-ARCH.md`](./docs/design/V3-LOCAL-FIRST-TECH-ARCH.md) — 本地优先技术架构：API Key 引导、本地工作区、记忆、账号路线。
+- [`docs/design/V3-COLOR-DESIGN-GUIDE.md`](./docs/design/V3-COLOR-DESIGN-GUIDE.md) · [`docs/design/V3-IA-DESIGN-GUIDE.md`](./docs/design/V3-IA-DESIGN-GUIDE.md) · [`docs/design/V3-INTERACTION-DESIGN-GUIDE.md`](./docs/design/V3-INTERACTION-DESIGN-GUIDE.md) — UI 美学、信息架构、交互流。
+
 ---
 
 ## 🚀 Quickstart
